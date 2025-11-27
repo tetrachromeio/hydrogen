@@ -1,0 +1,12 @@
+{
+  "name": "boost",
+  "include_flags": [
+    "-I/opt/homebrew/opt/boost/include"
+  ],
+  "lib_flags": [],
+  "lib_dirs": [
+    "-L/opt/homebrew/opt/boost/lib"
+  ],
+  "resolved": true,
+  "method": "homebrew"
+}

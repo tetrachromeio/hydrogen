@@ -1,0 +1,36 @@
+[model]
+name = "Instance"
+table = "instances"
+
+[fields.id]
+type = "string"
+primary_key = true
+
+[fields.service_id]
+type = "string"
+nullable = false
+foreign_key = "Services.id"
+
+[fields.node]
+type = "string"
+nullable = false
+
+[fields.ip]
+type = "string"
+nullable = false
+
+[fields.port]
+type = "int"
+nullable = false
+
+[fields.state]
+type = "string"
+nullable = false   # starting | ready | draining | failed
+
+[fields.started_at]
+type = "datetime"
+default = "now"
+
+[fields.last_heartbeat_at]
+type = "datetime"
+nullable = true

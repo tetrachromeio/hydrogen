@@ -1,0 +1,57 @@
+[model]
+name = "Service"
+table = "services"
+
+[fields.id]
+type = "string"
+primary_key = true
+
+[fields.app_id]
+type = "string"
+nullable = false
+foreign_key = "Apps.id"
+
+[fields.release_id]
+type = "string"
+nullable = false
+foreign_key = "Releases.id"
+
+[fields.name]
+type = "string"
+nullable = false
+
+[fields.kind]
+type = "string"
+nullable = false   # web_stateless | web_persistent | worker
+
+[fields.mode]
+type = "string"
+nullable = false   # always_on | cold_start
+
+[fields.port]
+type = "int"
+nullable = false
+
+[fields.min_replicas]
+type = "int"
+default = 0
+
+[fields.max_replicas]
+type = "int"
+default = 1
+
+[fields.desired_replicas]
+type = "int"
+default = 0
+
+[fields.state]
+type = "string"
+default = "scaling"  # scaling | ready | error
+
+[fields.created_at]
+type = "datetime"
+default = "now"
+
+[fields.updated_at]
+type = "datetime"
+default = "now"

@@ -1,0 +1,181 @@
+{
+    "Release": {
+        "id": {
+            "type": "string",
+            "primary_key": true
+        },
+        "app_id": {
+            "type": "string",
+            "nullable": false,
+            "foreign_key": "Apps.id"
+        },
+        "image": {
+            "type": "string",
+            "nullable": false
+        },
+        "config_version": {
+            "type": "string",
+            "nullable": false
+        },
+        "status": {
+            "type": "string",
+            "default": "deploying"
+        },
+        "created_at": {
+            "type": "datetime",
+            "default": "now"
+        }
+    },
+    "App": {
+        "id": {
+            "type": "string",
+            "primary_key": true
+        },
+        "slug": {
+            "type": "string",
+            "unique": true,
+            "nullable": false
+        },
+        "default_domain": {
+            "type": "string",
+            "nullable": true
+        },
+        "current_release_id": {
+            "type": "string",
+            "nullable": true,
+            "foreign_key": "Releases.id"
+        },
+        "created_at": {
+            "type": "datetime",
+            "default": "now"
+        },
+        "updated_at": {
+            "type": "datetime",
+            "default": "now"
+        }
+    },
+    "Admin": {
+        "id": {
+            "type": "int",
+            "primary_key": true,
+            "auto_increment": true
+        },
+        "username": {
+            "type": "string",
+            "unique": true,
+            "nullable": false
+        },
+        "email": {
+            "type": "string",
+            "unique": true,
+            "nullable": false
+        },
+        "password_hash": {
+            "type": "string",
+            "nullable": false
+        },
+        "role": {
+            "type": "string",
+            "default": "user"
+        },
+        "active": {
+            "type": "bool",
+            "default": true
+        },
+        "created_at": {
+            "type": "datetime",
+            "default": "now"
+        }
+    },
+    "Instance": {
+        "id": {
+            "type": "string",
+            "primary_key": true
+        },
+        "service_id": {
+            "type": "string",
+            "nullable": false,
+            "foreign_key": "Services.id"
+        },
+        "node": {
+            "type": "string",
+            "nullable": false
+        },
+        "ip": {
+            "type": "string",
+            "nullable": false
+        },
+        "port": {
+            "type": "int",
+            "nullable": false
+        },
+        "state": {
+            "type": "string",
+            "nullable": false
+        },
+        "started_at": {
+            "type": "datetime",
+            "default": "now"
+        },
+        "last_heartbeat_at": {
+            "type": "datetime",
+            "nullable": true
+        }
+    },
+    "Service": {
+        "id": {
+            "type": "string",
+            "primary_key": true
+        },
+        "app_id": {
+            "type": "string",
+            "nullable": false,
+            "foreign_key": "Apps.id"
+        },
+        "release_id": {
+            "type": "string",
+            "nullable": false,
+            "foreign_key": "Releases.id"
+        },
+        "name": {
+            "type": "string",
+            "nullable": false
+        },
+        "kind": {
+            "type": "string",
+            "nullable": false
+        },
+        "mode": {
+            "type": "string",
+            "nullable": false
+        },
+        "port": {
+            "type": "int",
+            "nullable": false
+        },
+        "min_replicas": {
+            "type": "int",
+            "default": 0
+        },
+        "max_replicas": {
+            "type": "int",
+            "default": 1
+        },
+        "desired_replicas": {
+            "type": "int",
+            "default": 0
+        },
+        "state": {
+            "type": "string",
+            "default": "scaling"
+        },
+        "created_at": {
+            "type": "datetime",
+            "default": "now"
+        },
+        "updated_at": {
+            "type": "datetime",
+            "default": "now"
+        }
+    }
+}
