@@ -1,84 +1,44 @@
-# Core Resources
-App – a logical project (e.g. "my-aether-app")
-Release – a specific image + config version for an app
-Service – one process type (e.g. "api", "renderer", "email_worker") inside a release
-Instance – one running container for a service
-Domain – a host name mapped to a service, e.g. api.myapp.aether.run
+# Hydrogen
 
-IDs:
-app_id – opaque string like "app_01H..."
-release_id – "rel_01H..."
-service_id – "svc_01H..."
-instance_id – "ins_01H..."
+Lightweight control-plane experiment for running uploaded binaries and exposing them via interface proxy routes.
 
+## What’s here
+- Control server on port 3000 (health/status + API).
+- `/api/v1/upload` stores binaries under `/uploads`.
+- `/api/v1/app/deploy` upserts app/release/service records, spawns instances locally with `PORT` assigned by the backend, and tracks readiness.
+- Interface proxy at `/interface/<slug>/...` that fetches from a ready instance and streams the response without changing the browser URL.
+- Helper script `test/test_deploy/t4_deploy.sh` to upload + deploy using `test/test_deploy/config.toml`.
 
+## Quick start
+```bash
+aeon build
+./build/main   # runs control plane on :3000
+```
 
+## Deploying a binary
+1) Ensure your binary listens on the `PORT` environment variable.
+2) Put your test binary at `test/test_deploy/main` (or adjust `config.toml`).
+3) Run:
+   ```bash
+   ./test/test_deploy/t4_deploy.sh
+   ```
+   - Uploads to `/api/v1/upload`
+   - Deploys via `/api/v1/app/deploy`
+   - Prints the interface URL at the end
+4) Control-plane logs print instance ports: `[deploy] instance ... listening at 127.0.0.1:<port>`.
 
-# routes
+## Accessing the app
+- Proxy (URL stays on control plane):
+  - Root: `http://localhost:3000/interface/<project_slug>/`
+  - Subpaths: `http://localhost:3000/interface/<project_slug>/<path>`
+  - Proxy selects a ready instance for the app’s current release; if none reachable, returns `no running instance`.
+- Direct (debug): `http://127.0.0.1:<port>` from the deploy logs.
 
-POST /v1/apps/deploy
-    Creates/updates an App, new Release, and configures Services based on aether-cloud.toml.
-
-    Request Body:
-    {
-        "project_slug": "my-aether-app",
-        "image": "registry.example.com/my-aether-app:abc123",
-        "config_version": "b6c3d2e...",          // hash of aether-cloud.toml
-        "cloud_config": {                         // raw parsed TOML -> JSON
-            "version": "0.1",
-            "project": {
-            "name": "my-aether-app",
-            "env": "production",
-            "region": "us-east-1"
-            },
-            "services": [
-            {
-                "name": "api",
-                "kind": "web_stateless",
-                "mode": "always_on",
-                "port": 8080,
-                "autoscaling": {
-                "min_replicas": 1,
-                "max_replicas": 10,
-                "target_cpu_utilization": 0.65
-                },
-                "env": {
-                "AETHER_ENV": "production"
-                }
-            }
-            ],
-            "jobs": [],
-            "crons": []
-        }
-        }
-
-    {
-  "app": {
-    "id": "app_01HXYZ...",
-    "slug": "my-aether-app",
-    "default_domain": "my-aether-app.aether.run",
-    "created_at": "2025-11-26T15:00:00Z"
-  },
-  "release": {
-    "id": "rel_01HABC...",
-    "image": "registry.example.com/my-aether-app:abc123",
-    "config_version": "b6c3d2e...",
-    "created_at": "2025-11-26T15:00:00Z",
-    "status": "deploying"        // deploying | ready | failed
-  },
-  "services": [
-    {
-      "id": "svc_01HAPI...",
-      "name": "api",
-      "kind": "web_stateless",
-      "mode": "always_on",
-      "port": 8080,
-      "desired_replicas": 1,
-      "min_replicas": 1,
-      "max_replicas": 10,
-      "state": "scaling"         // scaling | ready | error
-    }
-  ]
-}
+## Notes / Troubleshooting
+- If proxy returns `no running instance`, check `/tmp/<instanceId>.log` and ensure the binary binds to `PORT`.
+- Control plane uses port 3000; instances get random free ports. Avoid hardcoded ports in your app.
+- Proxy only uses `state='ready'` instances tied to the app’s `current_release_id`.
 
 
+
+next.. set up cold start... so on a service with cold start when url is called we start a service on a port fetch, load the response then close it

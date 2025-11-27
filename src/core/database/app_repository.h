@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <optional>
 #include <sqlite3.h>
 #include "models/app.h"
 #include "db_utils.h"
@@ -28,6 +29,34 @@ public:
 
         // 2. Insert new app
         return insertNew(slug, default_domain);
+    }
+
+    void setCurrentRelease(const std::string& appId,
+                           const std::string& releaseId) {
+        const char* sql =
+            "UPDATE apps "
+            "SET current_release_id = ?1, updated_at = ?2 "
+            "WHERE id = ?3;";
+
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            throw std::runtime_error(std::string("AppRepository::setCurrentRelease prepare failed: ") +
+                                     sqlite3_errmsg(db_));
+        }
+
+        std::string now = nowIso8601();
+        sqlite3_bind_text(stmt, 1, releaseId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, now.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, appId.c_str(), -1, SQLITE_TRANSIENT);
+
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE) {
+            sqlite3_finalize(stmt);
+            throw std::runtime_error(std::string("AppRepository::setCurrentRelease step failed: ") +
+                                     sqlite3_errmsg(db_));
+        }
+
+        sqlite3_finalize(stmt);
     }
 
 private:

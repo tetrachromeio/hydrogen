@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tetr4.dev Console</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Neue Haas Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #000;
+      color: #fff;
+      min-height: 100vh;
+    }
+
+    .mono {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    }
+
+    header {
+      border-bottom: 1px solid #262626;
+      background: #000;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-icon {
+      width: 2rem;
+      height: 2rem;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-text {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    nav {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      background: none;
+      border: none;
+      color: #737373;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .nav-btn:hover {
+      background: #171717;
+      color: #fff;
+    }
+
+    .nav-btn.active {
+      background: #171717;
+      color: #fff;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .new-instance-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: #fff;
+      border: none;
+      color: #000;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .new-instance-btn:hover {
+      background: #e5e5e5;
+    }
+
+    .avatar {
+      width: 2rem;
+      height: 2rem;
+      background: #262626;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+    }
+
+    main {
+      padding: 2rem;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: #737373;
+      margin-bottom: 2rem;
+    }
+
+    .breadcrumb-active {
+      color: #fff;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: #262626;
+      border: 1px solid #262626;
+      margin-bottom: 2rem;
+    }
+
+    .metric {
+      background: #000;
+      padding: 1.5rem;
+    }
+
+    .metric-label {
+      font-size: 0.75rem;
+      color: #737373;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .metric-value {
+      font-size: 1.875rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-change {
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-change.up { color: #4ade80; }
+    .metric-change.down { color: #ef4444; }
+    .metric-change.stable { color: #525252; }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .section-title {
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #737373;
+    }
+
+    .view-all {
+      font-size: 0.75rem;
+      color: #737373;
+      text-decoration: none;
+      padding: 0.25rem 0.5rem;
+      border: 1px solid #262626;
+      transition: all 0.2s;
+    }
+
+    .view-all:hover {
+      color: #fff;
+      border-color: #525252;
+    }
+
+    .instances-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1px;
+      background: #262626;
+      border: 1px solid #262626;
+      margin-bottom: 2rem;
+    }
+
+    .instance-card {
+      background: #000;
+      padding: 1.5rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .instance-card:hover {
+      background: #0a0a0a;
+    }
+
+    .instance-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .instance-name {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .instance-id {
+      font-size: 0.75rem;
+      color: #525252;
+    }
+
+    .instance-status {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 2px;
+    }
+
+    .instance-status.running {
+      background: rgba(74, 222, 128, 0.1);
+      color: #4ade80;
+    }
+
+    .instance-status.stopped {
+      background: rgba(115, 115, 115, 0.1);
+      color: #737373;
+    }
+
+    .instance-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .instance-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .instance-meta-label {
+      font-size: 0.65rem;
+      color: #525252;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .instance-meta-value {
+      font-size: 0.875rem;
+      color: #fff;
+    }
+
+    .instance-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 1rem;
+      border-top: 1px solid #171717;
+    }
+
+    .instance-uptime {
+      font-size: 0.75rem;
+      color: #525252;
+    }
+
+    .instance-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .instance-action-btn {
+      background: none;
+      border: 1px solid #262626;
+      color: #737373;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .instance-action-btn:hover {
+      border-color: #525252;
+      color: #fff;
+    }
+
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1px;
+      background: #262626;
+      margin-bottom: 2rem;
+    }
+
+    .panel {
+      background: #000;
+      padding: 1.5rem;
+    }
+
+    .activity-item {
+      display: flex;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #171717;
+      margin-bottom: 1rem;
+    }
+
+    .activity-item:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .activity-dot {
+      width: 0.25rem;
+      height: 0.25rem;
+      background: #fff;
+      margin-top: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .activity-content {
+      flex: 1;
+    }
+
+    .activity-action {
+      font-size: 0.875rem;
+      color: #fff;
+      margin-bottom: 0.25rem;
+    }
+
+    .activity-meta {
+      font-size: 0.75rem;
+      color: #525252;
+    }
+
+    .resource-item {
+      margin-bottom: 1.5rem;
+    }
+
+    .resource-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .resource-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .resource-label {
+      font-size: 0.75rem;
+      color: #737373;
+    }
+
+    .resource-value {
+      font-size: 0.75rem;
+      color: #fff;
+    }
+
+    .resource-bar {
+      width: 100%;
+      height: 0.25rem;
+      background: #171717;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .resource-bar-fill {
+      height: 100%;
+      background: #4ade80;
+      transition: width 0.3s;
+    }
+
+    .resource-bar-fill.warning {
+      background: #fbbf24;
+    }
+
+    .resource-bar-fill.danger {
+      background: #ef4444;
+    }
+
+    .icon {
+      width: 1rem;
+      height: 1rem;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="header-left">
+        <div class="logo">
+          <div class="logo-icon">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+              <path d="M2 17l10 5 10-5"></path>
+              <path d="M2 12l10 5 10-5"></path>
+            </svg>
+          </div>
+          <span class="logo-text">tetr4.dev</span>
+        </div>
+        <nav>
+          <button class="nav-btn active">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+              <path d="M2 17l10 5 10-5"></path>
+              <path d="M2 12l10 5 10-5"></path>
+            </svg>
+            Instances
+          </button>
+          <button class="nav-btn">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="3" y1="9" x2="21" y2="9"></line>
+              <line x1="9" y1="21" x2="9" y2="9"></line>
+            </svg>
+            Applications
+          </button>
+          <button class="nav-btn">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="16 18 22 12 16 6"></polyline>
+              <polyline points="8 6 2 12 8 18"></polyline>
+            </svg>
+            Aether SDK
+          </button>
+          <button class="nav-btn">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="20" x2="12" y2="10"></line>
+              <line x1="18" y1="20" x2="18" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="16"></line>
+            </svg>
+            Analytics
+          </button>
+          <button class="nav-btn">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l4.2 4.2m-10.4 0l4.2-4.2m0-6l-4.2-4.2"></path>
+            </svg>
+            Settings
+          </button>
+        </nav>
+      </div>
+      <div class="header-right">
+        <button class="new-instance-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          New Instance
+        </button>
+        <div class="avatar">AC</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="breadcrumb">
+      <span>Console</span>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+      <span class="breadcrumb-active">Instances</span>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label mono">Running Instances</div>
+        <div class="metric-value">47</div>
+        <div class="metric-change up mono">+3 this week</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label mono">Total Requests</div>
+        <div class="metric-value">2.4M</div>
+        <div class="metric-change up mono">+18.2%</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label mono">Avg Response Time</div>
+        <div class="metric-value">87ms</div>
+        <div class="metric-change down mono">-12.4%</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label mono">Compute Hours</div>
+        <div class="metric-value">1,284</div>
+        <div class="metric-change stable mono">Current period</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <h2 class="section-title mono">Active Instances</h2>
+      <a href="#" class="view-all mono">View All →</a>
+    </div>
+
+    <div class="instances-grid">
+      <div class="instance-card">
+        <div class="instance-header">
+          <div>
+            <div class="instance-name">production-api-01</div>
+            <div class="instance-id mono">aether-f8k2m4</div>
+          </div>
+          <div class="instance-status running mono">RUNNING</div>
+        </div>
+        <div class="instance-meta">
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Region</span>
+            <span class="instance-meta-value mono">us-east-1</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Memory</span>
+            <span class="instance-meta-value mono">4GB / 8GB</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">CPU</span>
+            <span class="instance-meta-value mono">2 vCPUs</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Version</span>
+            <span class="instance-meta-value mono">v2.4.1</span>
+          </div>
+        </div>
+        <div class="instance-footer">
+          <span class="instance-uptime mono">Uptime: 14d 6h 23m</span>
+          <div class="instance-actions">
+            <button class="instance-action-btn mono">Logs</button>
+            <button class="instance-action-btn mono">Shell</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="instance-card">
+        <div class="instance-header">
+          <div>
+            <div class="instance-name">staging-worker-02</div>
+            <div class="instance-id mono">aether-n3p7x9</div>
+          </div>
+          <div class="instance-status running mono">RUNNING</div>
+        </div>
+        <div class="instance-meta">
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Region</span>
+            <span class="instance-meta-value mono">us-west-2</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Memory</span>
+            <span class="instance-meta-value mono">2GB / 4GB</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">CPU</span>
+            <span class="instance-meta-value mono">1 vCPU</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Version</span>
+            <span class="instance-meta-value mono">v2.5.0-rc1</span>
+          </div>
+        </div>
+        <div class="instance-footer">
+          <span class="instance-uptime mono">Uptime: 3d 18h 41m</span>
+          <div class="instance-actions">
+            <button class="instance-action-btn mono">Logs</button>
+            <button class="instance-action-btn mono">Shell</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="instance-card">
+        <div class="instance-header">
+          <div>
+            <div class="instance-name">dev-test-instance</div>
+            <div class="instance-id mono">aether-q8w1j5</div>
+          </div>
+          <div class="instance-status stopped mono">STOPPED</div>
+        </div>
+        <div class="instance-meta">
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Region</span>
+            <span class="instance-meta-value mono">eu-west-1</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Memory</span>
+            <span class="instance-meta-value mono">1GB / 2GB</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">CPU</span>
+            <span class="instance-meta-value mono">1 vCPU</span>
+          </div>
+          <div class="instance-meta-item">
+            <span class="instance-meta-label mono">Version</span>
+            <span class="instance-meta-value mono">v2.4.0</span>
+          </div>
+        </div>
+        <div class="instance-footer">
+          <span class="instance-uptime mono">Stopped 2h ago</span>
+          <div class="instance-actions">
+            <button class="instance-action-btn mono">Start</button>
+            <button class="instance-action-btn mono">Logs</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-layout">
+      <div class="panel">
+        <div class="section-header" style="margin-bottom: 1.5rem;">
+          <h2 class="section-title mono">Recent Activity</h2>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #525252;">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <div>
+          <div class="activity-item">
+            <div class="activity-dot"></div>
+            <div class="activity-content">
+              <div class="activity-action">Instance deployed: production-api-01</div>
+              <div class="activity-meta mono">aether-f8k2m4 • v2.4.1 • 12m ago</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot"></div>
+            <div class="activity-content">
+              <div class="activity-action">Instance stopped: dev-test-instance</div>
+              <div class="activity-meta mono">aether-q8w1j5 • manual stop • 2h ago</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot"></div>
+            <div class="activity-content">
+              <div class="activity-action">Health check passed: staging-worker-02</div>
+              <div class="activity-meta mono">aether-n3p7x9 • all systems nominal • 3h ago</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot"></div>
+            <div class="activity-content">
+              <div class="activity-action">Aether SDK updated to v1.8.2</div>
+              <div class="activity-meta mono">system • auto-update enabled • 5h ago</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="section-title mono" style="margin-bottom: 1.5rem;">Resource Usage</h2>
+        <div>
+          <div class="resource-item">
+            <div class="resource-row">
+              <span class="resource-label mono">CPU Usage</span>
+              <span class="resource-value mono">47%</span>
+            </div>
+            <div class="resource-bar">
+              <div class="resource-bar-fill" style="width: 47%;"></div>
+            </div>
+          </div>
+          <div class="resource-item">
+            <div class="resource-row">
+              <span class="resource-label mono">Memory</span>
+              <span class="resource-value mono">62%</span>
+            </div>
+            <div class="resource-bar">
+              <div class="resource-bar-fill warning" style="width: 62%;"></div>
+            </div>
+          </div>
+          <div class="resource-item">
+            <div class="resource-row">
+              <span class="resource-label mono">Network I/O</span>
+              <span class="resource-value mono">34%</span>
+            </div>
+            <div class="resource-bar">
+              <div class="resource-bar-fill" style="width: 34%;"></div>
+            </div>
+          </div>
+          <div class="resource-item">
+            <div class="resource-row">
+              <span class="resource-label mono">Disk Usage</span>
+              <span class="resource-value mono">23%</span>
+            </div>
+            <div class="resource-bar">
+              <div class="resource-bar-fill" style="width: 23%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
