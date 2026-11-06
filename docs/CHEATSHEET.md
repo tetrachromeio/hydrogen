@@ -397,6 +397,7 @@ while true { if done { break } }
 for i in 0..10 { ... }          // range (end excluded)
 for x in [1, 2, 3] { ... }      // array or slice elements
 for c in "text" { ... }         // characters of a str/string (bytes for now)
+for name in names { ... }       // a List, or any class with len() and at(i)
 
 break      continue      return value
 ```
@@ -532,7 +533,7 @@ Two layers:
 | `"a" + "b"`, `"x = " + string(n)` | joining text builds a `string` |
 | `Printable` | interface: has `operator string` |
 | `operator string` for all of Atomic's types | `string(42)`, `string(3.5)`, `string(true)`, ... |
-| `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
+| `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `list[i]` `for x in list` `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
 | `Elemental.IO` | `print(x)`, `eprint(x)` (stderr) |
 | `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
 | `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)` |
@@ -552,7 +553,7 @@ Elemental uses `extern` to reach the C library instead.
 ## 16. Not supported yet
 
 - Reading input from Hydrogen's own library (use `extern` to call C's `read`, `fopen`, ... for now)
-- `Map<K, V>`, and `for x in list` (use `for i in 0..list.len()` with `*list.at(i)`)
+- `Map<K, V>`
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
 - Closures that capture variables (lambdas without captures work)

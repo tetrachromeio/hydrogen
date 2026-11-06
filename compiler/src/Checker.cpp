@@ -923,8 +923,29 @@ private:
             i = finalize(*ix.index);
         }
         if (auto f = findOperatorOn(obj, "[]", {obj, i})) return f->result;
-        error(ix.loc, str(obj) + " cannot be indexed" + operatorHint(obj, "[]"));
+        if (const FunctionDecl* at = seqMethod(obj, "at")) {
+            // Sequence protocol: seq[i] is *seq.at(i), a place you can read or assign.
+            if (i->isLiteral()) setLiteralType(*ix.index, lang_.uintT);
+            else if (!i->isError() && !isIntegerType(i))
+                error(ix.index->loc, "an index must be an integer, found " + str(i));
+            const Type* r = subst(sigOf(*at, selfTypeOf(obj->sym)).ret, substFor(obj));
+            return r->kind == K::Ptr ? r->elem() : tc_.error();
+        }
+        error(ix.loc, str(obj) + " cannot be indexed" + operatorHint(obj, "[]") +
+                          (obj->kind == K::Named ? " (or give it len() and at(i: uint) -> ptr<T> methods)" : ""));
         return tc_.error();
+    }
+
+    // A class's `len() -> uint` or `at(i: uint) -> ptr<T>` method, for the sequence protocol.
+    const FunctionDecl* seqMethod(const Type* t, const char* name) {
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Class) return nullptr;
+        for (const auto& m : declAs<ClassDecl>(t->sym)->methods) {
+            if (m->isOperator || m->name != name || !m->generics.empty()) continue;
+            const Sig& sig = sigOf(*m, selfTypeOf(t->sym));
+            if (std::string(name) == "at" && sig.params.size() == 1 && sig.ret->kind == K::Ptr) return m.get();
+            if (std::string(name) == "len" && sig.params.empty() && sig.ret == lang_.uintT) return m.get();
+        }
+        return nullptr;
     }
 
     const Type* checkTry(TryExpr& t) {
@@ -1642,8 +1663,13 @@ private:
             const Type* elem = tc_.error();
             if (it->kind == K::Range || it->kind == K::Array || it->kind == K::Slice) elem = it->elem();
             else if (it == lang_.strT || it == lang_.stringT) elem = lang_.charT;
+            else if (const FunctionDecl* at = seqMethod(it, "at"); at && seqMethod(it, "len")) {
+                const Type* r = subst(sigOf(*at, selfTypeOf(it->sym)).ret, substFor(it));
+                elem = r->elem();
+            }
             else if (!it->isError()) error(f.iterable->loc, "cannot loop over " + str(it) +
-                                                             "; 'for' works with ranges (a..b), arrays and strings");
+                                                             "; 'for' works with ranges (a..b), arrays, strings, and "
+                                                             "classes with len() and at(i) methods");
             if (f.sym) localTypes_[f.sym] = elem;
             ++loopDepth_;
             checkBlock(*f.body);

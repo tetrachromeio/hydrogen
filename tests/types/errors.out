@@ -35,6 +35,10 @@ tests/types/errors.h2:116:5: ada: Person
 tests/types/errors.h2:117:5: ok: any Named
 tests/types/errors.h2:118:5: o: <error>
 tests/types/errors.h2:119:5: p: <error>
+tests/types/errors.h2:132:5: fixed: List<int>
+tests/types/errors.h2:134:5: words: List<string>
+tests/types/errors.h2:135:5: first: string
+tests/types/errors.h2:136:5: copy: string
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -55,7 +59,7 @@ tests/types/errors.h2:36:14: error: Point has no method 'nope'
 tests/types/errors.h2:37:13: error: '*' needs a pointer, found Point
 tests/types/errors.h2:38:10: error: 'free' needs a pointer from 'alloc', found Point
 tests/types/errors.h2:39:15: error: cannot tell the element type of an empty array; add a type annotation
-tests/types/errors.h2:40:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays and strings
+tests/types/errors.h2:40:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays, strings, and classes with len() and at(i) methods
 tests/types/errors.h2:41:5: error: 'break' outside of a loop
 tests/types/errors.h2:42:5: error: match does not cover every case of Color: missing Blue. Add those arms or a '_' arm
 tests/types/errors.h2:46:5: error: match on int needs a '_' arm to cover the remaining values
@@ -87,3 +91,6 @@ tests/types/errors.h2:124:28: error: a constant's value must be computable at co
 tests/types/errors.h2:125:21: error: 300 does not fit in u8 (unsigned 8-bit)
 tests/types/errors.h2:126:1: error: constants can be numbers, bool, char or str, not Point
 tests/types/errors.h2:128:5: error: cannot assign to constant 'TOO_BIG'
+tests/types/errors.h2:133:10: error: cannot change 'fixed': it is immutable. Declare it with 'var' to allow changes
+tests/types/errors.h2:135:22: error: cannot move an element out of words. Use words[...].copy() to make a copy
+tests/types/errors.h2:137:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays, strings, and classes with len() and at(i) methods

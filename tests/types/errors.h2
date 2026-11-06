@@ -127,3 +127,12 @@ const NOT_PLAIN = Point(1.0, 2.0)
 new function const_errors() {
     TOO_BIG = 1
 }
+
+new function sequence_errors() {
+    let fixed = List<int>()
+    fixed[0] = 1                       // a let list can't be changed
+    var words = List<string>()
+    let first = words[0]               // can't move an owned element out
+    let copy = words[0].copy()         // fine
+    for w in 5 { }                     // not a sequence
+}

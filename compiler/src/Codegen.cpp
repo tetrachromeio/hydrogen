@@ -558,6 +558,16 @@ private:
         return resourceCache_[t] = r;
     }
 
+    // A class's `at(i) -> ptr<T>` / `len() -> uint` method (sequence protocol).
+    const FunctionDecl* seqMethod(const Type* t, const char* name) {
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Class) return nullptr;
+        for (const auto& m : declAs<ClassDecl>(t->sym)->methods)
+            if (!m->isOperator && m->name == name && m->generics.empty() &&
+                m->params.size() == (std::string(name) == "at" ? 1u : 0u))
+                return m.get();
+        return nullptr;
+    }
+
     int variantIndex(const Symbol* enumSym, const std::string& name) {
         const auto& vs = declAs<EnumDecl>(enumSym)->variants;
         for (size_t i = 0; i < vs.size(); ++i)
@@ -1061,6 +1071,8 @@ private:
         std::string base, len;
         const Type* elemT = nullptr;
         bool textBytes = false;
+        std::string seqSelf;
+        const FunctionDecl* seqAt = nullptr;
         if (it->kind == K::Array) {
             base = addressOf(*fs.iterable);
             len = std::to_string(it->size);
@@ -1078,6 +1090,15 @@ private:
             base = load("ptr", bp);
             len = load("i64", lp);
             textBytes = true;
+        } else if (const FunctionDecl* at = seqMethod(it, "at")) {
+            // Sequence protocol: len() once, then at(i) for each element (borrowed).
+            const FunctionDecl* lenFn = seqMethod(it, "len");
+            std::string self = addressOf(*fs.iterable);
+            len = tmp();
+            emit(len + " = call i64 @" + llvmQuote(requestFn(lenFn, substFor(it), it)) + "(ptr " + self + ")");
+            seqSelf = self;
+            seqAt = at;
+            elemT = typeOfRef(*at->returnType, substFor(it), it)->elem();
         } else {
             unsupported(fs.loc, "this kind of for loop");
             return;
@@ -1097,6 +1118,11 @@ private:
             std::string var = alloca("i32");
             store({"i32", ch}, var);
             f_->locals[fs.sym] = {var, lang_.charT, ""};
+        } else if (seqAt) {
+            std::string ep = tmp();
+            emit(ep + " = call ptr @" + llvmQuote(requestFn(seqAt, substFor(it), it)) + "(ptr " + seqSelf + ", i64 " +
+                 i2 + ")");
+            f_->locals[fs.sym] = {ep, elemT, ""}; // borrowed element
         } else {
             std::string ep = tmp();
             if (it->kind == K::Array)
@@ -1171,7 +1197,7 @@ private:
         case ExprKind::Index: {
             const auto& ix = static_cast<const IndexExpr&>(e);
             const Type* ot = typeOf(*ix.object);
-            if (ot->kind == K::Ptr || ot->kind == K::Slice) return true;
+            if (ot->kind == K::Ptr || ot->kind == K::Slice || seqMethod(ot, "at")) return true;
             return ot->kind == K::Array && isPlace(*ix.object);
         }
         case ExprKind::Unary: return static_cast<const UnaryExpr&>(e).op == "*";
@@ -1223,6 +1249,15 @@ private:
                     emit(base + " = extractvalue " + sl.ty + " " + sl.v + ", 0");
                     emit(p + " = getelementptr inbounds " + lty(ot->elem()) + ", ptr " + base + ", i64 " + i.v);
                 }
+                return p;
+            }
+            if (const FunctionDecl* at = seqMethod(ot, "at"); at && !findOperator(ot, "[]", {ot, typeOf(*ix.index)})) {
+                // seq[i] -> *seq.at(i)
+                std::string self = addressOf(*ix.object);
+                Val i = convertTo(*ix.index, lang_.uintT);
+                std::string name = requestFn(at, substFor(ot), ot);
+                std::string p = tmp();
+                emit(p + " = call ptr @" + llvmQuote(name) + "(ptr " + self + ", i64 " + i.v + ")");
                 return p;
             }
             break;
@@ -1367,11 +1402,12 @@ private:
         case ExprKind::Index: {
             const auto& ix = static_cast<const IndexExpr&>(e);
             const Type* ot = typeOf(*ix.object);
-            if (ot->kind == K::Ptr || ot->kind == K::Array || ot->kind == K::Slice) {
+            const Type* it = typeOf(*ix.index);
+            if (ot->kind == K::Ptr || ot->kind == K::Array || ot->kind == K::Slice ||
+                (seqMethod(ot, "at") && !findOperator(ot, "[]", {ot, it}))) {
                 const Type* t = typeOf(e);
                 return {lty(t), load(lty(t), addressOf(e))};
             }
-            const Type* it = typeOf(*ix.index);
             return callOperator("[]", {ix.object.get(), ix.index.get()}, {ot, it}, e.loc);
         }
         case ExprKind::Unary: return emitUnary(static_cast<const UnaryExpr&>(e));

@@ -335,6 +335,15 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Sequences: `for x in seq`, `seq[i]`
+A class with `len() -> uint` and `at(i: uint) -> ptr<T>` methods is a
+sequence. `for x in seq` calls `len()` once, then visits `*seq.at(i)` for each
+`i`. `x` borrows the element. `seq[i]` means `*seq.at(i)`: it can be read and
+assigned, and assigning drops the element's old value. Owned elements can't be
+moved out (copy them). A `let` sequence's elements can't be assigned. An
+`operator []` on the class takes precedence over `at`. `List<T>` follows this
+protocol.
+
 ## Constants
 `const NAME[: T] = value` at the top level of a module (`pub` to export).
 The value must be computable at compile time: literals, other constants,
