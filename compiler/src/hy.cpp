@@ -8,6 +8,7 @@
 //
 // hy finds the project by walking up from the current directory to hy.toml.
 
+#include "hydrogen/Checker.h"
 #include "hydrogen/Program.h"
 #include "hydrogen/Project.h"
 
@@ -136,7 +137,11 @@ int checkProject(const Loaded& p) {
     h2::Diagnostics diags;
     h2::LoadOptions opts{stdlibPaths(), p.packages};
     auto program = h2::loadProgram(p.manifest.entry, opts, diags);
-    if (program->main()) h2::resolveProgram(*program, diags);
+    h2::TypeContext types;
+    if (program->main()) {
+        h2::resolveProgram(*program, diags);
+        h2::typecheckProgram(*program, types, diags);
+    }
 
     if (!p.manifest.isLibrary && program->main()) {
         auto it = program->main()->defs.find("main");

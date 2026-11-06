@@ -1,0 +1,16 @@
+pub new class Account {
+    pub owner_id: int
+    balance: int
+
+    pub new function deposit(amount: int) { self.balance += amount }
+    new function audit() {}
+}
+
+pub new class Vault {
+    gold: int
+    new function init(gold: int) { self.gold = gold }
+}
+
+pub new function open_account(id: int) -> Account {
+    return Account(id, 0)       // same module: private fields are fine here
+}

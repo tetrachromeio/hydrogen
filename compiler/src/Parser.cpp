@@ -350,13 +350,21 @@ private:
                     d->isSigned = true;
                 }
             } else {
-                d->base = TypeDecl::Base::Alias;
+                d->base = TypeDecl::Base::Distinct;
                 d->aliasOf = parseType();
             }
+        } else if (accept(Tok::Assign)) {
+            d->base = TypeDecl::Base::Alias;
+            d->aliasOf = parseType();
+            if (at(Tok::LBrace))
+                fail(peek().loc, "an alias ('new type " + d->name + " = ...') is just another name for an "
+                                 "existing type, so it can't add operators. Use ':' to make a new type");
+            expectTerminator("type declaration");
+            return d;
         }
         if (!at(Tok::LBrace)) {
             if (d->base == TypeDecl::Base::Layout)
-                failExpected("':' and a base, or '{' with fields, after the type name");
+                failExpected("':' and a base, '=' and a type, or '{' with fields, after the type name");
             expectTerminator("type declaration");
             return d;
         }

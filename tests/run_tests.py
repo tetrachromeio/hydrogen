@@ -3,7 +3,8 @@
 
   tests/parse/*.h2   -> `h2c --ast` must succeed and match the .ast file
   tests/lex/*.h2     -> `h2c --tokens` must match the .tokens file
-  tests/errors/*.h2  -> `h2c --check` must fail and stderr must match the .err file
+  tests/errors/*.h2  -> `h2c --ast` must fail (syntax errors)
+  tests/types/*.h2   -> `h2c --types` output (inferred local types + errors) must match .out and stderr must match the .err file
   tests/resolve/<case>/main.h2 -> `h2c --check` stderr must match <case>/expected.err
                                  (an empty file means the project must check cleanly)
   tests/projects/<case>/app/     -> `hy check` output must match <case>/expected.out
@@ -51,8 +52,11 @@ def main():
         r = run(h2c, "--tokens", p, root)
         golden(p, ".tokens", r.stdout + r.stderr, r.returncode == 0, f"exit {r.returncode}")
     for p in sorted((root / "tests/errors").glob("*.h2")):
-        r = run(h2c, "--check", p, root)
+        r = run(h2c, "--ast", p, root)
         golden(p, ".err", r.stderr, r.returncode == 1, f"expected exit 1, got {r.returncode}")
+    for p in sorted((root / "tests/types").glob("*.h2")):
+        r = run(h2c, "--types", p, root)
+        golden(p, ".out", r.stdout + r.stderr, True, "")
     for p in sorted((root / "tests/resolve").glob("*/main.h2")):
         count += 1
         r = run(h2c, "--check", p, root)

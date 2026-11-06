@@ -45,6 +45,7 @@ struct Symbol {
     bool isMutable = false;           // Local declared with var
     const struct SourceFile* file = nullptr; // file that declares it (top-level symbols)
     std::map<std::string, Symbol*> members; // Enum: its variants
+    const GenericParam* genericParam = nullptr; // Generic
 };
 
 std::string_view symbolKindName(Symbol::Kind k);

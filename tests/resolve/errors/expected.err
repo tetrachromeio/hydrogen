@@ -13,6 +13,7 @@ tests/resolve/errors/main.h2:26:13: error: 'intrinsic' is only available inside 
 tests/resolve/errors/main.h2:27:13: error: 'self' is only available inside class methods
 tests/resolve/errors/main.h2:28:12: error: 'Comparable' is an interface; interfaces can only be used as generic constraints, e.g. <T: Comparable>
 tests/resolve/errors/main.h2:29:12: error: 'helper' is a function, not a type
+tests/resolve/errors/main.h2:30:24: error: value of 'l': expected List<int>, found integer literal
 tests/resolve/errors/main.h2:31:12: error: 'ptr' takes 1 type argument, but 0 were given
 tests/resolve/errors/main.h2:32:12: error: 'Result' takes 2 type arguments, but 1 was given
 tests/resolve/errors/main.h2:33:13: error: 'mem' is a module; write mem.<name>
@@ -22,6 +23,7 @@ tests/resolve/errors/main.h2:36:13: error: unknown name 'x_later'
 tests/resolve/errors/main.h2:39:5: error: cannot assign to 'z': it is immutable. Declare it with 'var' to allow changes
 tests/resolve/errors/main.h2:40:5: error: cannot assign to function 'helper'
 tests/resolve/errors/main.h2:42:5: error: 'dup' is already declared in this scope (line 41)
+tests/resolve/errors/main.h2:43:13: error: cannot infer E for Ok; give the value a type, e.g. let r: Result<...> = Ok(...)
 tests/resolve/errors/main.h2:44:9: error: variant 'Ok' has 1 field, but the pattern has 2
 tests/resolve/errors/main.h2:45:9: error: variant 'Err' has 1 field, but the pattern has 0
 tests/resolve/errors/main.h2:46:9: error: 'helper' is a function, not an enum variant

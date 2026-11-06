@@ -1,0 +1,48 @@
+tests/types/errors.h2:15:5: r: Result<int, E>
+tests/types/errors.h2:20:5: a: u8
+tests/types/errors.h2:21:5: b: i8
+tests/types/errors.h2:22:5: c: int
+tests/types/errors.h2:23:5: d: <error>
+tests/types/errors.h2:24:5: e: <error>
+tests/types/errors.h2:25:5: f: float
+tests/types/errors.h2:26:5: g: Point
+tests/types/errors.h2:27:5: h: Point
+tests/types/errors.h2:28:5: i: Point
+tests/types/errors.h2:29:5: j: float
+tests/types/errors.h2:30:5: k: <error>
+tests/types/errors.h2:33:5: p: Point
+tests/types/errors.h2:36:5: q: <error>
+tests/types/errors.h2:37:5: m: <error>
+tests/types/errors.h2:39:5: arr: <error>
+tests/types/errors.h2:49:5: s: string
+tests/types/errors.h2:50:5: v: int
+tests/types/errors.h2:51:5: w: <error>
+tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
+tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
+tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
+tests/types/errors.h2:21:18: error: -129 does not fit in i8 (signed 8-bit)
+tests/types/errors.h2:22:18: error: value of 'c': expected int, found float literal. Convert explicitly with int(...)
+tests/types/errors.h2:23:15: error: no operator '+' for integer literal and string
+tests/types/errors.h2:24:25: error: Meters has no operator '+'. Define it inside the type: new operator + (...)
+tests/types/errors.h2:25:26: error: value of 'f': expected float, found Meters. Convert explicitly with float(...)
+tests/types/errors.h2:26:18: error: Point (fields in order) takes 2 arguments, but 1 was given
+tests/types/errors.h2:27:18: error: Point (fields in order) takes 2 arguments, but 3 were given
+tests/types/errors.h2:28:20: error: Point does not satisfy Ordered: it has no operator '<' with the right signature
+tests/types/errors.h2:30:18: error: bool has no operator '+'
+tests/types/errors.h2:31:8: error: condition of 'if': expected bool, found integer literal. Convert explicitly with bool(...)
+tests/types/errors.h2:32:11: error: condition of 'while': expected bool, found string
+tests/types/errors.h2:34:6: error: cannot change 'p': it is immutable. Declare it with 'var' to allow changes
+tests/types/errors.h2:35:6: error: Point has no field 'z'
+tests/types/errors.h2:36:14: error: Point has no method 'nope'
+tests/types/errors.h2:37:13: error: '*' needs a pointer, found Point
+tests/types/errors.h2:38:10: error: 'free' needs a pointer from 'alloc', found Point
+tests/types/errors.h2:39:15: error: cannot tell the element type of an empty array; add a type annotation
+tests/types/errors.h2:40:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays and strings
+tests/types/errors.h2:41:5: error: 'break' outside of a loop
+tests/types/errors.h2:42:5: error: match does not cover every case of Color: missing Blue. Add those arms or a '_' arm
+tests/types/errors.h2:46:5: error: match on int needs a '_' arm to cover the remaining values
+tests/types/errors.h2:49:21: error: value of 's': expected string, found char
+tests/types/errors.h2:50:22: error: no_return takes 1 argument, but 2 were given
+tests/types/errors.h2:51:16: error: cannot convert string to int: conversions work between number, bool and char types
+tests/types/errors.h2:52:10: error: cannot assign to this expression
+tests/types/errors.h2:53:5: error: missing return value of type int

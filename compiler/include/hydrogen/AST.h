@@ -40,6 +40,7 @@ struct GenericParam {
     SourceLoc loc;
     std::string name;
     std::vector<TypeRefPtr> constraints; // T: A + B
+    const Symbol* sym = nullptr;         // set by the resolver
 };
 
 // ---------------------------------------------------------------- expressions
@@ -49,9 +50,12 @@ enum class ExprKind {
     Unary, Binary, Call, Member, Index, Try, Alloc, ArrayLit, Match
 };
 
+struct Type; // defined in Types.h; filled in by the type checker
+
 struct Expr {
     ExprKind kind;
     SourceLoc loc;
+    const Type* type = nullptr;
     explicit Expr(ExprKind k, SourceLoc l) : kind(k), loc(l) {}
     virtual ~Expr() = default;
 };
@@ -172,6 +176,7 @@ struct LetStmt : Stmt {
     std::string name;
     TypeRefPtr type; // optional
     ExprPtr init;    // optional for var
+    const Symbol* sym = nullptr;
     LetStmt(SourceLoc l) : Stmt(StmtKind::Let, l) {}
 };
 
@@ -201,6 +206,7 @@ struct WhileStmt : Stmt {
 
 struct ForStmt : Stmt {
     std::string var;
+    const Symbol* sym = nullptr; // the loop variable
     ExprPtr iterable;
     std::unique_ptr<Block> body;
     ForStmt(SourceLoc l) : Stmt(StmtKind::For, l) {}
@@ -250,6 +256,7 @@ struct Param {
     SourceLoc loc;
     std::string name;
     TypeRefPtr type;
+    const Symbol* sym = nullptr;
 };
 
 // `new function` and `new operator` share this node.
@@ -271,13 +278,18 @@ struct Field {
 };
 
 struct TypeDecl : Decl {
-    enum class Base { Layout, Bits, Float, Alias };
+    // Layout:   new type string { data: ptr<u8>, len: uint }
+    // Bits:     new type i32 : bits(32) signed
+    // Float:    new type f64 : float(64)
+    // Distinct: new type Meters : f64    (a new type with f64's representation)
+    // Alias:    new type int = i64       (another name for the same type)
+    enum class Base { Layout, Bits, Float, Distinct, Alias };
     std::string name;
     std::vector<GenericParam> generics;
     Base base = Base::Layout;
     uint32_t bits = 0;       // Bits / Float
     bool isSigned = false;   // Bits
-    TypeRefPtr aliasOf;      // Alias
+    TypeRefPtr aliasOf;      // Distinct / Alias
     std::vector<Field> fields;
     std::vector<std::unique_ptr<FunctionDecl>> operators;
     TypeDecl(SourceLoc l) : Decl(DeclKind::Type, l) {}

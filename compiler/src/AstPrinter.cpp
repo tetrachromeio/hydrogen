@@ -357,7 +357,8 @@ private:
             case TypeDecl::Base::Layout: break;
             case TypeDecl::Base::Bits: os_ << " (bits " << t.bits << (t.isSigned ? " signed)" : ")"); break;
             case TypeDecl::Base::Float: os_ << " (float " << t.bits << ')'; break;
-            case TypeDecl::Base::Alias: os_ << " (on " << typeStr(*t.aliasOf) << ')'; break;
+            case TypeDecl::Base::Distinct: os_ << " (on " << typeStr(*t.aliasOf) << ')'; break;
+            case TypeDecl::Base::Alias: os_ << " (= " << typeStr(*t.aliasOf) << ')'; break;
             }
             fields(t.fields, depth + 1);
             for (const auto& op : t.operators) {

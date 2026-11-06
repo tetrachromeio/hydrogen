@@ -7,6 +7,8 @@ add_library(h2front
   src/Resolver.cpp
   src/Toml.cpp
   src/Project.cpp
+  src/Types.cpp
+  src/Checker.cpp
 )
 target_include_directories(h2front PUBLIC include)
 target_compile_options(h2front PRIVATE -Wall -Wextra -Wpedantic)

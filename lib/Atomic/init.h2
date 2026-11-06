@@ -4,48 +4,171 @@
 // available everywhere. Primitive types are ordinary `new type` declarations
 // built from raw bits. Their operators lower directly to compiler intrinsics,
 // and `intrinsic` is only usable inside Atomic.
+//
+// The friendly names are the real types; the sized names are aliases:
+//   int = i64, uint = u64 = usize, float = f64
 
 // ---------------------------------------------------------------- integers
 
-pub new type i8  : bits(8)  signed
-pub new type i16 : bits(16) signed
-pub new type i32 : bits(32) signed
-pub new type i64 : bits(64) signed {
-    new operator + (a: i64, b: i64) -> i64 { return intrinsic.add(a, b) }
-    new operator - (a: i64, b: i64) -> i64 { return intrinsic.sub(a, b) }
-    new operator * (a: i64, b: i64) -> i64 { return intrinsic.mul(a, b) }
-    new operator / (a: i64, b: i64) -> i64 { return intrinsic.sdiv(a, b) }
-    new operator % (a: i64, b: i64) -> i64 { return intrinsic.srem(a, b) }
-    new operator - (a: i64) -> i64 { return intrinsic.neg(a) }
-    new operator == (a: i64, b: i64) -> bool { return intrinsic.eq(a, b) }
-    new operator < (a: i64, b: i64) -> bool { return intrinsic.slt(a, b) }
-    new operator <= (a: i64, b: i64) -> bool { return intrinsic.sle(a, b) }
-    new operator > (a: i64, b: i64) -> bool { return intrinsic.sgt(a, b) }
-    new operator >= (a: i64, b: i64) -> bool { return intrinsic.sge(a, b) }
-    new operator & (a: i64, b: i64) -> i64 { return intrinsic.and(a, b) }
-    new operator | (a: i64, b: i64) -> i64 { return intrinsic.or(a, b) }
-    new operator ^ (a: i64, b: i64) -> i64 { return intrinsic.xor(a, b) }
-    new operator << (a: i64, n: i64) -> i64 { return intrinsic.shl(a, n) }
-    new operator >> (a: i64, n: i64) -> i64 { return intrinsic.ashr(a, n) }
+pub new type int : bits(64) signed {
+    new operator + (a: int, b: int) -> int { return intrinsic.add(a, b) }
+    new operator - (a: int, b: int) -> int { return intrinsic.sub(a, b) }
+    new operator * (a: int, b: int) -> int { return intrinsic.mul(a, b) }
+    new operator / (a: int, b: int) -> int { return intrinsic.sdiv(a, b) }
+    new operator % (a: int, b: int) -> int { return intrinsic.srem(a, b) }
+    new operator - (a: int) -> int { return intrinsic.neg(a) }
+    new operator == (a: int, b: int) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: int, b: int) -> bool { return intrinsic.slt(a, b) }
+    new operator & (a: int, b: int) -> int { return intrinsic.and(a, b) }
+    new operator | (a: int, b: int) -> int { return intrinsic.or(a, b) }
+    new operator ^ (a: int, b: int) -> int { return intrinsic.xor(a, b) }
+    new operator ~ (a: int) -> int { return intrinsic.not(a) }
+    new operator << (a: int, n: int) -> int { return intrinsic.shl(a, n) }
+    new operator >> (a: int, n: int) -> int { return intrinsic.ashr(a, n) }
 }
 
-pub new type u8    : bits(8)
-pub new type u16   : bits(16)
-pub new type u32   : bits(32)
-pub new type u64   : bits(64)
-pub new type usize : bits(64)
+pub new type i32 : bits(32) signed {
+    new operator + (a: i32, b: i32) -> i32 { return intrinsic.add(a, b) }
+    new operator - (a: i32, b: i32) -> i32 { return intrinsic.sub(a, b) }
+    new operator * (a: i32, b: i32) -> i32 { return intrinsic.mul(a, b) }
+    new operator / (a: i32, b: i32) -> i32 { return intrinsic.sdiv(a, b) }
+    new operator % (a: i32, b: i32) -> i32 { return intrinsic.srem(a, b) }
+    new operator - (a: i32) -> i32 { return intrinsic.neg(a) }
+    new operator == (a: i32, b: i32) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: i32, b: i32) -> bool { return intrinsic.slt(a, b) }
+    new operator & (a: i32, b: i32) -> i32 { return intrinsic.and(a, b) }
+    new operator | (a: i32, b: i32) -> i32 { return intrinsic.or(a, b) }
+    new operator ^ (a: i32, b: i32) -> i32 { return intrinsic.xor(a, b) }
+    new operator ~ (a: i32) -> i32 { return intrinsic.not(a) }
+    new operator << (a: i32, n: i32) -> i32 { return intrinsic.shl(a, n) }
+    new operator >> (a: i32, n: i32) -> i32 { return intrinsic.ashr(a, n) }
+}
+
+pub new type i16 : bits(16) signed {
+    new operator + (a: i16, b: i16) -> i16 { return intrinsic.add(a, b) }
+    new operator - (a: i16, b: i16) -> i16 { return intrinsic.sub(a, b) }
+    new operator * (a: i16, b: i16) -> i16 { return intrinsic.mul(a, b) }
+    new operator / (a: i16, b: i16) -> i16 { return intrinsic.sdiv(a, b) }
+    new operator % (a: i16, b: i16) -> i16 { return intrinsic.srem(a, b) }
+    new operator - (a: i16) -> i16 { return intrinsic.neg(a) }
+    new operator == (a: i16, b: i16) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: i16, b: i16) -> bool { return intrinsic.slt(a, b) }
+    new operator & (a: i16, b: i16) -> i16 { return intrinsic.and(a, b) }
+    new operator | (a: i16, b: i16) -> i16 { return intrinsic.or(a, b) }
+    new operator ^ (a: i16, b: i16) -> i16 { return intrinsic.xor(a, b) }
+    new operator ~ (a: i16) -> i16 { return intrinsic.not(a) }
+    new operator << (a: i16, n: i16) -> i16 { return intrinsic.shl(a, n) }
+    new operator >> (a: i16, n: i16) -> i16 { return intrinsic.ashr(a, n) }
+}
+
+pub new type i8 : bits(8) signed {
+    new operator + (a: i8, b: i8) -> i8 { return intrinsic.add(a, b) }
+    new operator - (a: i8, b: i8) -> i8 { return intrinsic.sub(a, b) }
+    new operator * (a: i8, b: i8) -> i8 { return intrinsic.mul(a, b) }
+    new operator / (a: i8, b: i8) -> i8 { return intrinsic.sdiv(a, b) }
+    new operator % (a: i8, b: i8) -> i8 { return intrinsic.srem(a, b) }
+    new operator - (a: i8) -> i8 { return intrinsic.neg(a) }
+    new operator == (a: i8, b: i8) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: i8, b: i8) -> bool { return intrinsic.slt(a, b) }
+    new operator & (a: i8, b: i8) -> i8 { return intrinsic.and(a, b) }
+    new operator | (a: i8, b: i8) -> i8 { return intrinsic.or(a, b) }
+    new operator ^ (a: i8, b: i8) -> i8 { return intrinsic.xor(a, b) }
+    new operator ~ (a: i8) -> i8 { return intrinsic.not(a) }
+    new operator << (a: i8, n: i8) -> i8 { return intrinsic.shl(a, n) }
+    new operator >> (a: i8, n: i8) -> i8 { return intrinsic.ashr(a, n) }
+}
+
+pub new type uint : bits(64) {
+    new operator + (a: uint, b: uint) -> uint { return intrinsic.add(a, b) }
+    new operator - (a: uint, b: uint) -> uint { return intrinsic.sub(a, b) }
+    new operator * (a: uint, b: uint) -> uint { return intrinsic.mul(a, b) }
+    new operator / (a: uint, b: uint) -> uint { return intrinsic.udiv(a, b) }
+    new operator % (a: uint, b: uint) -> uint { return intrinsic.urem(a, b) }
+    new operator == (a: uint, b: uint) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: uint, b: uint) -> bool { return intrinsic.ult(a, b) }
+    new operator & (a: uint, b: uint) -> uint { return intrinsic.and(a, b) }
+    new operator | (a: uint, b: uint) -> uint { return intrinsic.or(a, b) }
+    new operator ^ (a: uint, b: uint) -> uint { return intrinsic.xor(a, b) }
+    new operator ~ (a: uint) -> uint { return intrinsic.not(a) }
+    new operator << (a: uint, n: uint) -> uint { return intrinsic.shl(a, n) }
+    new operator >> (a: uint, n: uint) -> uint { return intrinsic.lshr(a, n) }
+}
+
+pub new type u32 : bits(32) {
+    new operator + (a: u32, b: u32) -> u32 { return intrinsic.add(a, b) }
+    new operator - (a: u32, b: u32) -> u32 { return intrinsic.sub(a, b) }
+    new operator * (a: u32, b: u32) -> u32 { return intrinsic.mul(a, b) }
+    new operator / (a: u32, b: u32) -> u32 { return intrinsic.udiv(a, b) }
+    new operator % (a: u32, b: u32) -> u32 { return intrinsic.urem(a, b) }
+    new operator == (a: u32, b: u32) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: u32, b: u32) -> bool { return intrinsic.ult(a, b) }
+    new operator & (a: u32, b: u32) -> u32 { return intrinsic.and(a, b) }
+    new operator | (a: u32, b: u32) -> u32 { return intrinsic.or(a, b) }
+    new operator ^ (a: u32, b: u32) -> u32 { return intrinsic.xor(a, b) }
+    new operator ~ (a: u32) -> u32 { return intrinsic.not(a) }
+    new operator << (a: u32, n: u32) -> u32 { return intrinsic.shl(a, n) }
+    new operator >> (a: u32, n: u32) -> u32 { return intrinsic.lshr(a, n) }
+}
+
+pub new type u16 : bits(16) {
+    new operator + (a: u16, b: u16) -> u16 { return intrinsic.add(a, b) }
+    new operator - (a: u16, b: u16) -> u16 { return intrinsic.sub(a, b) }
+    new operator * (a: u16, b: u16) -> u16 { return intrinsic.mul(a, b) }
+    new operator / (a: u16, b: u16) -> u16 { return intrinsic.udiv(a, b) }
+    new operator % (a: u16, b: u16) -> u16 { return intrinsic.urem(a, b) }
+    new operator == (a: u16, b: u16) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: u16, b: u16) -> bool { return intrinsic.ult(a, b) }
+    new operator & (a: u16, b: u16) -> u16 { return intrinsic.and(a, b) }
+    new operator | (a: u16, b: u16) -> u16 { return intrinsic.or(a, b) }
+    new operator ^ (a: u16, b: u16) -> u16 { return intrinsic.xor(a, b) }
+    new operator ~ (a: u16) -> u16 { return intrinsic.not(a) }
+    new operator << (a: u16, n: u16) -> u16 { return intrinsic.shl(a, n) }
+    new operator >> (a: u16, n: u16) -> u16 { return intrinsic.lshr(a, n) }
+}
+
+pub new type u8 : bits(8) {
+    new operator + (a: u8, b: u8) -> u8 { return intrinsic.add(a, b) }
+    new operator - (a: u8, b: u8) -> u8 { return intrinsic.sub(a, b) }
+    new operator * (a: u8, b: u8) -> u8 { return intrinsic.mul(a, b) }
+    new operator / (a: u8, b: u8) -> u8 { return intrinsic.udiv(a, b) }
+    new operator % (a: u8, b: u8) -> u8 { return intrinsic.urem(a, b) }
+    new operator == (a: u8, b: u8) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: u8, b: u8) -> bool { return intrinsic.ult(a, b) }
+    new operator & (a: u8, b: u8) -> u8 { return intrinsic.and(a, b) }
+    new operator | (a: u8, b: u8) -> u8 { return intrinsic.or(a, b) }
+    new operator ^ (a: u8, b: u8) -> u8 { return intrinsic.xor(a, b) }
+    new operator ~ (a: u8) -> u8 { return intrinsic.not(a) }
+    new operator << (a: u8, n: u8) -> u8 { return intrinsic.shl(a, n) }
+    new operator >> (a: u8, n: u8) -> u8 { return intrinsic.lshr(a, n) }
+}
+
+pub new type i64   = int
+pub new type u64   = uint
+pub new type usize = uint
 
 // ---------------------------------------------------------------- floats
 
-pub new type f32 : float(32)
-pub new type f64 : float(64) {
-    new operator + (a: f64, b: f64) -> f64 { return intrinsic.fadd(a, b) }
-    new operator - (a: f64, b: f64) -> f64 { return intrinsic.fsub(a, b) }
-    new operator * (a: f64, b: f64) -> f64 { return intrinsic.fmul(a, b) }
-    new operator / (a: f64, b: f64) -> f64 { return intrinsic.fdiv(a, b) }
-    new operator == (a: f64, b: f64) -> bool { return intrinsic.feq(a, b) }
-    new operator < (a: f64, b: f64) -> bool { return intrinsic.flt(a, b) }
+pub new type float : float(64) {
+    new operator + (a: float, b: float) -> float { return intrinsic.fadd(a, b) }
+    new operator - (a: float, b: float) -> float { return intrinsic.fsub(a, b) }
+    new operator * (a: float, b: float) -> float { return intrinsic.fmul(a, b) }
+    new operator / (a: float, b: float) -> float { return intrinsic.fdiv(a, b) }
+    new operator - (a: float) -> float { return intrinsic.fneg(a) }
+    new operator == (a: float, b: float) -> bool { return intrinsic.feq(a, b) }
+    new operator < (a: float, b: float) -> bool { return intrinsic.flt(a, b) }
 }
+
+pub new type f32 : float(32) {
+    new operator + (a: f32, b: f32) -> f32 { return intrinsic.fadd(a, b) }
+    new operator - (a: f32, b: f32) -> f32 { return intrinsic.fsub(a, b) }
+    new operator * (a: f32, b: f32) -> f32 { return intrinsic.fmul(a, b) }
+    new operator / (a: f32, b: f32) -> f32 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f32) -> f32 { return intrinsic.fneg(a) }
+    new operator == (a: f32, b: f32) -> bool { return intrinsic.feq(a, b) }
+    new operator < (a: f32, b: f32) -> bool { return intrinsic.flt(a, b) }
+}
+
+pub new type f64 = float
 
 // ---------------------------------------------------------------- others
 
@@ -57,20 +180,15 @@ pub new type bool : bits(1) {
 pub new type char : bits(32) {
     new operator == (a: char, b: char) -> bool { return intrinsic.eq(a, b) }
     new operator < (a: char, b: char) -> bool { return intrinsic.ult(a, b) }
-    new operator > (a: char, b: char) -> bool { return intrinsic.ugt(a, b) }
 }
-
-// Friendly aliases.
-pub new type int   : i64
-pub new type uint  : u64
-pub new type float : f64
 
 // A borrowed run of UTF-8 bytes. Does not own its memory.
 pub new type string {
     pub data: ptr<u8>
-    pub len:  usize
+    pub len:  uint
 
-    new operator [] (s: string, i: usize) -> u8 { return s.data[i] }
+    new operator [] (s: string, i: uint) -> u8 { return s.data[i] }
+    new operator == (a: string, b: string) -> bool { return intrinsic.memeq(a.data, b.data, a.len, b.len) }
 }
 
 // ---------------------------------------------------------------- errors

@@ -1,8 +1,11 @@
 use Elemental
 
-new type Meters : f64 {
-    new operator + (a: Meters, b: Meters) -> Meters { return Meters(f64(a) + f64(b)) }
-    new operator * (a: Meters, b: Meters) -> Meters { return Meters(f64(a) * f64(b)) }
+// A distinct type: Meters has float's representation, but doesn't mix with
+// plain floats unless you convert explicitly.
+new type Meters : float {
+    new operator + (a: Meters, b: Meters) -> Meters { return Meters(float(a) + float(b)) }
+    new operator * (a: Meters, b: Meters) -> Meters { return Meters(float(a) * float(b)) }
+    new operator < (a: Meters, b: Meters) -> bool { return float(a) < float(b) }
 }
 
 new class Point {
@@ -10,16 +13,17 @@ new class Point {
     y: Meters
 
     new function length() -> Meters {
-        return sqrt(self.x * self.x + self.y * self.y)
+        return Meters(sqrt(float(self.x * self.x + self.y * self.y)))
     }
 }
 
 new function main() -> int {
-    let p = Point(3.0, 4.0)          // stack
-    let q = alloc Point(6.0, 8.0)    // heap
+    let p = Point(3.0, 4.0)          // stack: cleaned up at end of scope
+    let q = alloc Point(6.0, 8.0)    // heap: q is a ptr<Point>
     print("Hello, Hydrogen")
-    print(p.length())
-    print(q.length())
+    if p.length() < q.length() {
+        print("p is closer to the origin")
+    }
     free q
     return 0
 }

@@ -1,0 +1,54 @@
+use Elemental
+
+new type Meters : float
+new class Point { x: float, y: float }
+new interface Ordered { new operator < (a: Self, b: Self) -> bool }
+new function biggest<T: Ordered>(a: T, b: T) -> T { return a }
+new enum Color { Red, Green, Blue }
+new enum E { Bad }
+
+new function no_return(x: int) -> int {
+    if x > 0 { return 1 }
+}
+
+new function wrong_try() -> int {
+    let r: Result<int, E> = Ok(1)
+    return r?
+}
+
+new function main() -> int {
+    let a: u8 = 256
+    let b: i8 = -129
+    let c: int = 1.5
+    let d = 1 + "two"
+    let e = Meters(1.0) + Meters(2.0)
+    let f: float = Meters(1.0)
+    let g = Point(1.0)
+    let h = Point(1.0, 2.0, 3.0)
+    let i = biggest(Point(1.0, 2.0), Point(3.0, 4.0))
+    let j = biggest(1, 2.5)
+    let k = true + 1
+    if 1 { }
+    while "yes" { }
+    let p = Point(1.0, 2.0)
+    p.x = 3.0
+    p.z = 1.0
+    let q = p.nope()
+    let m = *p
+    free p
+    let arr = []
+    for x in 5 { }
+    break
+    match Color.Red {
+        Red => print("r")
+        Green => print("g")
+    }
+    match 3 {
+        1 => print("one")
+    }
+    let s: string = 'c'
+    let v = no_return(1, 2)
+    let w = int("12")
+    print("x") = 1
+    return
+}

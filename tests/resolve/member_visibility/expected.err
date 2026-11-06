@@ -1,0 +1,4 @@
+tests/resolve/member_visibility/main.h2:7:22: error: field 'balance' of Account is not pub (it belongs to module Bank)
+tests/resolve/member_visibility/main.h2:9:9: error: method 'audit' of Account is not pub (it belongs to module Bank)
+tests/resolve/member_visibility/main.h2:10:25: error: cannot construct Account here: field 'balance' is not pub. Give Account a pub 'init' function
+tests/resolve/member_visibility/main.h2:11:18: error: function 'init' of Vault is not pub (it belongs to module Bank)

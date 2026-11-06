@@ -465,6 +465,8 @@ private:
     void declareGenerics(std::vector<GenericParam>& gs) {
         for (auto& g : gs) {
             Symbol* s = prog_.newSymbol(Symbol::Kind::Generic, g.name, g.loc, mod_);
+            s->genericParam = &g;
+            g.sym = s;
             declare(s);
         }
         for (auto& g : gs)
@@ -633,7 +635,7 @@ private:
             auto& l = static_cast<LetStmt&>(s);
             if (l.type) resolveType(*l.type);
             if (l.init) resolveExpr(*l.init); // before declaring: `let x = x` sees the outer x
-            declareLocal(l.name, l.loc, l.mutable_);
+            l.sym = declareLocal(l.name, l.loc, l.mutable_);
             return;
         }
         case StmtKind::Assign: {
@@ -669,7 +671,7 @@ private:
             auto& f = static_cast<ForStmt&>(s);
             resolveExpr(*f.iterable);
             pushScope();
-            declareLocal(f.var, f.loc, false);
+            f.sym = declareLocal(f.var, f.loc, false);
             resolveBlock(*f.body);
             popScope();
             return;
@@ -695,7 +697,7 @@ private:
         declareGenerics(f.generics);
         for (auto& p : f.params) {
             resolveType(*p.type);
-            declareLocal(p.name, p.loc, false);
+            p.sym = declareLocal(p.name, p.loc, false);
         }
         if (f.returnType) resolveType(*f.returnType);
         if (f.body) {
