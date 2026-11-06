@@ -525,7 +525,8 @@ Two layers:
 | `int uint float`, sized ints/floats, `bool char` | types, with their operators |
 | `str` | borrowed text: `.data` `.len` `[i]` `==` |
 | `Result<T, E>` (`Ok`, `Err`), `Option<T>` (`Some`, `None`) | error handling |
-| `Ordered`, `Equatable` | interfaces: has `<` / has `==` |
+| `Ordered`, `Equatable`, `Hashable` | interfaces: has `<` / has `==` / has `operator hash` |
+| `hash(x)`, `wrapping_add/sub/mul` | hashing; arithmetic that wraps on purpose (never stops the program) |
 | `Atomic.Memory` | `copy(dst, src, n)` `fill(dst, byte, n)`; for containers: `take(p)` (move out of raw memory), `destroy(p)` (drop in place), `size_of(p)` |
 | `Atomic.Math` | `sqrt` `floor` `ceil` |
 | `Atomic.Program` | `arg_count()`, `arg_at(i)` (C string): what the OS passes at startup |
@@ -539,6 +540,7 @@ Two layers:
 | `Printable` | interface: has `operator string` |
 | `operator string` for all of Atomic's types | `string(42)`, `string(3.5)`, `string(true)`, ... |
 | `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `list[i]` `for x in list` `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
+| `Map<K, V>`: `set(k, v)` `get(k)` (Option of ptr) `has(k)` `remove(k)` (Option) `len()` `for k in map` `value_at(i)` | hash map, keeps insertion order; keys need `==` and `operator hash` |
 | `Elemental.IO` | `print(x)`, `eprint(x)` (stderr), `read_line()` (Option, None at end of input), `args()` (List of strings) |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
 | text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
@@ -564,6 +566,19 @@ match read_file("notes.txt") {
     Err(e) => print(e)                       // "file not found"
 }
 ```
+Counting words with a `Map`:
+```
+var counts = Map<str, int>()
+for word in split(text, " ") {
+    match counts.get(word) {
+        Some(n) => { *n += 1 }           // get gives a pointer: change it in place
+        None => { counts.set(word, 1) }
+    }
+}
+for w in counts { print(w) }             // keys in the order first added
+```
+Your own key types need `==` and `operator hash (v: T) -> uint`.
+
 Text tools return views into their input (no allocation), so keep the original
 text alive while you use the results.
 
@@ -580,7 +595,6 @@ Elemental uses `extern` to reach the C library instead.
 
 ## 16. Not supported yet
 
-- `Map<K, V>`
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
 - Closures that capture variables (lambdas without captures work)

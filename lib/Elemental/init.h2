@@ -10,3 +10,4 @@ pub use Elemental.File
 include text
 include list
 include textutil
+include map

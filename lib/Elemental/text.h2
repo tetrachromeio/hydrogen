@@ -58,6 +58,7 @@ pub new class string {
         return out
     }
     new operator string (s: string) -> string { return string(s.view()) }
+    new operator hash (s: string) -> uint { return hash(s.view()) }
 }
 
 // Joining borrowed text builds an owned string.

@@ -312,11 +312,12 @@ private:
             return "[]";
         case Tok::Ident:
             // Conversion operator: how a value becomes text (like Python's __str__).
-            if (t.text == "string") {
+            if (t.text == "string" || t.text == "hash") {
+                std::string name = t.text;
                 advance();
-                return "string";
+                return name;
             }
-            fail(t.loc, "'" + t.text + "' is not an operator. The only conversion operator is 'operator string'");
+            fail(t.loc, "'" + t.text + "' is not an operator. Named operators are 'operator string' and 'operator hash'");
         default: failExpected("an overloadable operator");
         }
     }

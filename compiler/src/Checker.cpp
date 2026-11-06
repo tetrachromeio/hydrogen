@@ -1952,22 +1952,33 @@ private:
     // A top-level operator must be about a named type, so it can be found.
     void checkExtensionOperator(const FunctionDecl& op) {
         const Sig& sig = sigOf(op, nullptr);
-        bool unaryOk = op.name == "-" || op.name == "!" || op.name == "~" || op.name == "string";
+        bool named = op.name == "string" || op.name == "hash";
+        bool unaryOk = op.name == "-" || op.name == "!" || op.name == "~" || named;
         if (op.params.empty() || op.params.size() > 2 || (op.params.size() == 1 && !unaryOk) ||
-            (op.name == "string" && op.params.size() != 1)) {
+            (named && op.params.size() != 1)) {
             error(op.loc, "operator " + q(op.name) + " has the wrong number of parameters");
             return;
         }
-        bool named = std::any_of(sig.params.begin(), sig.params.end(),
-                                 [](const Type* t) { return t->kind == K::Named || t->isError(); });
-        if (!named) error(op.loc, "an operator outside a type must take at least one parameter of a named type");
+        bool hasNamed = std::any_of(sig.params.begin(), sig.params.end(),
+                                    [](const Type* t) { return t->kind == K::Named || t->isError(); });
+        if (!hasNamed) error(op.loc, "an operator outside a type must take at least one parameter of a named type");
         if (op.name == "string" && sig.ret != lang_.stringT && !sig.ret->isError())
             error(op.loc, "operator string must return string");
+        if (op.name == "hash" && sig.ret != lang_.uintT && !sig.ret->isError())
+            error(op.loc, "operator hash must return uint");
     }
 
     // Operators: 1 or 2 parameters, at least one of the owner's type.
     void checkOperatorShape(const FunctionDecl& op, const Type* owner) {
         size_t n = op.params.size();
+        if (op.name == "hash") {
+            const Sig& sig = sigOf(op, owner);
+            if (n != 1 || sig.params[0] != owner)
+                error(op.loc, "operator hash takes exactly one parameter of type " + str(owner));
+            else if (sig.ret != lang_.uintT && !sig.ret->isError())
+                error(op.loc, "operator hash must return uint");
+            return;
+        }
         if (op.name == "string") {
             const Sig& sig = sigOf(op, owner);
             if (n != 1 || sig.params[0] != owner)

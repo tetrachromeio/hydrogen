@@ -2022,6 +2022,21 @@ private:
         static const std::map<std::string, std::string> cmps = {
             {"eq", "icmp eq"}, {"slt", "icmp slt"}, {"ult", "icmp ult"}, {"sle", "icmp sle"}, {"sgt", "icmp sgt"},
             {"ugt", "icmp ugt"}, {"sge", "icmp sge"}, {"feq", "fcmp oeq"}, {"flt", "fcmp olt"}};
+        // Wrapping arithmetic: never checked (hashing, checksums, random numbers).
+        if (name == "wadd") return bin("add");
+        if (name == "wsub") return bin("sub");
+        if (name == "wmul") return bin("mul");
+        if (name == "op_hash") {
+            // hash<T>(v): call T's `operator hash` (found on the concrete type).
+            const Type* t = ts[0];
+            OpRef op = findOperator(t, "hash", {t});
+            if (!op) {
+                unsupported(c.loc, "hashing " + typeName(t));
+                return {"i64", "0"};
+            }
+            Val v = isAggregate(t) ? Val{"ptr", addressOf(*c.args[0])} : a[0];
+            return callOpVals(op, {v});
+        }
         if (checks_ && (name == "add" || name == "sub" || name == "mul") && a[0].ty != "i1") {
             // Debug builds stop the program on overflow instead of wrapping.
             bool isSigned = scalarOf(ts[0]).isSigned;

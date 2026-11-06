@@ -1,0 +1,91 @@
+use Elemental
+
+// A custom key: anything with == and operator hash works.
+new type Point {
+    x: int
+    y: int
+    new operator == (a: Point, b: Point) -> bool { return a.x == b.x && a.y == b.y }
+    new operator hash (p: Point) -> uint { return hash(p.x) ^ wrapping_mul(hash(p.y), 31) }
+}
+
+new function count_of(m: Map<str, int>, key: str) -> int {
+    match m.get(key) {
+        Some(p) => { return *p }
+        None => { return 0 }
+    }
+}
+
+new function main() -> int {
+    // word count, printed in first-seen order
+    let text = "the cat and the hat and the bat"
+    var counts = Map<str, int>()
+    for word in split(text, " ") {
+        match counts.get(word) {
+            Some(n) => { *n += 1 }
+            None => { counts.set(word, 1) }
+        }
+    }
+    for i in 0..counts.len() { print(*counts.at(i) + " " + string(*counts.value_at(i))) }
+    print(count_of(counts, "the"))
+    print(count_of(counts, "dog"))
+    print(counts.has("hat"))
+
+    // owned keys and values: the map frees them
+    var groups = Map<string, List<int>>()
+    groups.set(string("odd"), List<int>())
+    groups.set(string("even"), List<int>())
+    for n in 1..10 {
+        let key = if_even(n)
+        match groups.get(key) {
+            Some(list) => list.push(n)
+            None => {}
+        }
+    }
+    match groups.get(string("odd")) {
+        Some(list) => print(list.len())
+        None => {}
+    }
+    groups.set(string("even"), List<int>())          // replaces (and frees) the old list
+    match groups.get(string("even")) {
+        Some(list) => print(list.len())
+        None => {}
+    }
+
+    // removal keeps the rest reachable
+    match counts.remove("and") {
+        Some(n) => print("removed and: " + string(n))
+        None => print("missing")
+    }
+    print(counts.len())
+    print(count_of(counts, "bat"))
+    print(count_of(counts, "and"))
+
+    // growth: many entries
+    var squares = Map<int, int>()
+    for i in 0..1000 { squares.set(i, i * i) }
+    var ok = true
+    for i in 0..1000 {
+        match squares.get(i) {
+            Some(v) => { if *v != i * i { ok = false } }
+            None => { ok = false }
+        }
+    }
+    for i in 0..500 { squares.remove(i * 2) }
+    print(squares.len())
+    print(ok && !squares.has(10) && squares.has(11))
+
+    // custom keys
+    var grid = Map<Point, str>()
+    grid.set(Point(0, 0), "origin")
+    grid.set(Point(2, 3), "treasure")
+    match grid.get(Point(2, 3)) {
+        Some(s) => print(*s)
+        None => print("nothing")
+    }
+    return 0
+}
+
+new function if_even(n: int) -> string {
+    if n % 2 == 0 { return string("even") }
+    return string("odd")
+}

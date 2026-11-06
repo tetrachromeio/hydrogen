@@ -230,3 +230,54 @@ pub new enum Option<T> {
     Some(T)
     None
 }
+
+// ---------------------------------------------------------------- wrapping arithmetic
+
+// Arithmetic that wraps around on overflow, on purpose (hashes, checksums,
+// random numbers). Normal + - * stop the program on overflow in debug builds.
+pub new function wrapping_add(a: uint, b: uint) -> uint { return intrinsic.wadd(a, b) }
+pub new function wrapping_sub(a: uint, b: uint) -> uint { return intrinsic.wsub(a, b) }
+pub new function wrapping_mul(a: uint, b: uint) -> uint { return intrinsic.wmul(a, b) }
+
+// ---------------------------------------------------------------- hashing
+
+// A type is Hashable if it defines `operator hash`. Equal values must have
+// equal hashes. Used by Elemental's Map.
+pub new interface Hashable {
+    new operator hash (v: Self) -> uint
+}
+
+// The hash of any Hashable value.
+pub new function hash<T: Hashable>(value: T) -> uint { return intrinsic.op_hash(value) }
+
+// Spreads the bits of a number (the splitmix64 finalizer).
+new function mix(x: uint) -> uint {
+    let k1: uint = 0xbf58476d1ce4e5b9
+    let k2: uint = 0x94d049bb133111eb
+    var z = wrapping_mul(x ^ (x >> 30), k1)
+    z = wrapping_mul(z ^ (z >> 27), k2)
+    return z ^ (z >> 31)
+}
+
+pub new operator hash (v: uint) -> uint { return mix(v) }
+pub new operator hash (v: int) -> uint { return mix(uint(v)) }
+pub new operator hash (v: u32) -> uint { return mix(uint(v)) }
+pub new operator hash (v: u16) -> uint { return mix(uint(v)) }
+pub new operator hash (v: u8) -> uint { return mix(uint(v)) }
+pub new operator hash (v: i32) -> uint { return mix(uint(v)) }
+pub new operator hash (v: i16) -> uint { return mix(uint(v)) }
+pub new operator hash (v: i8) -> uint { return mix(uint(v)) }
+pub new operator hash (v: char) -> uint { return mix(uint(v)) }
+pub new operator hash (v: bool) -> uint { return mix(uint(v)) }
+
+// FNV-1a over the bytes.
+pub new operator hash (s: str) -> uint {
+    let prime: uint = 1099511628211
+    var h: uint = 14695981039346656037
+    var i: uint = 0
+    while i < s.len {
+        h = wrapping_mul(h ^ uint(s.data[i]), prime)
+        i += 1
+    }
+    return h
+}
