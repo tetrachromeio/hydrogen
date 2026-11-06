@@ -234,6 +234,15 @@ private:
 
     DeclPtr parseTopDeclAfterPub() {
         if (at(Tok::KwUse)) return parseUse();
+        if (atIdent("const") && peek(1).kind == Tok::Ident) {
+            auto d = std::make_unique<ConstDecl>(advance().loc);
+            d->name = expectIdent("a constant name");
+            if (accept(Tok::Colon)) d->type = parseType();
+            expect(Tok::Assign, "'=' and a value for the constant");
+            d->value = parseExpr();
+            expectTerminator("constant");
+            return d;
+        }
         if (at(Tok::KwExtern)) {
             // extern function name(params) -> T     (a C function)
             SourceLoc loc = advance().loc;

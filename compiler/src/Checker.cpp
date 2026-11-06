@@ -681,6 +681,7 @@ private:
             }
             return t;
         }
+        case Symbol::Kind::Const: return constType(s);
         case Symbol::Kind::Function: {
             const auto* fn = declAs<FunctionDecl>(s);
             if (!fn->generics.empty()) {
@@ -1807,8 +1808,80 @@ private:
         return "; mark the method 'new mut function " + n + "' to allow it";
     }
 
+    // ---------------------------------------------------------------- constants
+
+    std::map<const Symbol*, const Type*> constTypes_;
+    std::set<const Symbol*> constsInProgress_;
+
+    // The type of a constant, checking its declaration the first time it's needed.
+    const Type* constType(const Symbol* s) {
+        if (auto it = constTypes_.find(s); it != constTypes_.end()) return it->second;
+        const auto* cd = declAs<ConstDecl>(s);
+        if (!constsInProgress_.insert(s).second) {
+            error(cd->loc, "constant " + q(cd->name) + " is defined in terms of itself");
+            return constTypes_[s] = tc_.error();
+        }
+        ModuleInfo* savedMod = mod_;
+        SourceFile* savedFile = file_;
+        mod_ = s->module;
+        file_ = const_cast<SourceFile*>(s->file);
+        auto& value = *const_cast<ConstDecl*>(cd)->value;
+        const Type* t = cd->type ? convert(*cd->type, nullptr) : nullptr;
+        if (t) {
+            coerce(value, t, "value of constant " + q(cd->name));
+        } else {
+            checkExpr(value, nullptr);
+            t = finalize(value);
+        }
+        if (!t->isError() && scalarOf(t).kind == Scalar::None && t != lang_.strT)
+            error(cd->loc, "constants can be numbers, bool, char or str, not " + str(t));
+        else if (!t->isError() && !isConstExpr(value))
+            error(value.loc, "a constant's value must be computable at compile time: literals, other constants, "
+                             "and operators or conversions on them");
+        mod_ = savedMod;
+        file_ = savedFile;
+        constsInProgress_.erase(s);
+        return constTypes_[s] = t;
+    }
+
+    bool isConstExpr(const Expr& e) {
+        switch (e.kind) {
+        case ExprKind::IntLit:
+        case ExprKind::FloatLit:
+        case ExprKind::StringLit:
+        case ExprKind::CharLit:
+        case ExprKind::BoolLit: return true;
+        case ExprKind::Ident: {
+            const Symbol* s = static_cast<const IdentExpr&>(e).sym;
+            return s && s->kind == Symbol::Kind::Const;
+        }
+        case ExprKind::Member: {
+            const Symbol* s = static_cast<const MemberExpr&>(e).sym;
+            return s && s->kind == Symbol::Kind::Const;
+        }
+        case ExprKind::Unary: {
+            const auto& u = static_cast<const UnaryExpr&>(e);
+            return u.op != "&" && u.op != "*" && isConstExpr(*u.operand);
+        }
+        case ExprKind::Binary: {
+            const auto& b = static_cast<const BinaryExpr&>(e);
+            return b.op != ".." && isConstExpr(*b.lhs) && isConstExpr(*b.rhs);
+        }
+        case ExprKind::Call: { // conversions like u8(300 / 2)
+            const auto& c = static_cast<const CallExpr&>(e);
+            const Symbol* s = c.callee->kind == ExprKind::Ident ? static_cast<const IdentExpr&>(*c.callee).sym : nullptr;
+            return s && s->kind == Symbol::Kind::Type && c.args.size() == 1 && e.type && scalarOf(e.type).kind != Scalar::None &&
+                   isConstExpr(*c.args[0]);
+        }
+        default: return false;
+        }
+    }
+
     void checkDecl(Decl& d) {
         switch (d.kind) {
+        case DeclKind::Const:
+            if (const Symbol* s = declSym_[&d]) constType(s);
+            return;
         case DeclKind::Function: {
             auto& f = static_cast<FunctionDecl&>(d);
             if (f.isOperator) checkExtensionOperator(f);

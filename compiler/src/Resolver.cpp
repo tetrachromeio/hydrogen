@@ -30,6 +30,7 @@ std::string_view symbolKindName(Symbol::Kind k) {
     case Symbol::Kind::Generic: return "generic parameter";
     case Symbol::Kind::Local: return "variable";
     case Symbol::Kind::Builtin: return "built-in";
+    case Symbol::Kind::Const: return "constant";
     }
     return "?";
 }
@@ -114,6 +115,7 @@ private:
         case DeclKind::Class: return static_cast<const ClassDecl&>(d).name;
         case DeclKind::Enum: return static_cast<const EnumDecl&>(d).name;
         case DeclKind::Interface: return static_cast<const InterfaceDecl&>(d).name;
+        case DeclKind::Const: return static_cast<const ConstDecl&>(d).name;
         case DeclKind::Use:
         case DeclKind::Include: break;
         }
@@ -126,6 +128,7 @@ private:
         case DeclKind::Type: return Symbol::Kind::Type;
         case DeclKind::Class: return Symbol::Kind::Class;
         case DeclKind::Enum: return Symbol::Kind::Enum;
+        case DeclKind::Const: return Symbol::Kind::Const;
         default: return Symbol::Kind::Interface;
         }
     }
@@ -769,6 +772,12 @@ private:
         switch (d.kind) {
         case DeclKind::Use:
         case DeclKind::Include: return;
+        case DeclKind::Const: {
+            auto& c = static_cast<ConstDecl&>(d);
+            if (c.type) resolveType(*c.type);
+            resolveExpr(*c.value);
+            return;
+        }
         case DeclKind::Function: {
             resolveFunction(static_cast<FunctionDecl&>(d), false);
             return;

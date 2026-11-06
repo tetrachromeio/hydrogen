@@ -239,7 +239,7 @@ struct AsmStmt : Stmt {
 
 // ---------------------------------------------------------------- declarations
 
-enum class DeclKind { Use, Include, Function, Type, Class, Enum, Interface };
+enum class DeclKind { Use, Include, Function, Type, Class, Enum, Interface, Const };
 
 struct Decl {
     DeclKind kind;
@@ -339,6 +339,14 @@ struct InterfaceDecl : Decl {
 
 inline LambdaExpr::LambdaExpr(SourceLoc l) : Expr(ExprKind::Lambda, l) {}
 inline LambdaExpr::~LambdaExpr() = default;
+
+// const NAME[: T] = <constant expression>
+struct ConstDecl : Decl {
+    std::string name;
+    TypeRefPtr type; // optional
+    ExprPtr value;
+    ConstDecl(SourceLoc l) : Decl(DeclKind::Const, l) {}
+};
 
 struct Module {
     std::string fileName;

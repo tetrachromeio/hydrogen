@@ -1341,6 +1341,7 @@ private:
                 return {ty, load(ty, l.ptr)};
             }
             if (id.sym && id.sym->kind == Symbol::Kind::Variant) return makeVariant(typeOf(e), id.sym, {});
+            if (id.sym && id.sym->kind == Symbol::Kind::Const) return constValue(id.sym, typeOf(e));
             if (id.sym && id.sym->kind == Symbol::Kind::Function)
                 return {"ptr", "@" + llvmQuote(requestFn(static_cast<const FunctionDecl*>(id.sym->decl), {}, nullptr))};
             unsupported(e.loc, "this kind of name");
@@ -1349,6 +1350,7 @@ private:
         case ExprKind::Member: {
             const auto& m = static_cast<const MemberExpr&>(e);
             if (m.sym && m.sym->kind == Symbol::Kind::Variant) return makeVariant(typeOf(e), m.sym, {});
+            if (m.sym && m.sym->kind == Symbol::Kind::Const) return constValue(m.sym, typeOf(e));
             if (m.sym && m.sym->kind == Symbol::Kind::Function)
                 return {"ptr", "@" + llvmQuote(requestFn(static_cast<const FunctionDecl*>(m.sym->decl), {}, nullptr))};
             const Type* ot = typeOf(*m.object);
@@ -1419,6 +1421,12 @@ private:
         }
         }
         return {"i64", "0"};
+    }
+
+    // Constants are placed inline wherever they're used.
+    Val constValue(const Symbol* s, const Type* t) {
+        const auto* cd = static_cast<const ConstDecl*>(s->decl);
+        return convertTo(*cd->value, t);
     }
 
     Val strLiteral(const std::string& text) {

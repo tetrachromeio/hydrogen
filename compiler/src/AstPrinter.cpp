@@ -367,6 +367,15 @@ private:
             os_ << ')';
             break;
         }
+        case DeclKind::Const: {
+            const auto& c = static_cast<const ConstDecl&>(d);
+            os_ << (c.isPub ? "(pub const " : "(const ") << c.name;
+            if (c.type) os_ << " : " << typeStr(*c.type);
+            os_ << " = ";
+            expr(*c.value, depth);
+            os_ << ')';
+            break;
+        }
         case DeclKind::Include: os_ << "(include " << static_cast<const IncludeDecl&>(d).name << ')'; break;
         case DeclKind::Function: function(static_cast<const FunctionDecl&>(d), depth); break;
         case DeclKind::Type: {

@@ -335,6 +335,13 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Constants
+`const NAME[: T] = value` at the top level of a module (`pub` to export).
+The value must be computable at compile time: literals, other constants,
+unary and binary operators, and scalar conversions like `u8(...)`. The type
+is a number, bool, char or str. Constants are inlined at each use. Cycles,
+function calls and other types are errors. There are no mutable globals.
+
 ## Dynamic interfaces: `any I`
 `any I` is a borrowed reference to a value of any class that implements
 interface `I`: a pointer to the value plus a table of its methods (a vtable).

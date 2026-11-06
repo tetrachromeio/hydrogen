@@ -1,0 +1,28 @@
+use Elemental
+
+const VERSION: str = "1.2"
+const MAX_USERS = 100
+const GREETING: str = "hello"
+const LIMIT = MAX_USERS * 2 + 1
+const SMALL: u8 = 200
+const RATIO = 1.5
+const DEBUG = true
+const MASK = ~0 & 0xFF
+const FIRST = 'A'
+const HALF: u8 = u8(SMALL / 2)
+
+new function main() -> int {
+    print(GREETING + " " + VERSION)
+    print(LIMIT)
+    print(SMALL)
+    print(RATIO * 2.0)
+    print(DEBUG)
+    print(MASK)
+    print(FIRST)
+    print(HALF)
+    print(MAX_USERS)
+    var count = 0
+    while count < MAX_USERS { count += 25 }
+    print(count)
+    return 0
+}

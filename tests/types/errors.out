@@ -82,3 +82,8 @@ tests/types/errors.h2:104:8: error: this function takes 1 argument, but 2 were g
 tests/types/errors.h2:115:24: error: value of 'n': expected any Named, found ptr<Robot>. Robot doesn't implement Named (missing name())
 tests/types/errors.h2:118:12: error: 'any Ordered' isn't possible: operator '<' needs both values to have the same type, which can't be dispatched at run time
 tests/types/errors.h2:119:12: error: 'any' needs an interface, but 'Robot' is a class
+tests/types/errors.h2:122:1: error: constant 'LOOP_A' is defined in terms of itself
+tests/types/errors.h2:124:28: error: a constant's value must be computable at compile time: literals, other constants, and operators or conversions on them
+tests/types/errors.h2:125:21: error: 300 does not fit in u8 (unsigned 8-bit)
+tests/types/errors.h2:126:1: error: constants can be numbers, bool, char or str, not Point
+tests/types/errors.h2:128:5: error: cannot assign to constant 'TOO_BIG'

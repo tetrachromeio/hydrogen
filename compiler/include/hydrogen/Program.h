@@ -34,6 +34,7 @@ struct Symbol {
         Generic,   // generic parameter
         Local,     // let/var, parameter, for variable, match binding
         Builtin,   // ptr, Self, intrinsic
+        Const,     // const NAME = value
     };
     Kind kind;
     std::string name;

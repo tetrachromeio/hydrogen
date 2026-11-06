@@ -118,3 +118,12 @@ new function dyn_errors() {
     let o: any Ordered = &r                // Ordered has an operator: can't be dynamic
     let p: any Robot = &r                  // not an interface
 }
+
+const LOOP_A = LOOP_B + 1
+const LOOP_B = LOOP_A + 1
+const FROM_CALL = no_return(1)
+const TOO_BIG: u8 = 300
+const NOT_PLAIN = Point(1.0, 2.0)
+new function const_errors() {
+    TOO_BIG = 1
+}

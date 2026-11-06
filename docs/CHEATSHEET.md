@@ -83,6 +83,15 @@ x = 3                   // error: 'x' is immutable
   A line starting with `(`, `[`, `?` or a binary operator starts a new statement.
   A line starting with `.member` continues a method chain.
 
+### Constants
+```
+pub const MAX_USERS = 100            // top level only; pub to share with other modules
+const GREETING: str = "hello"
+const LIMIT: u8 = u8(MAX_USERS * 2)  // built from literals, other constants, operators, conversions
+```
+Constants are numbers, bool, char or str, computed at compile time and placed inline where
+used (they work in freestanding code). There are no mutable globals.
+
 ### Literals
 | Kind | Examples |
 |---|---|
