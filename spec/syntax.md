@@ -1,4 +1,4 @@
-# Hydrogen Syntax: Draft 5
+# Hydrogen Syntax: Draft 6
 
 Status: **sketch**. Every rule here is up for discussion.
 
@@ -112,13 +112,18 @@ A type is built from raw bits, from an existing type, or from a fixed layout:
 new type bool   : bits(1)
 new type i32    : bits(32) signed
 new type f64    : float(64)
-new type Meters : f64              // distinct; no implicit mixing with f64
+new type Meters : float            // distinct; no implicit mixing with float
+new type i64    = int              // alias: another name for the same type
 
 new type string {
     data: ptr<u8>
-    len:  usize
+    len:  uint
 }
 ```
+`:` makes a **new** type with the same representation. It inherits no
+operators (define the ones you want) and converts only explicitly:
+`Meters(x)`, `float(m)`. `=` makes an **alias**: the two names are the same
+type, and an alias can't add operators.
 
 #### Operators
 A type may define **core-level operators** and nothing else. At the bottom,
@@ -130,9 +135,9 @@ new type i32 : bits(32) signed {
     new operator == (a: i32, b: i32) -> bool { return intrinsic.eq(a, b) }
 }
 
-new type Meters : f64 {
-    new operator + (a: Meters, b: Meters) -> Meters { return Meters(f64(a) + f64(b)) }
-    new operator == (a: Meters, b: Meters) -> bool  { return f64(a) == f64(b) }
+new type Meters : float {
+    new operator + (a: Meters, b: Meters) -> Meters { return Meters(float(a) + float(b)) }
+    new operator == (a: Meters, b: Meters) -> bool  { return float(a) == float(b) }
 }
 ```
 Overloadable operators: `+ - * / % == != < <= > >= & | ^ ~ ! << >> []`. A `-` or `!` operator with one parameter is the unary form.
@@ -140,15 +145,16 @@ Overloadable operators: `+ - * / % == != < <= > >= & | ^ ~ ! << >> []`. A `-` or
 cannot be overloaded.
 
 #### Built-in primitives
-| Sized                         | Friendly alias                |
-|-------------------------------|-------------------------------|
-| `i8 i16 i32 i64`              | `int` = `i64`                 |
-| `u8 u16 u32 u64`, `usize`     | `uint` = `u64`                |
-| `f32 f64`                     | `float` = `f64`               |
-| `bool`, `char`                |                               |
+| Type     | Size                 | Aliases          |
+|----------|----------------------|------------------|
+| `int`    | 64-bit signed        | `i64`            |
+| `uint`   | 64-bit unsigned      | `u64`, `usize`   |
+| `float`  | 64-bit float         | `f64`            |
+| `i8 i16 i32`, `u8 u16 u32`, `f32` | sized |      |
+| `bool`, `char`, `string` |      |                  |
 
 Both forms are always available. Use `int`/`float` for everyday code and the
-sized names when layout matters.
+sized names when layout matters. Error messages use the friendly names.
 
 ### `new class`: objects
 A **class** groups data with behavior: methods, construction (`init`) and
@@ -261,6 +267,30 @@ let m  = max(3, 7)       // inferred: max<int>
 ```
 Types satisfy interfaces **structurally**: if `int` defines `<`, it is
 `Comparable`. You don't declare it. Multiple constraints: `T: Comparable + Hashable`.
+
+## Type checking
+- **Inference.** `let x = 10` is `int`, `let y = 1.5` is `float`. A literal
+  takes its type from context when there is one: `let b: u8 = 200`, and the
+  checker reports values that don't fit (`let b: u8 = 256`).
+- **No implicit conversions** between named types. Convert explicitly:
+  `int(c)`, `float(n)`, `Meters(x)`. Conversions work between number, bool and
+  char types.
+- **Operators come from the types.** `a + b` looks for `new operator +` on the
+  operand types. Derived forms: `!=` from `==`; `>`, `<=` and `>=` from `<`.
+- **Construction.** `Point(1.0, 2.0)` calls `init` if the class has one,
+  otherwise it takes the fields in order. From another module, that needs a
+  `pub init`, or all fields `pub`.
+- **Generic arguments are inferred** from the arguments and the expected
+  type: `max(3, 7)` is `max<int>`, and `return Err(e)` uses the return type.
+  The type must structurally satisfy each constraint's interface.
+- **`match` must be exhaustive**, including nested patterns
+  (`Err(Empty)` plus `Err(BadDigit(c))` covers every `Err` of that enum).
+- **Every path of a function with a return type must `return`.**
+- **Mutability.** Assigning to a `let`, or to a field or element of one, is an error.
+- `pub` is enforced on fields, methods and `init`.
+- `ptr<T>`: `&x` takes an address, `*p` reads through it, `p.field` and `p[i]`
+  dereference automatically. `alloc [T; N]` returns `ptr<T>`.
+- `for` works over ranges (`a..b`), arrays, slices and strings (as `char`).
 
 ## Control flow
 ```

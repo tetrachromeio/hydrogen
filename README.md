@@ -7,20 +7,21 @@ between assembly and C++, with friendlier syntax. Higher-level languages
 ```
 use Elemental
 
-new type Meters : f64 {
-    new operator + (a: Meters, b: Meters) -> Meters { return Meters(f64(a) + f64(b)) }
+new type Meters : float {
+    new operator + (a: Meters, b: Meters) -> Meters { return Meters(float(a) + float(b)) }
+    new operator * (a: Meters, b: Meters) -> Meters { return Meters(float(a) * float(b)) }
 }
 
 new class Point {
     x: Meters
     y: Meters
-    new function length() -> Meters { return sqrt(self.x * self.x + self.y * self.y) }
+    new function length() -> Meters { return Meters(sqrt(float(self.x * self.x + self.y * self.y))) }
 }
 
 new function main() -> int {
     let p = Point(3.0, 4.0)          // stack, cleaned up automatically
     let q = alloc Point(6.0, 8.0)    // heap, explicit
-    print(p.length())
+    print("Hello, Hydrogen")
     free q
     return 0
 }
@@ -75,7 +76,8 @@ ctest --test-dir build --output-on-failure
 ./build/compiler/hy help                          # project tool
 ./build/compiler/h2c --ast examples/hello.h2     # dump the AST
 ./build/compiler/h2c --tokens examples/hello.h2  # dump tokens
-./build/compiler/h2c --check examples/hello.h2   # syntax check
+./build/compiler/h2c --check examples/hello.h2   # full check: names and types
+./build/compiler/h2c --types examples/hello.h2   # print the inferred type of each local
 ```
 
 To regenerate golden files after an intentional change:
@@ -88,7 +90,7 @@ python3 tests/run_tests.py build/compiler/h2c . --update
 - [x] Parser and AST, with error recovery
 - [x] Modules, `pub` visibility and name resolution
 - [x] `hy` project tool: `hy.toml`, path dependencies, `hy new` / `check` / `deps`
-- [ ] Type checking and inference
+- [x] Type checking and inference
 - [ ] Generic monomorphization
 - [ ] LLVM IR codegen
 - [ ] Atomic / Elemental standard libraries

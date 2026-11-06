@@ -27,7 +27,8 @@ Principles:
 | Imports           | `use Module` brings its names into scope          |
 | Types             | `new type`: value types (int, bool, string, ...)  |
 | Type operators    | Types define core operators (`+ - == ...`) only    |
-| Primitives        | Sized (`i32`, `f64`) plus aliases `int`, `float`   |
+| Primitives        | `int`/`uint`/`float` (64-bit) are canonical; `i64`, `u64`, `usize`, `f64` alias them |
+| Type forms        | `: base` = new distinct type; `= other` = alias    |
 | Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
 | Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
 | Functions         | `new function name() {}`                          |
@@ -50,4 +51,6 @@ Principles:
 ## Open
 - C interop / ABI and `extern` declarations
 - Integer overflow behavior (wrap, trap or undefined)
+- Function overloading (e.g. print(int) and print(string))
+- Mutating methods on `let` values
 - String interpolation
