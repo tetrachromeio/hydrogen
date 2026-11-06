@@ -239,6 +239,9 @@ pub new class string {
 
     pub new function len() -> uint { return self.used }
 
+    // An independent copy. Strings are moved, not copied, unless you ask.
+    pub new function copy() -> string { return string(self.view()) }
+
     // A borrowed view of the text; valid while this string is alive and unchanged.
     pub new function view() -> str { return str(self.buf, self.used) }
 

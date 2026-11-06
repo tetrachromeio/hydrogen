@@ -296,6 +296,11 @@ private:
                 p.loc = peek().loc;
                 p.name = expectIdent("a parameter name");
                 expect(Tok::Colon, "':' and a type after parameter name");
+                // `own` is contextual: `item: own T` takes ownership of the argument.
+                if (atIdent("own") && (peek(1).kind == Tok::Ident || peek(1).kind == Tok::LBracket)) {
+                    advance();
+                    p.isOwn = true;
+                }
                 p.type = parseType();
                 f->params.push_back(std::move(p));
                 if (!accept(Tok::Comma)) break;

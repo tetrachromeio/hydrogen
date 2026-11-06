@@ -30,6 +30,8 @@ Principles:
 | Primitives        | `int`/`uint`/`float` (64-bit) are canonical; `i64`, `u64`, `usize`, `f64` alias them |
 | Text              | `str` borrowed view (literals); `string` owned class with drop; `string`→`str` implicit |
 | Printing          | `print<T: Printable>`; types define `new operator string` (like `__str__`) |
+| Ownership         | Values with drop move (no implicit copies); `.copy()` explicit |
+| Parameters        | Borrowed by default; `own` takes ownership         |
 | Type forms        | `: base` = new distinct type; `= other` = alias    |
 | Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
 | Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
@@ -55,4 +57,4 @@ Principles:
 - Integer overflow behavior (wrap, trap or undefined)
 - Mutating methods on `let` values
 - String interpolation ("x = {x}")
-- Ownership of classes with drop: move vs copy on assignment
+- Borrow lifetimes: a str view can outlive its string in some cases (only returns are checked)

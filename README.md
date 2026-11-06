@@ -91,6 +91,7 @@ python3 tests/run_tests.py build/compiler/h2c . --update
 - [x] Modules, `pub` visibility and name resolution
 - [x] `hy` project tool: `hy.toml`, path dependencies, `hy new` / `check` / `deps`
 - [x] Type checking and inference
+- [x] Ownership: move semantics, borrowed parameters, `own`
 - [ ] Generic monomorphization
 - [ ] LLVM IR codegen
 - [ ] Atomic / Elemental standard libraries

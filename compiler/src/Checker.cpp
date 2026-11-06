@@ -83,6 +83,19 @@ private:
     std::map<const Symbol*, const Type*> localTypes_;
     std::map<std::pair<const FunctionDecl*, const Type*>, Sig> sigCache_; // keyed by (fn, Self)
 
+    // What each call (or operator use) invokes, for the move checker.
+    struct CallInfo {
+        enum Kind { Fn, ConsumeAll, BorrowAll } kind = BorrowAll;
+        const FunctionDecl* fn = nullptr; // Fn: the callee, whose `own` params consume
+        Subst subst;                      // generic bindings at this call
+    };
+    std::map<const Expr*, CallInfo> calls_;
+    std::set<const Expr*> viewCoerced_; // string expressions used as str (a borrow, not a move)
+
+    void noteCoercion(const Expr& e, const Type* from, const Type* to) {
+        if (from == lang_.stringT && to == lang_.strT) viewCoerced_.insert(&e);
+    }
+
     struct Lang {
         const Type *boolT, *charT, *strT, *stringT, *intT, *uintT, *floatT;
         const Symbol *result = nullptr, *option = nullptr;
@@ -331,6 +344,7 @@ private:
             return false;
         }
         if (t->isLiteral()) setLiteralType(e, target);
+        noteCoercion(e, t, target);
         return true;
     }
 
@@ -698,7 +712,10 @@ private:
         if (comparison && l->kind == K::Ptr && l == r && (op == "==" || op == "!=")) return lang_.boolT;
 
         // Direct operator, then the derived forms.
-        if (auto f = findBinary(op, l, r)) return f->result;
+        if (auto f = findBinary(op, l, r)) {
+            calls_[&b] = {CallInfo::Fn, f->fn, {}};
+            return f->result;
+        }
         if (op == "!=" && findBinary("==", l, r)) return lang_.boolT;
         if ((op == ">" || op == "<=") && findBinary("<", r, l)) return lang_.boolT;
         if (op == ">=" && findBinary("<", l, r)) return lang_.boolT;
@@ -863,6 +880,8 @@ private:
                 ok = false;
             } else if (argTypes[i]->isLiteral()) {
                 setLiteralType(*c.args[i], p);
+            } else {
+                noteCoercion(*c.args[i], argTypes[i], p);
             }
         }
         return ok;
@@ -932,6 +951,7 @@ private:
                     std::set<const Symbol*> vars;
                     for (const auto& g : fn->generics) vars.insert(g.sym);
                     checkArgs(c, sig.params, s, vars, sig.ret, expected, m.member, &fn->generics);
+                    calls_[&c] = {CallInfo::Fn, fn.get(), s};
                     m.type = tc_.voidT();
                     return subst(sig.ret, s);
                 }
@@ -979,6 +999,7 @@ private:
                 if (i < explicitArgs.size()) sub[fn->generics[i].sym] = explicitArgs[i];
             }
             checkArgs(c, sig.params, sub, vars, sig.ret, expected, s->name, &fn->generics);
+            calls_[&c] = {CallInfo::Fn, fn, sub};
             return subst(sig.ret, sub);
         }
         case Symbol::Kind::Variant: {
@@ -997,6 +1018,7 @@ private:
             for (const auto& p : payload) params.push_back(convert(*p, nullptr));
             checkArgs(c, params, sub, vars, selfTypeOf(enumSym), expected && expected->isError() ? expected : nullptr,
                       s->name, gs, /*isVariant=*/true);
+            calls_[&c] = {CallInfo::ConsumeAll, nullptr, sub};
             std::vector<const Type*> args;
             for (const auto& g : *gs) args.push_back(sub[g.sym]);
             return tc_.named(enumSym, std::move(args));
@@ -1048,11 +1070,13 @@ private:
         std::vector<const Type*> params;
         std::string what = s->name;
         bool usesInit = false;
+        const FunctionDecl* initFn = nullptr;
         if (s->kind == Symbol::Kind::Class) {
             for (const auto& fn : declAs<ClassDecl>(s)->methods)
                 if (!fn->isOperator && fn->name == "init") {
                     params = sigOf(*fn, selfT).params;
                     usesInit = true;
+                    initFn = fn.get();
                     checkMemberAccess(s, fn->isPub, "function", "init", c.loc);
                 }
         }
@@ -1070,6 +1094,7 @@ private:
             what += " (fields in order)";
         }
         checkArgs(c, params, sub, vars, selfT, expected, what, gs);
+        calls_[&c] = usesInit ? CallInfo{CallInfo::Fn, initFn, sub} : CallInfo{CallInfo::ConsumeAll, nullptr, sub};
         std::vector<const Type*> args;
         for (const auto& g : *gs) args.push_back(sub[g.sym] ? sub[g.sym] : tc_.error());
         return tc_.named(s, std::move(args));
@@ -1536,12 +1561,514 @@ private:
         if (comparison && sig.ret != lang_.boolT && !sig.ret->isError())
             error(op.loc, "operator " + q(op.name) + " must return bool");
     }
+
+    // ================================================================== moves
+    //
+    // Values whose type needs cleanup ("resources": classes with `drop`, and
+    // anything containing one) are *moved*, never implicitly copied:
+    //   let b = a, b = a, return a, Some(a), Point(a, ...), f(a) where f takes `own`
+    // After a move, the old name can't be used. Parameters, match bindings,
+    // for-loop variables and self are *borrowed*: usable, but not movable.
+    // Generic bodies are re-checked for each concrete instantiation.
+
+public:
+    void runMoveChecks() {
+        // Baseline: every function body once, with generic parameters unknown.
+        for (auto& m : prog_.modules) {
+            mod_ = m.get();
+            for (auto& f : m->files) {
+                file_ = f.get();
+                for (auto& d : f->ast.decls) forEachFunction(*d, [&](const FunctionDecl& fn) {
+                    moveCheckFunction(fn, {}, "");
+                });
+            }
+        }
+        // Instantiations discovered along the way (worklist grows while we go).
+        while (!pending_.empty()) {
+            auto [fn, sub, origin] = pending_.back();
+            pending_.pop_back();
+            auto loc = fnLocation_.find(fn);
+            if (loc == fnLocation_.end()) continue;
+            mod_ = loc->second.first;
+            file_ = loc->second.second;
+            moveCheckFunction(*fn, sub, origin);
+        }
+    }
+
+private:
+    enum class VarState { Live, Moved, MaybeMoved };
+    struct VarInfo {
+        VarState state = VarState::Live;
+        SourceLoc movedAt;
+        bool borrowed = false;
+        int loopDepth = 0;
+    };
+    using MoveState = std::map<const Symbol*, VarInfo>;
+
+    struct Pending {
+        const FunctionDecl* fn;
+        Subst subst;
+        std::string origin; // "max<string> (used at main.h2:12)"
+    };
+    std::vector<Pending> pending_;
+    std::set<std::pair<const FunctionDecl*, Subst>> instantiated_;
+    std::map<const FunctionDecl*, std::pair<ModuleInfo*, SourceFile*>> fnLocation_;
+    std::map<const FunctionDecl*, const Symbol*> fnOwner_; // methods/operators -> their class/type
+    std::set<std::string> reportedMoves_;
+    std::map<const Type*, bool> resourceCache_;
+
+    // Move-check state for the function being walked.
+    Subst moveSubst_;
+    std::string moveContext_;
+    MoveState vars_;
+    int moveLoop_ = 0;
+    std::vector<MoveState> breakStates_;
+    std::vector<MoveState> continueStates_;
+    std::map<const Symbol*, const Type*> movedTypes_; // for hints at loop back-edges
+    const FunctionDecl* moveFn_ = nullptr;
+
+    template <class F>
+    void forEachFunction(const Decl& d, F&& f) {
+        auto visit = [&](const FunctionDecl& fn) {
+            fnLocation_[&fn] = {mod_, file_};
+            if (fn.body) f(fn);
+        };
+        switch (d.kind) {
+        case DeclKind::Function: visit(static_cast<const FunctionDecl&>(d)); break;
+        case DeclKind::Type:
+            for (const auto& op : static_cast<const TypeDecl&>(d).operators) {
+                fnOwner_[op.get()] = declSym_[&d];
+                visit(*op);
+            }
+            break;
+        case DeclKind::Class:
+            for (const auto& m : static_cast<const ClassDecl&>(d).methods) {
+                fnOwner_[m.get()] = declSym_[&d];
+                visit(*m);
+            }
+            break;
+        default: break;
+        }
+    }
+
+    void moveError(SourceLoc loc, const std::string& msg) {
+        std::string full = moveContext_.empty() ? msg : "in " + moveContext_ + ": " + msg;
+        std::string key = file_->displayFile + ":" + std::to_string(loc.line) + ":" + std::to_string(loc.col) + full;
+        if (reportedMoves_.insert(key).second) error(loc, full);
+    }
+
+    // Does this type need cleanup, so that it must be moved rather than copied?
+    bool isResource(const Type* t) {
+        t = subst(t, moveSubst_);
+        auto it = resourceCache_.find(t);
+        if (it != resourceCache_.end()) return it->second;
+        resourceCache_[t] = false; // breaks cycles (recursive types through ptr are fine)
+        bool r = false;
+        switch (t->kind) {
+        case K::Array: r = isResource(t->elem()); break;
+        case K::Named: {
+            Subst s = substFor(t);
+            const Type* selfT = selfTypeOf(t->sym);
+            auto fieldsResource = [&](const std::vector<Field>& fields) {
+                for (const auto& f : fields)
+                    if (isResource(subst(convert(*f.type, selfT), s))) return true;
+                return false;
+            };
+            if (t->sym->kind == Symbol::Kind::Class) {
+                const auto* cd = declAs<ClassDecl>(t->sym);
+                for (const auto& m : cd->methods)
+                    if (!m->isOperator && m->name == "drop") r = true;
+                r = r || fieldsResource(cd->fields);
+            } else if (t->sym->kind == Symbol::Kind::Type) {
+                r = fieldsResource(declAs<TypeDecl>(t->sym)->fields);
+            } else if (t->sym->kind == Symbol::Kind::Enum) {
+                for (const auto& v : declAs<EnumDecl>(t->sym)->variants)
+                    for (const auto& p : v.payload)
+                        if (isResource(subst(convert(*p, nullptr), s))) r = true;
+            }
+            break;
+        }
+        default: break;
+        }
+        return resourceCache_[t] = r;
+    }
+
+    bool hasCopyMethod(const Type* t) {
+        t = subst(t, moveSubst_);
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Class) return false;
+        for (const auto& m : declAs<ClassDecl>(t->sym)->methods)
+            if (!m->isOperator && m->name == "copy" && m->params.empty()) return true;
+        return false;
+    }
+
+    // " Use x.copy() to make a copy." or a note that there's no copy().
+    std::string copyHint(const std::string& expr, const Type* t) {
+        if (hasCopyMethod(t)) return " Use " + expr + ".copy() to make a copy";
+        return " (" + str(subst(t, moveSubst_)) + " has no copy() method)";
+    }
+
+    static std::string exprText(const Expr& e) {
+        switch (e.kind) {
+        case ExprKind::Ident: return static_cast<const IdentExpr&>(e).name;
+        case ExprKind::Self: return "self";
+        case ExprKind::Member: {
+            const auto& m = static_cast<const MemberExpr&>(e);
+            return exprText(*m.object) + "." + m.member;
+        }
+        case ExprKind::Index: return exprText(*static_cast<const IndexExpr&>(e).object) + "[...]";
+        default: return "the value";
+        }
+    }
+
+    void moveCheckFunction(const FunctionDecl& fn, const Subst& sub, const std::string& origin) {
+        moveSubst_ = sub;
+        moveContext_ = origin;
+        moveFn_ = &fn;
+        vars_.clear();
+        moveLoop_ = 0;
+        breakStates_.clear();
+        for (const auto& p : fn.params)
+            if (p.sym) vars_[p.sym] = VarInfo{VarState::Live, {}, !p.isOwn, 0};
+        moveBlock(*fn.body);
+    }
+
+    // Composes a call's recorded bindings with the current instantiation and
+    // queues the callee for checking with concrete resource types.
+    void noteInstantiation(const CallInfo& ci, SourceLoc at) {
+        if (ci.kind != CallInfo::Fn || !ci.fn || ci.subst.empty()) return;
+        Subst composed;
+        bool anyResource = false;
+        for (const auto& [k, v] : ci.subst) {
+            const Type* t = v ? subst(v, moveSubst_) : tc_.error();
+            composed[k] = t;
+            if (isResource(t)) anyResource = true;
+        }
+        if (!anyResource) return; // same as the baseline check
+        if (!instantiated_.insert({ci.fn, composed}).second) return;
+        // Name it like the user would: max<string>, or Box<string>.get
+        auto argsOf = [&](const std::vector<GenericParam>& gs) {
+            std::string a;
+            for (const auto& g : gs) {
+                auto it = composed.find(g.sym);
+                a += (a.empty() ? "" : ", ") + (it != composed.end() ? str(it->second) : g.name);
+            }
+            return gs.empty() ? std::string() : "<" + a + ">";
+        };
+        std::string name = ci.fn->name + argsOf(ci.fn->generics);
+        if (auto ow = fnOwner_.find(ci.fn); ow != fnOwner_.end() && ow->second)
+            if (const auto* gs = genericsOf(ow->second))
+                name = ow->second->name + argsOf(*gs) + "." + name;
+        std::string origin = name + " (used at " + file_->displayFile + ":" + std::to_string(at.line) + ")";
+        pending_.push_back({ci.fn, composed, origin});
+    }
+
+    static VarState mergeState(VarState a, VarState b) {
+        if (a == b) return a;
+        return VarState::MaybeMoved;
+    }
+
+    static void mergeInto(MoveState& into, const MoveState& other) {
+        for (auto& [sym, info] : into) {
+            auto it = other.find(sym);
+            if (it == other.end()) continue;
+            VarState merged = mergeState(info.state, it->second.state);
+            if (merged != info.state && info.state == VarState::Live) info.movedAt = it->second.movedAt;
+            info.state = merged;
+        }
+    }
+
+    // Reads `sym`: an error if it has been moved.
+    void useVar(const Symbol* sym, SourceLoc loc) {
+        auto it = vars_.find(sym);
+        if (it == vars_.end()) return;
+        const VarInfo& v = it->second;
+        if (v.state == VarState::Moved)
+            moveError(loc, q(sym->name) + " was moved at line " + std::to_string(v.movedAt.line) +
+                               ", so it can't be used here");
+        else if (v.state == VarState::MaybeMoved)
+            moveError(loc, q(sym->name) + " may have been moved (at line " + std::to_string(v.movedAt.line) +
+                               ") on some paths, so it can't be used here");
+    }
+
+    // The root variable of a place expression (a, a.b, a[i]), if any.
+    const Expr* placeRoot(const Expr& e) {
+        const Expr* cur = &e;
+        while (true) {
+            if (cur->kind == ExprKind::Member && !static_cast<const MemberExpr*>(cur)->sym)
+                cur = static_cast<const MemberExpr*>(cur)->object.get();
+            else if (cur->kind == ExprKind::Index)
+                cur = static_cast<const IndexExpr*>(cur)->object.get();
+            else
+                return cur;
+        }
+    }
+
+    // Visits an expression. `consume`: the value is moved out of this position.
+    void moveExpr(const Expr& e, bool consume) {
+        if (consume && viewCoerced_.count(&e)) consume = false; // used as a str view: borrowed
+        switch (e.kind) {
+        case ExprKind::Ident: {
+            const auto& id = static_cast<const IdentExpr&>(e);
+            const Symbol* s = id.sym;
+            if (!s || s->kind != Symbol::Kind::Local) return;
+            useVar(s, e.loc);
+            if (!consume || !e.type || !isResource(e.type)) return;
+            auto it = vars_.find(s);
+            if (it == vars_.end()) return;
+            VarInfo& v = it->second;
+            if (v.state != VarState::Live) return; // already reported
+            if (v.borrowed) {
+                bool isParam = std::any_of(moveFn_->params.begin(), moveFn_->params.end(),
+                                           [&](const Param& p) { return p.sym == s; });
+                std::string t = str(subst(e.type, moveSubst_));
+                if (isParam)
+                    moveError(e.loc, "cannot move " + q(s->name) + ": parameters are borrowed. Write '" + s->name +
+                                         ": own " + t + "' to take ownership" +
+                                         (hasCopyMethod(e.type) ? ", or use " + s->name + ".copy()" : ""));
+                else
+                    moveError(e.loc, "cannot move " + q(s->name) + ": it is borrowed, not owned." +
+                                         copyHint(s->name, e.type));
+                return;
+            }
+            v.state = VarState::Moved;
+            v.movedAt = e.loc;
+            movedTypes_[s] = e.type;
+            return;
+        }
+        case ExprKind::Self:
+            if (consume && e.type && isResource(e.type))
+                moveError(e.loc, "cannot move 'self' out of a method." + copyHint("self", e.type));
+            return;
+        case ExprKind::Member: {
+            const auto& m = static_cast<const MemberExpr&>(e);
+            if (m.sym) return; // qualified name
+            moveExpr(*m.object, false);
+            if (consume && e.type && isResource(e.type) && isPlaceExpr(*placeRoot(e)))
+                moveError(e.loc, "cannot move " + exprText(e) + " out of its owner." + copyHint(exprText(e), e.type));
+            return;
+        }
+        case ExprKind::Index: {
+            const auto& ix = static_cast<const IndexExpr&>(e);
+            moveExpr(*ix.object, false);
+            moveExpr(*ix.index, false);
+            noteOperatorCall(e);
+            if (consume && e.type && isResource(e.type) && isPlaceExpr(*placeRoot(e)))
+                moveError(e.loc, "cannot move an element out of " + exprText(*ix.object) + "." +
+                                     copyHint(exprText(e), e.type));
+            return;
+        }
+        case ExprKind::Unary: {
+            const auto& u = static_cast<const UnaryExpr&>(e);
+            moveOperands({u.operand.get()}, e);
+            if (u.op == "*" && consume && e.type && isResource(e.type))
+                moveError(e.loc, "cannot move a value out through a pointer." + copyHint("the value", e.type));
+            return;
+        }
+        case ExprKind::Binary: {
+            const auto& b = static_cast<const BinaryExpr&>(e);
+            moveOperands({b.lhs.get(), b.rhs.get()}, e);
+            return;
+        }
+        case ExprKind::Call: moveCall(static_cast<const CallExpr&>(e)); return;
+        case ExprKind::Try: moveExpr(*static_cast<const TryExpr&>(e).operand, true); return;
+        case ExprKind::Alloc: {
+            const auto& a = static_cast<const AllocExpr&>(e);
+            if (a.init) moveExpr(*a.init, true);
+            return;
+        }
+        case ExprKind::ArrayLit:
+            for (const auto& x : static_cast<const ArrayLitExpr&>(e).elems) moveExpr(*x, true);
+            return;
+        case ExprKind::Match: {
+            const auto& m = static_cast<const MatchExpr&>(e);
+            moveExpr(*m.subject, false);
+            MoveState before = vars_;
+            std::optional<MoveState> after;
+            for (const auto& arm : m.arms) {
+                vars_ = before;
+                bindPattern(*arm.pattern);
+                bool reachable = true;
+                if (arm.block) reachable = moveBlock(*arm.block);
+                if (arm.expr) moveExpr(*arm.expr, consume);
+                if (!reachable) continue;
+                if (!after) after = vars_;
+                else mergeInto(*after, vars_);
+            }
+            vars_ = after ? *after : before;
+            return;
+        }
+        default: return; // literals
+        }
+    }
+
+    bool isPlaceExpr(const Expr& e) {
+        if (e.kind == ExprKind::Self) return true;
+        if (e.kind == ExprKind::Ident) {
+            const Symbol* s = static_cast<const IdentExpr&>(e).sym;
+            return s && s->kind == Symbol::Kind::Local;
+        }
+        return e.kind == ExprKind::Unary && static_cast<const UnaryExpr&>(e).op == "*";
+    }
+
+    void noteOperatorCall(const Expr& e) {
+        if (auto it = calls_.find(&e); it != calls_.end()) noteInstantiation(it->second, e.loc);
+    }
+
+    // Operator operands are borrowed unless the operator declares `own`.
+    void moveOperands(std::vector<const Expr*> operands, const Expr& opExpr) {
+        auto it = calls_.find(&opExpr);
+        const FunctionDecl* fn = it != calls_.end() ? it->second.fn : nullptr;
+        for (size_t i = 0; i < operands.size(); ++i)
+            moveExpr(*operands[i], fn && i < fn->params.size() && fn->params[i].isOwn);
+    }
+
+    void moveCall(const CallExpr& c) {
+        auto it = calls_.find(&c);
+        CallInfo ci = it != calls_.end() ? it->second : CallInfo{};
+        // Method receiver: borrowed.
+        if (c.callee->kind == ExprKind::Member && !static_cast<const MemberExpr&>(*c.callee).sym)
+            moveExpr(*static_cast<const MemberExpr&>(*c.callee).object, false);
+        for (size_t i = 0; i < c.args.size(); ++i) {
+            bool consume = ci.kind == CallInfo::ConsumeAll ||
+                           (ci.kind == CallInfo::Fn && ci.fn && i < ci.fn->params.size() && ci.fn->params[i].isOwn);
+            moveExpr(*c.args[i], consume);
+        }
+        noteInstantiation(ci, c.loc);
+    }
+
+    void bindPattern(const Pattern& p) {
+        if (p.kind == Pattern::Kind::Binding && p.sym)
+            vars_[p.sym] = VarInfo{VarState::Live, {}, /*borrowed=*/true, moveLoop_};
+        for (const auto& f : p.fields) bindPattern(*f);
+    }
+
+    // Returns false if the end of the block is unreachable (return/break/continue).
+    bool moveBlock(const Block& b) {
+        for (const auto& s : b.stmts)
+            if (!moveStmt(*s)) return false;
+        return true;
+    }
+
+    bool moveStmt(const Stmt& s) {
+        switch (s.kind) {
+        case StmtKind::Block: return moveBlock(static_cast<const Block&>(s));
+        case StmtKind::Let: {
+            const auto& l = static_cast<const LetStmt&>(s);
+            if (l.init) moveExpr(*l.init, true);
+            if (l.sym) vars_[l.sym] = VarInfo{VarState::Live, {}, false, moveLoop_};
+            return true;
+        }
+        case StmtKind::Assign: {
+            const auto& a = static_cast<const AssignStmt&>(s);
+            moveExpr(*a.value, a.op == "=");
+            if (a.target->kind == ExprKind::Ident && a.op == "=") {
+                // Assigning a new value brings a moved variable back to life.
+                const Symbol* t = static_cast<const IdentExpr&>(*a.target).sym;
+                auto it = vars_.find(t);
+                if (it != vars_.end() && !it->second.borrowed) it->second.state = VarState::Live;
+                return true;
+            }
+            moveExpr(*a.target, false);
+            return true;
+        }
+        case StmtKind::Expr: moveExpr(*static_cast<const ExprStmt&>(s).expr, false); return true;
+        case StmtKind::If: {
+            const auto& i = static_cast<const IfStmt&>(s);
+            moveExpr(*i.cond, false);
+            MoveState before = vars_;
+            bool thenReach = moveBlock(*i.then);
+            MoveState thenState = vars_;
+            vars_ = before;
+            bool elseReach = i.otherwise ? moveStmt(*i.otherwise) : true;
+            if (!thenReach && !elseReach) return false;
+            if (!thenReach) return true; // vars_ already holds the else state
+            if (!elseReach) {
+                vars_ = thenState;
+                return true;
+            }
+            mergeInto(vars_, thenState);
+            return true;
+        }
+        case StmtKind::While:
+        case StmtKind::For: {
+            const Block* body;
+            if (s.kind == StmtKind::While) {
+                const auto& w = static_cast<const WhileStmt&>(s);
+                moveExpr(*w.cond, false);
+                body = w.body.get();
+            } else {
+                const auto& f = static_cast<const ForStmt&>(s);
+                moveExpr(*f.iterable, false);
+                body = f.body.get();
+                if (f.sym) vars_[f.sym] = VarInfo{VarState::Live, {}, /*borrowed=*/true, moveLoop_ + 1};
+            }
+            MoveState before = vars_;
+            ++moveLoop_;
+            breakStates_.emplace_back();
+            continueStates_.emplace_back();
+            bool reach = moveBlock(*body);
+            // The back edge: end of the body, plus every `continue`.
+            MoveState back = before;
+            bool loopsBack = reach || !continueStates_.back().empty();
+            if (reach) back = vars_;
+            if (!continueStates_.back().empty()) {
+                if (reach) mergeInto(back, continueStates_.back());
+                else back = continueStates_.back();
+            }
+            if (loopsBack)
+                for (const auto& [sym, info] : back) {
+                    auto b = before.find(sym);
+                    if (b == before.end() || b->second.state != VarState::Live || info.state == VarState::Live)
+                        continue;
+                    moveError(info.movedAt, q(sym->name) + " is moved inside the loop and not replaced before the "
+                                            "next iteration." + copyHint(sym->name, movedTypes_[sym]));
+                }
+            MoveState exitState = before;
+            if (loopsBack) mergeInto(exitState, back);
+            if (!breakStates_.back().empty()) mergeInto(exitState, breakStates_.back());
+            breakStates_.pop_back();
+            continueStates_.pop_back();
+            --moveLoop_;
+            vars_ = exitState;
+            return true;
+        }
+        case StmtKind::Return: {
+            const auto& r = static_cast<const ReturnStmt&>(s);
+            if (r.value && viewCoerced_.count(r.value.get()) && r.value->kind == ExprKind::Ident) {
+                const Symbol* v = static_cast<const IdentExpr&>(*r.value).sym;
+                auto it = vars_.find(v);
+                if (it != vars_.end() && !it->second.borrowed)
+                    moveError(r.value->loc, "returns a view of " + q(v->name) + ", which is freed when the function "
+                                            "ends. Return the string itself (-> string) instead");
+            }
+            if (r.value) moveExpr(*r.value, true);
+            return false;
+        }
+        case StmtKind::Break:
+            if (!breakStates_.empty()) {
+                if (breakStates_.back().empty()) breakStates_.back() = vars_;
+                else mergeInto(breakStates_.back(), vars_);
+            }
+            return false;
+        case StmtKind::Continue:
+            if (!continueStates_.empty()) {
+                if (continueStates_.back().empty()) continueStates_.back() = vars_;
+                else mergeInto(continueStates_.back(), vars_);
+            }
+            return false;
+        case StmtKind::Free: moveExpr(*static_cast<const FreeStmt&>(s).target, false); return true;
+        case StmtKind::Asm: return true;
+        }
+        return true;
+    }
 };
 
 } // namespace
 
 void typecheckProgram(Program& program, TypeContext& types, Diagnostics& diags, std::vector<LocalTypeNote>* notes) {
-    Checker(program, types, diags, notes).run();
+    Checker checker(program, types, diags, notes);
+    checker.run();
+    checker.runMoveChecks();
 }
 
 } // namespace h2

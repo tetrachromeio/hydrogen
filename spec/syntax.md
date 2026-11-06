@@ -1,4 +1,4 @@
-# Hydrogen Syntax: Draft 7
+# Hydrogen Syntax: Draft 8
 
 Status: **sketch**. Every rule here is up for discussion.
 
@@ -296,6 +296,44 @@ let view: str = owned              // string -> str is automatic (a free borrow)
 - `print` is `print<T: Printable>(value: T)`, where `Printable` (in Atomic)
   means "has `operator string`". `string(x)` uses the same operator.
 - `string` is a `class` rather than a `type` because it owns memory and needs `drop`.
+
+## Ownership: moves and `own`
+A value whose type needs cleanup (a class with `drop`, like `string`, or
+anything containing one) has exactly one owner. It is **moved**, never
+silently copied:
+```
+let a = string("hi")
+let b = a              // a moves into b
+print(a)               // error: 'a' was moved at line 2
+let c = b.copy()       // copying is explicit
+```
+A value moves when it is used in `let x = v`, `x = v`, `return v`, when it is
+stored in a new object or variant (`Point(v, ...)`, `Some(v)`), or when it is
+passed to an `own` parameter.
+
+**Parameters are borrowed by default.** The function can read the value, but
+the caller keeps it. So `print(name)` twice is fine, and `a == b` doesn't use
+up `a` or `b`. To take ownership, for example to store the value, mark the
+parameter `own`:
+```
+new function push(item: own T) { self.items[self.count] = item }
+```
+Also borrowed (usable, but not movable): `self`, `match` bindings and `for`
+loop variables. Moving a field out of an object (`let n = p.name`) is an
+error; copy it instead.
+
+The checker follows control flow:
+- A value moved on only some paths "may have been moved" afterwards.
+- Assigning a new value to a `var` makes it usable again.
+- A value moved inside a loop must be replaced before the next iteration,
+  unless that path leaves the loop.
+- Returning a `str` view of a local `string` is an error, because the string is freed when the
+  function returns.
+
+Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
+`drop`) are copied as usual. Generic code is checked once for each concrete
+type it's used with: `max<string>` must not move a borrowed parameter, even
+though `max<int>` is fine.
 
 ## Type checking
 - **Inference.** `let x = 10` is `int`, `let y = 1.5` is `float`. A literal

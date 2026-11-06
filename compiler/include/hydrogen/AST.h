@@ -255,6 +255,7 @@ struct IncludeDecl : Decl {
 struct Param {
     SourceLoc loc;
     std::string name;
+    bool isOwn = false; // `own T`: the function takes ownership (moves the argument in)
     TypeRefPtr type;
     const Symbol* sym = nullptr;
 };
