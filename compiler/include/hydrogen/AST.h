@@ -23,7 +23,7 @@ using PatternPtr = std::unique_ptr<Pattern>;
 // ---------------------------------------------------------------- types
 
 struct TypeRef {
-    enum class Kind { Named, Array, Function };
+    enum class Kind { Named, Array, Function, Any }; // Any: `any Interface`
     Kind kind = Kind::Named;
     SourceLoc loc;
     // Named: dotted path (e.g. "Atomic.Memory.Block") plus optional type args.

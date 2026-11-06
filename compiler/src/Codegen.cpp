@@ -278,6 +278,7 @@ private:
     }
 
     const Type* typeOfRef(const TypeRef& r, const Subst& s, const Type* self) {
+        if (r.kind == TypeRef::Kind::Any) return r.sym ? tc_.dyn(r.sym) : tc_.error();
         if (r.kind == TypeRef::Kind::Function) {
             std::vector<const Type*> ps;
             for (const auto& a : r.args) ps.push_back(typeOfRef(*a, s, self));
@@ -356,6 +357,7 @@ private:
         case K::Array: return "[" + typeName(t->elem()) + ";" + std::to_string(t->size) + "]";
         case K::Slice: return "[" + typeName(t->elem()) + "]";
         case K::Range: return "Range<" + typeName(t->elem()) + ">";
+        case K::Dyn: return "any " + t->sym->module->displayName() + "." + t->sym->name;
         case K::Function: {
             std::string n = "fn(";
             for (size_t i = 1; i < t->args.size(); ++i) n += (i > 1 ? "," : "") + typeName(t->args[i]);
@@ -402,6 +404,7 @@ private:
         case K::FloatLit: return "double";
         case K::Ptr:
         case K::Function: return "ptr";
+        case K::Dyn: return "{ ptr, ptr }"; // data, vtable
         case K::Array: return "[" + std::to_string(t->size) + " x " + lty(t->elem()) + "]";
         case K::Slice: return "{ ptr, i64 }";
         case K::Range: return "{ " + lty(t->elem()) + ", " + lty(t->elem()) + " }";
@@ -499,6 +502,7 @@ private:
 
     uint64_t sizeOf(const Type* t) {
         switch (t->kind) {
+        case K::Dyn: return 16;
         case K::Ptr: return 8;
         case K::Slice: return 16;
         case K::Array: return sizeOf(t->elem()) * t->size;
@@ -1255,6 +1259,12 @@ private:
             std::string len = load("i64", gepField(st, p, 1));
             return makeStruct(lty(target), {{"ptr", buf}, {"i64", len}});
         }
+        if (auto dc = info_.dynCoerced.find(&e); dc != info_.dynCoerced.end() && target->kind == K::Dyn) {
+            // ptr<T> -> any I: the pointer plus T's table of I's methods.
+            Val data = rvalue(e);
+            std::string vt = vtableFor(subst(dc->second, f_->subst), target->sym);
+            return makeStruct("{ ptr, ptr }", {{"ptr", data.v}, {"ptr", "@" + llvmQuote(vt)}});
+        }
         if (e.kind == ExprKind::Call) {
             // Intrinsics have no checked type; the context says what they produce.
             std::string iname;
@@ -1670,6 +1680,11 @@ private:
         if (c.callee->kind == ExprKind::Member && !static_cast<const MemberExpr&>(*c.callee).sym) {
             const auto& m = static_cast<const MemberExpr&>(*c.callee);
             const Type* ot = typeOf(*m.object);
+            if (ot->kind == K::Dyn) return callDynamic(m, ot, rvalue(*m.object), c);
+            if (ot->kind == K::Ptr && ot->elem()->kind == K::Dyn) {
+                std::string p = rvalue(*m.object).v;
+                return callDynamic(m, ot->elem(), {"{ ptr, ptr }", load("{ ptr, ptr }", p)}, c);
+            }
             std::string self;
             if (ot->kind == K::Ptr) {
                 self = rvalue(*m.object).v;
@@ -1728,6 +1743,52 @@ private:
             return {"i64", "0"};
         default: unsupported(c.loc, "this call"); return {"i64", "0"};
         }
+    }
+
+    // The vtable for (concrete class T, interface I): T's methods in I's member order.
+    std::string vtableFor(const Type* t, const Symbol* iface) {
+        std::string name = "vtable:" + typeName(t) + ":" + iface->name;
+        if (vtablesDone_.insert(name).second) {
+            std::string entries;
+            const auto& members = declAs<InterfaceDecl>(iface)->members;
+            for (const auto& im : members) {
+                const FunctionDecl* impl = nullptr;
+                for (const auto& meth : declAs<ClassDecl>(t->sym)->methods)
+                    if (!meth->isOperator && meth->name == im->name && meth->params.size() == im->params.size())
+                        impl = meth.get();
+                std::string fn = impl ? "@" + llvmQuote(requestFn(impl, substFor(t), t)) : "null";
+                entries += (entries.empty() ? "" : ", ") + std::string("ptr ") + fn;
+            }
+            globals_ << "@" << llvmQuote(name) << " = private unnamed_addr constant [" << members.size() << " x ptr] ["
+                     << entries << "]\n";
+        }
+        return name;
+    }
+    std::set<std::string> vtablesDone_;
+
+    // obj.method(...) on `any I`: look the function up in the vtable.
+    Val callDynamic(const MemberExpr& m, const Type* dt, const Val& fat, const CallExpr& c) {
+        const auto& members = declAs<InterfaceDecl>(dt->sym)->members;
+        size_t idx = 0;
+        const FunctionDecl* im = nullptr;
+        for (size_t i = 0; i < members.size(); ++i)
+            if (!members[i]->isOperator && members[i]->name == m.member) {
+                idx = i;
+                im = members[i].get();
+            }
+        std::string data = tmp(), vt = tmp(), slot = tmp(), fp = tmp();
+        emit(data + " = extractvalue { ptr, ptr } " + fat.v + ", 0");
+        emit(vt + " = extractvalue { ptr, ptr } " + fat.v + ", 1");
+        emit(slot + " = getelementptr inbounds ptr, ptr " + vt + ", i64 " + std::to_string(idx));
+        emit(fp + " = load ptr, ptr " + slot);
+        std::string args = "ptr " + data;
+        for (size_t i = 0; i < c.args.size() && i < im->params.size(); ++i) {
+            const Type* p = typeOfRef(*im->params[i].type, {}, dt);
+            Val v = passArg(*c.args[i], p, im->params[i].isOwn, im->params[i].isVar);
+            args += ", " + v.ty + " " + v.v;
+        }
+        const Type* ret = im->returnType ? typeOfRef(*im->returnType, {}, dt) : tc_.voidT();
+        return callRet(ret, fp, args);
     }
 
     // Calls through a function pointer. Parameters are borrowed, like any call.

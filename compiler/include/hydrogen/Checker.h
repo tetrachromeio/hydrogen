@@ -25,6 +25,7 @@ struct SemaInfo {
     };
     std::map<const Expr*, Call> calls;
     std::set<const Expr*> viewCoerced; // `string` expressions used where a `str` is expected
+    std::map<const Expr*, const Type*> dynCoerced; // ptr<T> expressions used as `any I` -> T
 };
 
 // Type-checks every function body in the program. Expr::type is filled in.

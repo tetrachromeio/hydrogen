@@ -352,6 +352,29 @@ let s = Stack<int>(alloc [int; 8], 0)
   satisfies it. Combine with `+`: `<T: Ordered + Printable>`.
 - Explicit type arguments: `biggest<u8>(1, 2)`, `Stack<int>(...)`.
 
+### Runtime polymorphism: `any Interface`
+```
+new interface Shape {
+    new function area() -> float
+    new function name() -> string
+}
+
+var shapes = List<any Shape>()
+shapes.push(&circle)                 // any class with area() and name() fits
+shapes.push(&rect)
+for i in 0..shapes.len() { print(shapes.at(i).area()) }
+
+new function describe(s: any Shape) { print(s.name()) }
+describe(&circle)
+```
+- `any I` is a **borrowed** reference (a pointer plus a method table), made from
+  `&value` or a heap pointer. It doesn't own or copy the value, so the value must
+  outlive it.
+- Calls are dispatched at run time, like C++ `virtual`, but without inheritance:
+  a class fits by having the methods (with matching signatures).
+- Interfaces with operators or `Self` can't be used with `any`. Use generics for those.
+- `mut` methods can be called through `any` (it points at the original value).
+
 ---
 
 ## 11. Control flow

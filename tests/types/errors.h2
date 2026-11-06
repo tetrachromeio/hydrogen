@@ -103,3 +103,18 @@ new function lambda_errors() {
     let one = function(n: int) -> int { return n }
     one(1, 2)                                                   // wrong number of arguments
 }
+
+new interface Named { new function name() -> str }
+new class Robot { id: int }
+new class Person {
+    first: str
+    new function name() -> str { return self.first }
+}
+new function dyn_errors() {
+    let r = Robot(1)
+    let n: any Named = &r                  // Robot has no name()
+    let ada = Person("ada")
+    let ok: any Named = &ada               // fine
+    let o: any Ordered = &r                // Ordered has an operator: can't be dynamic
+    let p: any Robot = &r                  // not an interface
+}

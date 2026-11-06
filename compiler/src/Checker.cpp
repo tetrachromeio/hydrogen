@@ -98,8 +98,11 @@ private:
     };
     std::vector<LambdaSite> lambdas_;
 
+    std::map<const Expr*, const Type*> dynCoerced_; // ptr<T> used as any I: the concrete T
+
     void noteCoercion(const Expr& e, const Type* from, const Type* to) {
         if (from == lang_.stringT && to == lang_.strT) viewCoerced_.insert(&e);
+        if (from->kind == K::Ptr && to->kind == K::Dyn) dynCoerced_[&e] = from->elem();
     }
 
     struct Lang {
@@ -204,6 +207,11 @@ private:
     }
 
     const Type* convert(const TypeRef& t, const Type* selfT) {
+        if (t.kind == TypeRef::Kind::Any) {
+            if (!t.sym) return tc_.error();
+            if (!dynUsable(t.sym, t.loc)) return tc_.error();
+            return tc_.dyn(t.sym);
+        }
         if (t.kind == TypeRef::Kind::Function) {
             std::vector<const Type*> ps;
             for (const auto& a : t.args) ps.push_back(convert(*a, selfT));
@@ -301,6 +309,7 @@ private:
 
     bool assignable(const Type* from, const Type* to) {
         if (from == to || from->isError() || to->isError()) return true;
+        if (from->kind == K::Ptr && to->kind == K::Dyn) return implements(from->elem(), to->sym);
         if (from->kind == K::IntLit) return isNumeric(to);
         if (from->kind == K::FloatLit) return isFloatType(to);
         if (from->kind == K::Array && to->kind == K::Slice) return from->elem() == to->elem();
@@ -353,6 +362,53 @@ private:
         return t;
     }
 
+    // Can `any I` dispatch every member at run time? (No operators, no Self, no generics.)
+    std::map<const Symbol*, bool> dynOk_;
+    bool dynUsable(const Symbol* iface, SourceLoc loc) {
+        auto it = dynOk_.find(iface);
+        if (it != dynOk_.end()) return it->second;
+        bool ok = true;
+        for (const auto& m : declAs<InterfaceDecl>(iface)->members) {
+            std::string why;
+            if (m->isOperator) why = "operator " + q(m->name) + " needs both values to have the same type";
+            else if (!m->generics.empty()) why = q(m->name) + " is generic";
+            else {
+                const Sig& sig = sigOf(*m, tc_.generic(iface)); // Self -> a marker type
+                for (const Type* p : sig.params)
+                    if (p == tc_.generic(iface)) why = q(m->name) + " takes Self";
+                if (sig.ret == tc_.generic(iface)) why = q(m->name) + " returns Self";
+            }
+            if (!why.empty()) {
+                error(loc, "'any " + iface->name + "' isn't possible: " + why +
+                               ", which can't be dispatched at run time");
+                ok = false;
+                break;
+            }
+        }
+        return dynOk_[iface] = ok;
+    }
+
+    // Does `t` provide every method of the interface? (Quiet; used for `any I`.)
+    bool implements(const Type* t, const Symbol* iface) {
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Class) return false;
+        const auto* cd = declAs<ClassDecl>(t->sym);
+        Subst s = substFor(t);
+        for (const auto& m : declAs<InterfaceDecl>(iface)->members) {
+            const Sig& want = sigOf(*m, t);
+            bool found = false;
+            for (const auto& meth : cd->methods) {
+                if (meth->isOperator || meth->name != m->name || meth->params.size() != m->params.size()) continue;
+                const Sig& have = sigOf(*meth, selfTypeOf(t->sym));
+                bool same = subst(have.ret, s) == want.ret;
+                for (size_t i = 0; same && i < have.params.size(); ++i)
+                    same = subst(have.params[i], s) == want.params[i];
+                found = found || same;
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
     // Fixes the type of `e` when it is still an untyped literal.
     const Type* finalize(Expr& e) {
         if (e.type && e.type->isLiteral()) setLiteralType(e, defaultLiteral(e.type));
@@ -373,6 +429,19 @@ private:
 
     std::string conversionHint(const Type* from, const Type* to) {
         if (from->isError() || to->isError()) return "";
+        if (to->kind == K::Dyn && from->kind == K::Ptr) {
+            std::string missing;
+            if (from->elem()->kind == K::Named && from->elem()->sym->kind == Symbol::Kind::Class)
+                for (const auto& m : declAs<InterfaceDecl>(to->sym)->members) {
+                    bool has = false;
+                    for (const auto& meth : declAs<ClassDecl>(from->elem()->sym)->methods)
+                        has = has || (!meth->isOperator && meth->name == m->name);
+                    if (!has) missing += (missing.empty() ? "" : ", ") + m->name + "()";
+                }
+            return ". " + str(from->elem()) + " doesn't implement " + to->sym->name +
+                   (missing.empty() ? " (a method's signature differs)" : " (missing " + missing + ")");
+        }
+        if (to->kind == K::Dyn) return ". Pass a pointer: &value";
         if (from == lang_.strT && to == lang_.stringT) return ". Make an owned copy with string(...)";
         bool fromNum = from->isLiteral() || scalarOf(from).kind != Scalar::None;
         if (fromNum && scalarOf(to).kind != Scalar::None && to->kind == K::Named)
@@ -1050,6 +1119,20 @@ private:
             finalize(*m.object);
             if (obj->isError()) return argsUnchecked(c);
             const Type* base = obj->kind == K::Ptr ? obj->elem() : obj;
+            if (base->kind == K::Dyn) {
+                // Dynamic dispatch through `any I`.
+                for (const auto& fn : declAs<InterfaceDecl>(base->sym)->members) {
+                    if (fn->isOperator || fn->name != m.member) continue;
+                    const Sig& sig = sigOf(*fn, base);
+                    Subst s;
+                    checkArgs(c, sig.params, s, {}, sig.ret, expected, m.member, nullptr);
+                    calls_[&c] = {CallInfo::Fn, fn.get(), {}};
+                    m.type = tc_.voidT();
+                    return sig.ret;
+                }
+                error(m.loc, str(base) + " has no method " + q(m.member));
+                return argsUnchecked(c);
+            }
             if (base->kind == K::Named && base->sym->kind == Symbol::Kind::Class) {
                 for (const auto& fn : declAs<ClassDecl>(base->sym)->methods) {
                     if (fn->isOperator || fn->name != m.member) continue;
@@ -1823,6 +1906,7 @@ public:
         for (const auto& [e, ci] : calls_)
             if (e->kind == ExprKind::Call) info.calls[e] = {ci.fn, ci.subst};
         info.viewCoerced = viewCoerced_;
+        info.dynCoerced = dynCoerced_;
     }
 
     void runMoveChecks() {

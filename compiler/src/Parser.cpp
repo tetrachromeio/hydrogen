@@ -151,6 +151,13 @@ private:
     TypeRefPtr parseType() {
         auto t = std::make_unique<TypeRef>();
         t->loc = peek().loc;
+        if (atIdent("any") && peek(1).kind == Tok::Ident) {
+            // any Shape: a value of any type that implements the interface
+            advance();
+            t->kind = TypeRef::Kind::Any;
+            t->name = parsePath("an interface name after 'any'");
+            return t;
+        }
         if (accept(Tok::KwFunction)) {
             // function(int, str) -> bool
             NestIn in(*this);
@@ -498,6 +505,7 @@ private:
         parseMembers("interface", [&] {
             rejectPub("interface members are always public");
             Tok k = peek(1).kind;
+            if (k == Tok::Ident && peek(1).text == "mut" && peek(2).kind == Tok::KwFunction) k = Tok::KwFunction;
             if (!at(Tok::KwNew) || (k != Tok::KwFunction && k != Tok::KwOperator))
                 failExpected("'new function' or 'new operator' in interface");
             d->members.push_back(parseFunction(/*bodyOptional=*/true));

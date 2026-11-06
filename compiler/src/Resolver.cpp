@@ -441,6 +441,17 @@ private:
     enum class TypeCtx { Normal, Constraint };
 
     void resolveType(TypeRef& t, TypeCtx ctx = TypeCtx::Normal) {
+        if (t.kind == TypeRef::Kind::Any) {
+            PathResult r = resolvePath(splitName(t.name, t.loc));
+            if (!r.sym) return;
+            if (r.sym->kind != Symbol::Kind::Interface || r.used != splitName(t.name, t.loc).size()) {
+                error(t.loc, "'any' needs an interface, but '" + t.name + "' is a " +
+                                 std::string(symbolKindName(r.sym->kind)));
+                return;
+            }
+            t.sym = r.sym;
+            return;
+        }
         if (t.kind == TypeRef::Kind::Function) {
             for (auto& a : t.args) resolveType(*a);
             if (t.elem) resolveType(*t.elem);

@@ -36,6 +36,7 @@ const Type* TypeContext::array(const Type* e, uint64_t n) {
 const Type* TypeContext::slice(const Type* e) { return e->isError() ? error_ : get(Type::Kind::Slice, nullptr, {e}, 0); }
 const Type* TypeContext::range(const Type* e) { return e->isError() ? error_ : get(Type::Kind::Range, nullptr, {e}, 0); }
 const Type* TypeContext::generic(const Symbol* p) { return get(Type::Kind::Generic, p, {}, 0); }
+const Type* TypeContext::dyn(const Symbol* iface) { return get(Type::Kind::Dyn, iface, {}, 0); }
 const Type* TypeContext::function(const Type* result, const std::vector<const Type*>& params) {
     std::vector<const Type*> args{result};
     for (const Type* p : params) {
@@ -56,6 +57,7 @@ std::string TypeContext::str(const Type* t) {
     case Type::Kind::Array: return "[" + str(t->elem()) + "; " + std::to_string(t->size) + "]";
     case Type::Kind::Slice: return "[" + str(t->elem()) + "]";
     case Type::Kind::Range: return "Range<" + str(t->elem()) + ">";
+    case Type::Kind::Dyn: return "any " + t->sym->name;
     case Type::Kind::Function: {
         std::string s = "function(";
         for (size_t i = 1; i < t->args.size(); ++i) s += (i > 1 ? ", " : "") + str(t->args[i]);

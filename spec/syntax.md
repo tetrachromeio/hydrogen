@@ -335,6 +335,14 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Dynamic interfaces: `any I`
+`any I` is a borrowed reference to a value of any class that implements
+interface `I`: a pointer to the value plus a table of its methods (a vtable).
+It is made from a pointer, `&value` or a `ptr<T>` from `alloc`, when `T` has every
+method of `I` with the same signature. Method calls go through the table at run
+time. `any I` doesn't own the value, and isn't dropped. `I` may not contain operators,
+generic methods or `Self`, because those can't be dispatched at run time.
+
 ## Function values and lambdas
 - A function type is written `function(T1, T2) -> R` (`-> R` omitted for no result).
 - A non-generic function's name used as a value is a function value: `let f = double`.

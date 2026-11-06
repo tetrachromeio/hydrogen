@@ -56,6 +56,7 @@ private:
     // ---------------------------------------------------------- types
 
     std::string typeStr(const TypeRef& t) {
+        if (t.kind == TypeRef::Kind::Any) return "any " + t.name;
         if (t.kind == TypeRef::Kind::Function) {
             std::string s = "function(";
             for (size_t i = 0; i < t.args.size(); ++i) s += (i ? ", " : "") + typeStr(*t.args[i]);

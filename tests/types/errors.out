@@ -29,6 +29,12 @@ tests/types/errors.h2:100:5: add_k: function(int) -> int
 tests/types/errors.h2:101:5: g: <error>
 tests/types/errors.h2:102:5: h: function(int) -> int
 tests/types/errors.h2:103:5: one: function(int) -> int
+tests/types/errors.h2:114:5: r: Robot
+tests/types/errors.h2:115:5: n: any Named
+tests/types/errors.h2:116:5: ada: Person
+tests/types/errors.h2:117:5: ok: any Named
+tests/types/errors.h2:118:5: o: <error>
+tests/types/errors.h2:119:5: p: <error>
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -73,3 +79,6 @@ tests/types/errors.h2:100:54: error: a lambda can't use 'k' from the function ar
 tests/types/errors.h2:101:13: error: 'twice' is generic, so it can't be used as a value directly; wrap it in a lambda with concrete types
 tests/types/errors.h2:102:35: error: value of 'h': expected function(int) -> int, found function(str) -> int
 tests/types/errors.h2:104:8: error: this function takes 1 argument, but 2 were given
+tests/types/errors.h2:115:24: error: value of 'n': expected any Named, found ptr<Robot>. Robot doesn't implement Named (missing name())
+tests/types/errors.h2:118:12: error: 'any Ordered' isn't possible: operator '<' needs both values to have the same type, which can't be dispatched at run time
+tests/types/errors.h2:119:12: error: 'any' needs an interface, but 'Robot' is a class

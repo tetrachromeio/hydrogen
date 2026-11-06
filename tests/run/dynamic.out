@@ -1,0 +1,6 @@
+circle r=1.0: 3.0
+rect: 6.0
+12.0
+2
+rect: 1.0
+[exit 0]
