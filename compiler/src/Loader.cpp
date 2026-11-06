@@ -48,12 +48,13 @@ class Loader {
 public:
     Loader(Program& prog, Diagnostics& diags) : prog_(prog), diags_(diags) {}
 
-    void run(const fs::path& mainFile, const std::vector<fs::path>& libPaths) {
+    void run(const fs::path& mainFile, const LoadOptions& opts) {
         fs::path main = normalize(mainFile);
         prog_.searchPaths.push_back(main.parent_path());
-        for (const auto& p : libPaths) prog_.searchPaths.push_back(normalize(p));
+        for (const auto& p : opts.libPaths) prog_.searchPaths.push_back(normalize(p));
+        for (const auto& [name, dir] : opts.packages) prog_.packages[name] = normalize(dir);
 
-        if (!load(main, inferModulePath(main, libPaths))) {
+        if (!load(main, inferModulePath(main))) {
             diags_.error(displayPath(main), {1, 1}, "cannot open file");
             return;
         }
@@ -70,10 +71,18 @@ private:
 
     // A main file at <lib>/A/B/init.h2 *is* module A.B, so it behaves the same
     // whether it is compiled directly or reached through `use`.
-    std::string inferModulePath(const fs::path& file, const std::vector<fs::path>& libPaths) {
+    std::string inferModulePath(const fs::path& file) {
         if (file.filename() != "init.h2") return "";
-        for (const auto& lib : libPaths) {
-            fs::path rel = file.parent_path().lexically_relative(normalize(lib));
+        for (const auto& [name, root] : prog_.packages) {
+            fs::path rel = file.parent_path().lexically_relative(root);
+            if (rel.empty() || *rel.begin() == "..") continue;
+            std::string path = name;
+            if (rel != ".")
+                for (const auto& seg : rel) path += "." + seg.string();
+            return path;
+        }
+        for (size_t i = 1; i < prog_.searchPaths.size(); ++i) {
+            fs::path rel = file.parent_path().lexically_relative(prog_.searchPaths[i]);
             if (rel.empty() || rel == "." || *rel.begin() == "..") continue;
             std::string path;
             for (const auto& seg : rel) {
@@ -111,10 +120,21 @@ private:
     // Finds or loads module `modPath`. Returns null and fills `tried` if missing.
     ModuleInfo* get(const std::string& modPath, std::vector<fs::path>& tried) {
         if (auto it = byPath_.find(modPath); it != byPath_.end()) return it->second;
-        for (const auto& dir : prog_.searchPaths) {
-            fs::path p = dir;
-            for (const auto& seg : splitPath(modPath)) p /= seg;
-            p /= "init.h2";
+        auto segs = splitPath(modPath);
+        std::vector<fs::path> candidates;
+        if (auto pkg = prog_.packages.find(segs[0]); pkg != prog_.packages.end()) {
+            // A package owns its whole namespace: no fallback to search paths.
+            fs::path p = pkg->second;
+            for (size_t i = 1; i < segs.size(); ++i) p /= segs[i];
+            candidates.push_back(p / "init.h2");
+        } else {
+            for (const auto& dir : prog_.searchPaths) {
+                fs::path p = dir;
+                for (const auto& seg : segs) p /= seg;
+                candidates.push_back(p / "init.h2");
+            }
+        }
+        for (fs::path p : candidates) {
             tried.push_back(p);
             std::error_code ec;
             if (!fs::is_regular_file(p, ec)) continue;
@@ -163,10 +183,10 @@ private:
 
 } // namespace
 
-std::unique_ptr<Program> loadProgram(const fs::path& mainFile, const std::vector<fs::path>& libPaths,
+std::unique_ptr<Program> loadProgram(const fs::path& mainFile, const LoadOptions& options,
                                      Diagnostics& diags) {
     auto prog = std::make_unique<Program>();
-    Loader(*prog, diags).run(mainFile, libPaths);
+    Loader(*prog, diags).run(mainFile, options);
     return prog;
 }
 

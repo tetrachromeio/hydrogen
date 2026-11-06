@@ -1,0 +1,6 @@
+[project]
+name = "app"
+version = "1.2.0"
+
+[dependencies]
+Geometry = { path = "../Geometry" }

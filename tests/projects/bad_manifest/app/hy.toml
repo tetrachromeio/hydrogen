@@ -1,0 +1,8 @@
+[project]
+name = "my-app"
+type = "binary"
+colour = "red"
+
+[dependencies]
+Elemental = { path = "../x" }
+Remote = { git = "https://example.com/r.git" }

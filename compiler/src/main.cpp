@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
                 if (!dir.empty()) libs.emplace_back(dir);
         }
         if (*H2_STDLIB_DIR) libs.emplace_back(H2_STDLIB_DIR);
-        auto program = h2::loadProgram(file, libs, diags);
+        auto program = h2::loadProgram(file, {libs, {}}, diags);
         if (program->main()) h2::resolveProgram(*program, diags);
         diags.print(std::cerr);
         return diags.hasErrors() ? 1 : 0;

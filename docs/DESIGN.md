@@ -37,6 +37,8 @@ Principles:
 | Visibility        | Private by default; `pub` to export; `pub use` re-exports |
 | Module layout     | `use A.B` → `A/B/init.h2` (project dir, deps, stdlib) |
 | Prelude           | Every module implicitly does `use Atomic`         |
+| Tooling           | `hy` CLI (`new`, `check`, `build`, `run`, `deps`) driven by `hy.toml` |
+| Dependencies      | Library projects named by module name; `path` deps now; git/registry later |
 
 ## Standard library
 - **Atomic**: the freestanding core. Primitive types, memory and pointer

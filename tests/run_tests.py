@@ -6,6 +6,7 @@
   tests/errors/*.h2  -> `h2c --check` must fail and stderr must match the .err file
   tests/resolve/<case>/main.h2 -> `h2c --check` stderr must match <case>/expected.err
                                  (an empty file means the project must check cleanly)
+  tests/projects/<case>/app/     -> `hy check` output must match <case>/expected.out
   examples/**/*.h2, lib/**/*.h2 -> must pass `h2c --check`
 
 Usage: run_tests.py <h2c> <repo-root> [--update]
@@ -24,7 +25,7 @@ def main():
     if len(sys.argv) < 3:
         print(__doc__)
         return 2
-    h2c, root = sys.argv[1], Path(sys.argv[2]).resolve()
+    h2c, root = str(Path(sys.argv[1]).resolve()), Path(sys.argv[2]).resolve()
     update = "--update" in sys.argv[3:]
     failures, count = [], 0
 
@@ -65,6 +66,16 @@ def main():
             failures.append(f"{p}: diagnostics differ from expected.err\n--- got ---\n{r.stderr}")
         elif r.returncode != (0 if want_ok else 1):
             failures.append(f"{p}: unexpected exit code {r.returncode}")
+    hy = str(Path(h2c).with_name("hy"))
+    for app in sorted((root / "tests/projects").glob("*/app")):
+        count += 1
+        r = subprocess.run([hy, "check"], cwd=app, capture_output=True, text=True)
+        got = r.stdout + r.stderr + f"[exit {r.returncode}]\n"
+        expected_file = app.parent / "expected.out"
+        if update:
+            expected_file.write_text(got)
+        elif not expected_file.exists() or expected_file.read_text() != got:
+            failures.append(f"{app}: hy check output differs from expected.out\n--- got ---\n{got}")
     for d in ("examples", "lib"):
         for p in sorted((root / d).rglob("*.h2")):
             count += 1

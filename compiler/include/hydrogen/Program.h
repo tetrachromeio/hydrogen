@@ -4,6 +4,8 @@
 //
 // Module layout: `use A.B` loads `<dir>/A/B/init.h2`, where <dir> is the
 // main file's directory, then each library search path in order.
+// A *package* (a hy.toml dependency) named P maps `use P` to <P root>/init.h2
+// and `use P.X` to <P root>/X/init.h2.
 // Every module except `Atomic` itself implicitly does `use Atomic` (the prelude).
 
 #include "hydrogen/AST.h"
@@ -70,6 +72,7 @@ struct ModuleInfo {
 struct Program {
     std::vector<std::unique_ptr<ModuleInfo>> modules; // modules[0] is the main file
     std::vector<std::filesystem::path> searchPaths;   // main dir first, then libraries
+    std::map<std::string, std::filesystem::path> packages; // package name -> root dir
     std::vector<std::unique_ptr<Symbol>> symbols;     // owns every Symbol
 
     ModuleInfo* main() const { return modules.empty() ? nullptr : modules.front().get(); }
@@ -85,10 +88,13 @@ struct Program {
     }
 };
 
+struct LoadOptions {
+    std::vector<std::filesystem::path> libPaths;              // searched after the main file's dir
+    std::map<std::string, std::filesystem::path> packages;    // package name -> root dir
+};
+
 // Parses the main file and every module it (transitively) uses.
-// `libPaths` are searched after the main file's directory.
-std::unique_ptr<Program> loadProgram(const std::filesystem::path& mainFile,
-                                     const std::vector<std::filesystem::path>& libPaths,
+std::unique_ptr<Program> loadProgram(const std::filesystem::path& mainFile, const LoadOptions& options,
                                      Diagnostics& diags);
 
 // Binds every name in the program to a Symbol and enforces `pub`.

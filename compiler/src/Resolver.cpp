@@ -269,11 +269,12 @@ private:
             if (auto it = imp.target->defs.find(name); it != imp.target->defs.end() && !it->second->isPub)
                 return ": it exists in module " + imp.target->displayName() + " but is not pub";
         }
+        bool isModule = prog_.packages.count(name) > 0;
         for (const auto& dir : prog_.searchPaths) {
             std::error_code ec;
-            if (fs::is_regular_file(dir / name / "init.h2", ec))
-                return ". To use the module, add 'use " + name + "'";
+            if (fs::is_regular_file(dir / name / "init.h2", ec)) isModule = true;
         }
+        if (isModule) return ". To use the module, add 'use " + name + "'";
         std::string best;
         size_t bestDist = 3;
         auto consider = [&](const std::string& cand) {
