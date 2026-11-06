@@ -359,6 +359,21 @@ print(arr.len)                    // arrays and slices have .len
 - `free` is explicit for anything you `alloc`.
 - Writing through a raw pointer (`p[i] = v`, `*p = v`) doesn't drop the old value.
 
+### Talking to C: `extern`, pointer casts, `null`
+```
+extern function socket(domain: i32, kind: i32, protocol: i32) -> i32   // any C function
+extern function read(fd: i32, buf: ptr<u8>, n: uint) -> int
+
+var addr = SockAddrIn(2, 0, 0x0100007F, 0)
+bind(fd, ptr<u8>(&addr), 16)        // ptr<T>(p): reinterpret a pointer (or an int address)
+accept(fd, null, null)              // null: a null pointer (needs a pointer type from context)
+if p == null { ... }
+```
+- `extern` works in any module. Calls go straight to the C library, with no wrapper.
+- Extern parameters and returns must be numbers, bools, chars or pointers. Pass structs by pointer.
+- Layout types (`new type X { ... }`) are laid out like C structs.
+- See `tests/run/tcp_loopback.h2` for a TCP client and server written this way.
+
 ---
 
 ## 13. Ownership
@@ -445,13 +460,13 @@ operations (`add sub mul sdiv srem eq slt shl ...`, `malloc free memcpy`, ...).
 
 ## 16. Not supported yet
 
-- `null` pointers
-- Reading input: keyboard, files, command-line arguments
+- Reading input from Hydrogen's own library (use `extern` to call C's `read`, `fopen`, ... for now)
 - Built-in growable `List<T>` / `Map<K, V>`
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
 - Functions as values, closures
-- Inline `asm` (parses, but the code generator rejects it)
+- Inline `asm` (parses, but the code generator rejects it). Use `extern` instead
+- Variadic C functions (like `printf`) through `extern`
 - UTF-8 decoding in `for c in text` (iterates bytes)
 - Full borrow checking of `str` views (only returning one is caught)
 - Random numbers, time, threads

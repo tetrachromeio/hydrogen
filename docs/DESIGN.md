@@ -32,6 +32,7 @@ Principles:
 | Printing          | `print<T: Printable>`; types define `new operator string` (like `__str__`) |
 | Ownership         | Values with drop move (no implicit copies); `.copy()` explicit |
 | Parameters        | Borrowed by default; `own` takes ownership         |
+| C interop         | `extern function` (any module), `ptr<T>(x)` casts, `null` |
 | Type forms        | `: base` = new distinct type; `= other` = alias    |
 | Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
 | Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
@@ -53,7 +54,6 @@ Principles:
   math, files.
 
 ## Open
-- C interop / ABI and `extern` declarations
 - Integer overflow behavior (wrap, trap or undefined)
 - Mutating methods on `let` values
 - String interpolation ("x = {x}")

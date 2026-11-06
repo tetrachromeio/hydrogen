@@ -214,6 +214,20 @@ private:
 
     DeclPtr parseTopDeclAfterPub() {
         if (at(Tok::KwUse)) return parseUse();
+        if (at(Tok::KwExtern)) {
+            // extern function name(params) -> T     (a C function)
+            SourceLoc loc = advance().loc;
+            if (!at(Tok::KwFunction)) failExpected("'function' after 'extern'");
+            Token fake = peek();
+            fake.kind = Tok::KwNew;
+            toks_.insert(toks_.begin() + static_cast<long>(pos_), fake);
+            auto f = parseFunction(/*bodyOptional=*/true);
+            if (f->body) fail(f->body->loc, "an extern function has no body: it is defined in C");
+            if (!f->generics.empty()) fail(loc, "an extern function can't be generic");
+            f->isExtern = true;
+            f->loc = loc;
+            return f;
+        }
         if (at(Tok::KwInclude)) {
             auto d = std::make_unique<IncludeDecl>(advance().loc);
             if (at(Tok::StringLit))
@@ -744,6 +758,7 @@ private:
         case Tok::KwFalse:
             return std::make_unique<LiteralExpr>(ExprKind::BoolLit, loc, advance().text);
         case Tok::KwSelf: advance(); return std::make_unique<SelfExpr>(loc);
+        case Tok::KwNull: return std::make_unique<LiteralExpr>(ExprKind::NullLit, loc, advance().text);
         case Tok::Ident: {
             auto id = std::make_unique<IdentExpr>(loc, advance().text);
             if (at(Tok::Less) && !peek().newlineBefore) id->typeArgs = tryCallTypeArgs();

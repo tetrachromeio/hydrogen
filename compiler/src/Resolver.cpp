@@ -486,6 +486,8 @@ private:
             error(loc, "'" + s->name + "' is a module; write " + s->name + ".<name>");
         else if (s == selfType_)
             error(loc, "'Self' is a type; use 'self' for the current object");
+        else if (s == ptr_)
+            {} // ptr<T>(x) is a pointer cast
     }
 
     void resolveExpr(Expr& e) {
@@ -494,7 +496,8 @@ private:
         case ExprKind::FloatLit:
         case ExprKind::StringLit:
         case ExprKind::CharLit:
-        case ExprKind::BoolLit: return;
+        case ExprKind::BoolLit:
+        case ExprKind::NullLit: return;
         case ExprKind::Self:
             if (!selfAllowed_) error(e.loc, "'self' is only available inside class methods");
             return;

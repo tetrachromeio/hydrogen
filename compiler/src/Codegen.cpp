@@ -173,6 +173,7 @@ private:
     std::set<std::string> fnsRequested_;
     std::set<std::string> dropsDone_;
     std::set<std::string> usedDecls_;
+    std::set<std::string> externDecls_;
     int strCounter_ = 0;
 
     struct Inst {
@@ -559,6 +560,14 @@ private:
     }
 
     std::string requestFn(const FunctionDecl* fn, const Subst& s, const Type* owner) {
+        if (fn->isExtern) {
+            // A C function: declared once under its own name.
+            std::string decl = "declare " + lty(retTypeOf(fn, s, nullptr)) + " @" + llvmQuote(fn->name) + "(";
+            for (size_t i = 0; i < fn->params.size(); ++i)
+                decl += (i ? ", " : "") + lty(paramType(fn, i, s, nullptr));
+            externDecls_.insert(decl + ")");
+            return fn->name;
+        }
         std::string name = fnName(fn, s, owner);
         if (fnsRequested_.insert(name).second) worklist_.push_back({fn, s, owner, name});
         return name;
@@ -653,6 +662,7 @@ private:
             {"ceil", "declare double @llvm.ceil.f64(double)"},
         };
         std::string out;
+        for (const auto& d : externDecls_) out += d + "\n";
         for (const auto& d : usedDecls_)
             if (auto it = all.find(d); it != all.end()) out += it->second + "\n";
         return out;
@@ -1241,6 +1251,7 @@ private:
         case ExprKind::IntLit:
         case ExprKind::FloatLit: return literalAs(e, typeOf(e));
         case ExprKind::BoolLit: return {"i1", static_cast<const LiteralExpr&>(e).value};
+        case ExprKind::NullLit: return {"ptr", "null"};
         case ExprKind::CharLit:
             return {"i32", std::to_string(decodeChar(static_cast<const LiteralExpr&>(e).value))};
         case ExprKind::StringLit: return strLiteral(static_cast<const LiteralExpr&>(e).value);
@@ -1605,6 +1616,17 @@ private:
         }
         case Symbol::Kind::Class:
         case Symbol::Kind::Type: return emitConstruct(c, sym, callInfo != info_.calls.end() ? &callInfo->second : nullptr);
+        case Symbol::Kind::Builtin:
+            if (sym->name == "ptr" && c.args.size() == 1) {
+                // ptr<T>(x): pointers are untyped in LLVM; integers become addresses.
+                Val v = rvalue(*c.args[0]);
+                if (v.ty == "ptr") return v;
+                std::string t = tmp();
+                emit(t + " = inttoptr " + v.ty + " " + v.v + " to ptr");
+                return {"ptr", t};
+            }
+            unsupported(c.loc, "this call");
+            return {"i64", "0"};
         default: unsupported(c.loc, "this call"); return {"i64", "0"};
         }
     }

@@ -335,6 +335,15 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## C interop: `extern`, pointer casts, `null`
+- `extern function name(params) -> T` declares a C function. It's allowed in
+  any module, can be `pub`, has no body and can't be generic. Parameters and
+  results must be numbers, bools, chars or pointers.
+- `ptr<T>(x)` reinterprets a pointer, or an `int`/`uint` address, as `ptr<T>`.
+- `null` is the null pointer. It takes its pointer type from context
+  (`let p: ptr<u8> = null`, `p == null`, or an argument).
+- Layout types use C struct layout, so they can be passed to C by pointer.
+
 ## Cleanup (drop) at run time
 - A value with `drop` is dropped when its owner goes out of scope, in reverse
   order of declaration. A moved value is dropped once, by its new owner.

@@ -451,6 +451,10 @@ private:
         case ExprKind::StringLit: return lang_.strT;
         case ExprKind::CharLit: return lang_.charT;
         case ExprKind::BoolLit: return lang_.boolT;
+        case ExprKind::NullLit:
+            if (expected && expected->kind == K::Ptr) return expected;
+            error(e.loc, "'null' needs a pointer type from context, e.g. let p: ptr<u8> = null");
+            return tc_.error();
         case ExprKind::Self: return selfType_ ? selfType_ : tc_.error();
         case ExprKind::Ident: {
             auto& id = static_cast<IdentExpr&>(e);
@@ -673,8 +677,15 @@ private:
         }
         bool comparison = op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
         bool arithmetic = !comparison && op != "..";
-        const Type* l = checkExpr(*b.lhs, arithmetic ? expected : nullptr);
-        const Type* r = checkExpr(*b.rhs, arithmetic ? expected : nullptr);
+        const Type* l;
+        const Type* r;
+        if (b.lhs->kind == ExprKind::NullLit && b.rhs->kind != ExprKind::NullLit) {
+            r = checkExpr(*b.rhs, nullptr);
+            l = checkExpr(*b.lhs, r);
+        } else {
+            l = checkExpr(*b.lhs, arithmetic ? expected : nullptr);
+            r = checkExpr(*b.rhs, b.rhs->kind == ExprKind::NullLit ? l : (arithmetic ? expected : nullptr));
+        }
         if (l->isError() || r->isError()) return tc_.error();
 
         if (l->isLiteral() && r->isLiteral()) {
@@ -1044,6 +1055,21 @@ private:
         case Symbol::Kind::Generic:
             error(c.loc, "cannot construct generic type " + s->name);
             return argsUnchecked(c);
+        case Symbol::Kind::Builtin:
+            if (s->name == "ptr" && explicitArgs.size() == 1 && c.args.size() == 1) {
+                // ptr<T>(p): reinterpret a pointer (or an address-sized uint) as ptr<T>
+                const Type* from = checkExpr(*c.args[0], nullptr);
+                if (from->isLiteral()) from = finalize(*c.args[0]);
+                if (!from->isError() && from->kind != K::Ptr && from != lang_.uintT && from != lang_.intT)
+                    error(c.loc, "ptr<T>(x) converts a pointer or an int/uint address, not " + str(from));
+                return tc_.ptr(explicitArgs[0]);
+            }
+            if (s->name == "ptr") error(c.loc, "write a pointer cast as ptr<T>(value)");
+            for (auto& a : c.args) { // intrinsic.*: unchecked, provided by the compiler
+                checkExpr(*a, nullptr);
+                finalize(*a);
+            }
+            return tc_.error();
         default: return argsUnchecked(c);
         }
     }
@@ -1488,6 +1514,20 @@ private:
     // -------------------------------------------------------------- declarations
 
     void checkFunction(FunctionDecl& f, const Type* ownerSelf) {
+        if (f.isExtern) {
+            const Sig& sig = sigOf(f, ownerSelf);
+            auto ok = [&](const Type* t) {
+                return t->isError() || t == tc_.voidT() || t->kind == K::Ptr || scalarOf(t).kind != Scalar::None;
+            };
+            for (size_t i = 0; i < sig.params.size(); ++i) {
+                if (!ok(sig.params[i]))
+                    error(f.params[i].loc, "extern functions take numbers, bools, chars and pointers; pass " +
+                                               str(sig.params[i]) + " by pointer instead");
+                if (f.params[i].isOwn) error(f.params[i].loc, "'own' has no meaning for an extern function");
+            }
+            if (!ok(sig.ret)) error(f.loc, "an extern function must return a number, bool, char, pointer or nothing");
+            return;
+        }
         if (!f.body) return;
         const Sig& sig = sigOf(f, ownerSelf);
         const Type* savedRet = retType_;

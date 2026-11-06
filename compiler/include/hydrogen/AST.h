@@ -46,7 +46,7 @@ struct GenericParam {
 // ---------------------------------------------------------------- expressions
 
 enum class ExprKind {
-    IntLit, FloatLit, StringLit, CharLit, BoolLit, Ident, Self,
+    IntLit, FloatLit, StringLit, CharLit, BoolLit, NullLit, Ident, Self,
     Unary, Binary, Call, Member, Index, Try, Alloc, ArrayLit, Match
 };
 
@@ -263,6 +263,7 @@ struct Param {
 // `new function` and `new operator` share this node.
 struct FunctionDecl : Decl {
     bool isOperator = false;
+    bool isExtern = false; // `extern function`: a C function, no body
     std::string name; // function name, or operator symbol ("+", "==", "[]", "unary-")
     std::vector<GenericParam> generics;
     std::vector<Param> params;

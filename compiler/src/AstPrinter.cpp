@@ -107,7 +107,8 @@ private:
         switch (e.kind) {
         case ExprKind::IntLit:
         case ExprKind::FloatLit:
-        case ExprKind::BoolLit: os_ << static_cast<const LiteralExpr&>(e).value; break;
+        case ExprKind::BoolLit:
+        case ExprKind::NullLit: os_ << static_cast<const LiteralExpr&>(e).value; break;
         case ExprKind::StringLit: os_ << quote(static_cast<const LiteralExpr&>(e).value, '"'); break;
         case ExprKind::CharLit: os_ << quote(static_cast<const LiteralExpr&>(e).value, '\''); break;
         case ExprKind::Self: os_ << "self"; break;
@@ -325,6 +326,7 @@ private:
     void function(const FunctionDecl& f, int depth) {
         if (f.isPub && !f.isOperator) os_ << "(pub ";
         else os_ << '(';
+        if (f.isExtern) os_ << "extern ";
         os_ << (f.isOperator ? "operator " : "function ") << f.name << genericsStr(f.generics) << " (";
         for (size_t i = 0; i < f.params.size(); ++i) {
             if (i) os_ << ' ';
