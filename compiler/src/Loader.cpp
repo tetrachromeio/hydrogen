@@ -1,0 +1,173 @@
+#include "hydrogen/Lexer.h"
+#include "hydrogen/Parser.h"
+#include "hydrogen/Program.h"
+
+#include <fstream>
+#include <map>
+#include <sstream>
+
+namespace h2 {
+namespace fs = std::filesystem;
+
+namespace {
+
+std::vector<std::string> splitPath(const std::string& modPath) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : modPath) {
+        if (c == '.') {
+            out.push_back(std::move(cur));
+            cur.clear();
+        } else {
+            cur += c;
+        }
+    }
+    out.push_back(std::move(cur));
+    return out;
+}
+
+// Shortest readable form of `p` for diagnostics: relative to the current
+// directory when inside it, absolute otherwise.
+std::string displayPath(const fs::path& p) {
+    std::error_code ec;
+    fs::path cwd = fs::current_path(ec);
+    if (!ec) {
+        fs::path rel = p.lexically_relative(cwd);
+        if (!rel.empty() && *rel.begin() != "..") return rel.generic_string();
+    }
+    return p.generic_string();
+}
+
+fs::path normalize(const fs::path& p) {
+    std::error_code ec;
+    fs::path c = fs::weakly_canonical(fs::absolute(p), ec);
+    return ec ? fs::absolute(p).lexically_normal() : c;
+}
+
+class Loader {
+public:
+    Loader(Program& prog, Diagnostics& diags) : prog_(prog), diags_(diags) {}
+
+    void run(const fs::path& mainFile, const std::vector<fs::path>& libPaths) {
+        fs::path main = normalize(mainFile);
+        prog_.searchPaths.push_back(main.parent_path());
+        for (const auto& p : libPaths) prog_.searchPaths.push_back(normalize(p));
+
+        if (!load(main, inferModulePath(main, libPaths))) {
+            diags_.error(displayPath(main), {1, 1}, "cannot open file");
+            return;
+        }
+        // prog_.modules grows while we iterate: each new module gets its uses loaded.
+        for (size_t i = 0; i < prog_.modules.size(); ++i) loadImports(*prog_.modules[i]);
+    }
+
+private:
+    Program& prog_;
+    Diagnostics& diags_;
+    std::map<std::string, ModuleInfo*> byPath_;
+    std::map<fs::path, ModuleInfo*> byFile_;
+    bool reportedMissingPrelude_ = false;
+
+    // A main file at <lib>/A/B/init.h2 *is* module A.B, so it behaves the same
+    // whether it is compiled directly or reached through `use`.
+    std::string inferModulePath(const fs::path& file, const std::vector<fs::path>& libPaths) {
+        if (file.filename() != "init.h2") return "";
+        for (const auto& lib : libPaths) {
+            fs::path rel = file.parent_path().lexically_relative(normalize(lib));
+            if (rel.empty() || rel == "." || *rel.begin() == "..") continue;
+            std::string path;
+            for (const auto& seg : rel) {
+                if (!path.empty()) path += '.';
+                path += seg.string();
+            }
+            return path;
+        }
+        return "";
+    }
+
+    ModuleInfo* load(const fs::path& file, const std::string& modPath) {
+        std::ifstream in(file, std::ios::binary);
+        if (!in) return nullptr;
+        std::stringstream buf;
+        buf << in.rdbuf();
+        std::string src = buf.str();
+
+        auto m = std::make_unique<ModuleInfo>();
+        m->path = modPath;
+        m->file = file;
+        m->displayFile = displayPath(file);
+        diags_.setFile(m->displayFile);
+        m->ast = parse(lex(src, diags_), diags_);
+        m->ast.fileName = m->displayFile;
+        m->self = prog_.newSymbol(Symbol::Kind::Module, m->displayName(), {1, 1}, m.get());
+
+        ModuleInfo* raw = m.get();
+        prog_.modules.push_back(std::move(m));
+        byFile_[file] = raw;
+        if (!modPath.empty()) byPath_[modPath] = raw;
+        return raw;
+    }
+
+    // Finds or loads module `modPath`. Returns null and fills `tried` if missing.
+    ModuleInfo* get(const std::string& modPath, std::vector<fs::path>& tried) {
+        if (auto it = byPath_.find(modPath); it != byPath_.end()) return it->second;
+        for (const auto& dir : prog_.searchPaths) {
+            fs::path p = dir;
+            for (const auto& seg : splitPath(modPath)) p /= seg;
+            p /= "init.h2";
+            tried.push_back(p);
+            std::error_code ec;
+            if (!fs::is_regular_file(p, ec)) continue;
+            p = normalize(p);
+            if (auto it = byFile_.find(p); it != byFile_.end()) {
+                // Same file reached under a different search path.
+                byPath_[modPath] = it->second;
+                return it->second;
+            }
+            return load(p, modPath);
+        }
+        return nullptr;
+    }
+
+    void loadImports(ModuleInfo& m) {
+        if (m.path != "Atomic") {
+            std::vector<fs::path> tried;
+            ModuleInfo* atomic = get("Atomic", tried);
+            if (!atomic && !reportedMissingPrelude_) {
+                reportedMissingPrelude_ = true;
+                diags_.error(m.displayFile, {1, 1},
+                             "the Atomic core library was not found; pass -L <dir> where <dir> contains "
+                             "Atomic/init.h2, or set H2_PATH");
+            }
+            m.imports.push_back({nullptr, atomic});
+        }
+        for (const auto& d : m.ast.decls) {
+            if (d->kind != DeclKind::Use) continue;
+            const auto& use = static_cast<const UseDecl&>(*d);
+            if (use.path == m.path) {
+                diags_.error(m.displayFile, use.loc, "module '" + use.path + "' cannot use itself");
+                m.imports.push_back({&use, nullptr});
+                continue;
+            }
+            std::vector<fs::path> tried;
+            ModuleInfo* target = get(use.path, tried);
+            if (!target) {
+                std::string msg = "module '" + use.path + "' not found. Looked for:";
+                for (const auto& t : tried) msg += "\n    " + displayPath(t);
+                diags_.error(m.displayFile, use.loc, msg);
+            }
+            m.imports.push_back({&use, target});
+        }
+    }
+};
+
+} // namespace
+
+std::unique_ptr<Program> loadProgram(const fs::path& mainFile, const std::vector<fs::path>& libPaths,
+                                     Diagnostics& diags) {
+    auto prog = std::make_unique<Program>();
+    Loader(*prog, diags).run(mainFile, libPaths);
+    return prog;
+}
+
+} // namespace h2

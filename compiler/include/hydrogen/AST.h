@@ -13,6 +13,7 @@ struct Stmt;
 struct Decl;
 struct TypeRef;
 struct Pattern;
+struct Symbol; // defined in Program.h; filled in by the resolver
 using ExprPtr = std::unique_ptr<Expr>;
 using StmtPtr = std::unique_ptr<Stmt>;
 using DeclPtr = std::unique_ptr<Decl>;
@@ -32,6 +33,7 @@ struct TypeRef {
     // Array: [elem; size] or [elem] (slice) when size is null.
     TypeRefPtr elem;
     ExprPtr size;
+    const Symbol* sym = nullptr; // resolved type (Named only)
 };
 
 struct GenericParam {
@@ -62,6 +64,7 @@ struct LiteralExpr : Expr {
 struct IdentExpr : Expr {
     std::string name;
     std::vector<TypeRefPtr> typeArgs; // List<int>(...) / max<int>(...)
+    const Symbol* sym = nullptr;
     IdentExpr(SourceLoc l, std::string n) : Expr(ExprKind::Ident, l), name(std::move(n)) {}
 };
 
@@ -92,6 +95,9 @@ struct CallExpr : Expr {
 struct MemberExpr : Expr {
     ExprPtr object;
     std::string member;
+    // Set when this is a qualified name (Module.item, Enum.Variant);
+    // null for runtime field/method access, which needs type checking.
+    const Symbol* sym = nullptr;
     MemberExpr(SourceLoc l, ExprPtr o, std::string m)
         : Expr(ExprKind::Member, l), object(std::move(o)), member(std::move(m)) {}
 };
@@ -130,6 +136,7 @@ struct Pattern {
     ExprPtr literal;                // Literal
     std::vector<PatternPtr> fields; // Variant payload
     bool hasParens = false;         // Variant written with (...)
+    const Symbol* sym = nullptr;    // the variant, or the new local for a binding
 };
 
 struct MatchArm {
@@ -221,6 +228,7 @@ enum class DeclKind { Use, Function, Type, Class, Enum, Interface };
 struct Decl {
     DeclKind kind;
     SourceLoc loc;
+    bool isPub = false;
     explicit Decl(DeclKind k, SourceLoc l) : kind(k), loc(l) {}
     virtual ~Decl() = default;
 };
@@ -250,6 +258,7 @@ struct FunctionDecl : Decl {
 
 struct Field {
     SourceLoc loc;
+    bool isPub = false;
     std::string name;
     TypeRefPtr type;
 };

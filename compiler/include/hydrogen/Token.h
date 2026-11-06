@@ -12,7 +12,7 @@ namespace h2 {
     X(Interface, "interface") X(Let, "let") X(Var, "var") X(If, "if") X(Else, "else")      \
     X(While, "while") X(For, "for") X(In, "in") X(Return, "return") X(Break, "break")      \
     X(Continue, "continue") X(Match, "match") X(Alloc, "alloc") X(Free, "free")            \
-    X(Asm, "asm") X(Self, "self") X(True, "true") X(False, "false")
+    X(Asm, "asm") X(Self, "self") X(True, "true") X(False, "false") X(Pub, "pub")
 
 #define H2_PUNCT(X)                                                                      \
     X(LParen, "(") X(RParen, ")") X(LBrace, "{") X(RBrace, "}") X(LBracket, "[")           \

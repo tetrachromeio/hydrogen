@@ -1,0 +1,55 @@
+use Elemental
+use Geometry
+use Other
+use Atomic.Memory as mem
+
+new function helper() {}
+new function helper() {}
+
+new type Pair { a: int, a: int }
+
+new class Thing {
+    value: int
+    new function value() -> int { return 1 }
+}
+
+new function generic<T: int>(x: T) -> T { return x }
+
+new function main() -> int {
+    let a = undefined_name
+    let b = pritn("typo")
+    let c = secret()
+    let d = Geometry.secret()
+    let e = Geometry.nothing()
+    let f = shared()
+    let g = Elementl.print("x")
+    let h = intrinsic.add(1, 2)
+    let i = self
+    let j: Comparable = 0
+    let k: helper = 0
+    let l: List<int> = 0
+    let m: ptr = 0
+    let n: Result<int> = Ok(1)
+    let o = mem
+    let p = Color.Purple
+    let q = Color
+    let r = x_later
+    let x_later = 1
+    let z = 5
+    z = 6
+    helper = 3
+    let dup = 1
+    let dup = 2
+    match Ok(1) {
+        Ok(v, w) => print("two")
+        Err() => print("none")
+        helper(x) => print("not a variant")
+    }
+    return 0
+}
+
+new enum Color { Red, Green }
+new interface Comparable { new operator < (a: Self, b: Self) -> bool }
+new class List<T> { data: ptr<T> }
+
+new operator + (a: int, b: int) -> int { return a }

@@ -1,0 +1,51 @@
+use Elemental
+use Geometry
+use Geometry.Shapes as shapes
+use Atomic.Memory as mem
+
+new enum ParseError { Empty, BadDigit(char) }
+
+new function parse(s: string) -> Result<int, ParseError> {
+    if s.len == 0 { return Err(Empty) }
+    var n = 0
+    for c in s {
+        if c < '0' || c > '9' { return Err(ParseError.BadDigit(c)) }
+        n = n * 10 + (int(c) - int('0'))
+    }
+    return Ok(n)
+}
+
+new function first_digit(s: string) -> Result<int, ParseError> {
+    let n = parse(s)?
+    return Ok(n % 10)
+}
+
+new class Buffer {
+    pub data: ptr<u8>
+    size: usize
+
+    new function init(size: usize) {
+        self.data = mem.alloc_bytes(size)
+        self.size = size
+    }
+    new function drop() { mem.free_bytes(self.data) }
+}
+
+new function main() -> int {
+    let p = Point(3.0, 4.0)
+    let q = alloc shapes.Circle(p, 2.0)
+    let d = Geometry.distance(p, Point(0.0, 0.0))
+    let biggest = max<f64>(d, 1.0)
+    let buf = Buffer(64)
+    match first_digit("42") {
+        Ok(v) => print("ok")
+        Err(Empty) => print("empty")
+        Err(ParseError.BadDigit(c)) => print("bad")
+    }
+    let x = 1
+    {
+        let x = x + 1   // shadows the outer x in a nested block
+    }
+    free q
+    return 0
+}

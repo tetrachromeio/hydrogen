@@ -1,0 +1,11 @@
+use Atomic.System
+
+pub new function print(s: string) {
+    write(1, s.data, s.len)
+    write(1, "\n".data, 1)
+}
+
+pub new function eprint(s: string) {
+    write(2, s.data, s.len)
+    write(2, "\n".data, 1)
+}

@@ -34,15 +34,18 @@ Principles:
 | Errors            | `Result<T, E>` enum + `?` propagation; no exceptions |
 | Generics          | Monomorphized; constrained by structural interfaces |
 | File extension    | `.h2`                                             |
+| Visibility        | Private by default; `pub` to export; `pub use` re-exports |
+| Module layout     | `use A.B` → `A/B/init.h2` (project dir, deps, stdlib) |
+| Prelude           | Every module implicitly does `use Atomic`         |
 
-## Standard library (proposed split, to confirm)
+## Standard library
 - **Atomic**: the freestanding core. Primitive types, memory and pointer
   ops, intrinsics, atomics. Works with no OS.
 - **Elemental**: the hosted standard library. IO, strings, collections,
   math, files.
 
 ## Open
-- Visibility (`pub`?) and the module/file mapping
+- Can a module span several files in its directory, besides `init.h2`?
 - C interop / ABI and `extern` declarations
 - Integer overflow behavior (wrap, trap or undefined)
 - String interpolation

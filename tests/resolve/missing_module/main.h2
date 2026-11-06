@@ -1,0 +1,4 @@
+use Elemental
+use Nowhere.ToBeFound
+
+new function main() -> int { return 0 }

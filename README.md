@@ -28,7 +28,7 @@ new function main() -> int {
 
 ## Layout
 - `compiler/`: `h2c`, the compiler, written in C++20 (LLVM backend planned)
-- `lib/Atomic/`: the freestanding core library (primitive types, Result)
+- `lib/`: the standard library. `Atomic` is the freestanding core, `Elemental` the hosted library
 - `spec/`: language specification
 - `docs/`: design notes and decisions
 - `examples/`: sample programs
@@ -55,7 +55,7 @@ python3 tests/run_tests.py build/compiler/h2c . --update
 ## Status
 - [x] Lexer
 - [x] Parser and AST, with error recovery
-- [ ] Name resolution and modules (`use`)
+- [x] Modules, `pub` visibility and name resolution
 - [ ] Type checking and inference
 - [ ] Generic monomorphization
 - [ ] LLVM IR codegen

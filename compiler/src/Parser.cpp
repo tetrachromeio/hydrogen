@@ -131,7 +131,8 @@ private:
     }
     void syncTopLevel() {
         syncUntil([](const Token& t) {
-            return t.newlineBefore && (t.kind == Tok::KwNew || t.kind == Tok::KwUse);
+            return t.newlineBefore &&
+                   (t.kind == Tok::KwNew || t.kind == Tok::KwUse || t.kind == Tok::KwPub);
         });
     }
 
@@ -198,8 +199,20 @@ private:
     // ------------------------------------------------------------ declarations
 
     DeclPtr parseTopDecl() {
+        bool isPub = accept(Tok::KwPub);
+        DeclPtr d = parseTopDeclAfterPub();
+        d->isPub = isPub;
+        return d;
+    }
+
+    // Rejects `pub` where visibility is implied by the enclosing declaration.
+    void rejectPub(const char* why) {
+        if (at(Tok::KwPub)) fail(peek().loc, std::string("'pub' is not allowed here: ") + why);
+    }
+
+    DeclPtr parseTopDeclAfterPub() {
         if (at(Tok::KwUse)) return parseUse();
-        if (!at(Tok::KwNew)) failExpected("'new' or 'use' at top level");
+        if (!at(Tok::KwNew)) failExpected("'new', 'use' or 'pub' at top level");
         switch (peek(1).kind) {
         case Tok::KwFunction:
         case Tok::KwOperator: return parseFunction(/*bodyOptional=*/false);
@@ -297,8 +310,9 @@ private:
         expect(Tok::RBrace, std::string("'}' to close the ") + what);
     }
 
-    Field parseField(const char* what) {
+    Field parseField(const char* what, bool isPub) {
         Field f;
+        f.isPub = isPub;
         f.loc = peek().loc;
         f.name = expectIdent(what);
         expect(Tok::Colon, "':' and a type after field name");
@@ -336,18 +350,23 @@ private:
             return d;
         }
         parseMembers("type", [&] {
+            if (at(Tok::KwPub) && peek(1).kind == Tok::KwNew)
+                rejectPub("operators are public whenever their type is");
+            bool isPub = accept(Tok::KwPub);
             if (at(Tok::KwNew)) {
                 if (peek(1).kind == Tok::KwFunction)
                     fail(peek(1).loc, "types cannot have methods, only operators. "
                                       "Use 'new class' for data with behavior");
                 if (peek(1).kind != Tok::KwOperator)
                     fail(peek(1).loc, "only 'new operator' is allowed inside a type");
-                d->operators.push_back(parseFunction(false));
+                auto op = parseFunction(false);
+                op->isPub = true;
+                d->operators.push_back(std::move(op));
                 return;
             }
             if (d->base != TypeDecl::Base::Layout)
                 fail(peek().loc, "a type built on bits or another type cannot also declare fields");
-            d->fields.push_back(parseField("a field name or 'new operator'"));
+            d->fields.push_back(parseField("a field name or 'new operator'", isPub));
         });
         return d;
     }
@@ -358,14 +377,19 @@ private:
         d->name = expectIdent("a class name");
         d->generics = parseGenericParams();
         parseMembers("class", [&] {
+            if (at(Tok::KwPub) && peek(1).kind == Tok::KwNew && peek(2).kind == Tok::KwOperator)
+                rejectPub("operators are public whenever their class is");
+            bool isPub = accept(Tok::KwPub);
             if (at(Tok::KwNew)) {
                 Tok k = peek(1).kind;
                 if (k != Tok::KwFunction && k != Tok::KwOperator)
                     fail(peek(1).loc, "only 'new function' and 'new operator' are allowed inside a class");
-                d->methods.push_back(parseFunction(false));
+                auto m = parseFunction(false);
+                m->isPub = isPub || m->isOperator;
+                d->methods.push_back(std::move(m));
                 return;
             }
-            d->fields.push_back(parseField("a field name or 'new function'"));
+            d->fields.push_back(parseField("a field name or 'new function'", isPub));
         });
         return d;
     }
@@ -376,6 +400,7 @@ private:
         d->name = expectIdent("an enum name");
         d->generics = parseGenericParams();
         parseMembers("enum", [&] {
+            rejectPub("variants are public whenever their enum is");
             Variant v;
             v.loc = peek().loc;
             v.name = expectIdent("a variant name");
@@ -400,6 +425,7 @@ private:
         d->name = expectIdent("an interface name");
         d->generics = parseGenericParams();
         parseMembers("interface", [&] {
+            rejectPub("interface members are always public");
             Tok k = peek(1).kind;
             if (!at(Tok::KwNew) || (k != Tok::KwFunction && k != Tok::KwOperator))
                 failExpected("'new function' or 'new operator' in interface");
@@ -496,6 +522,8 @@ private:
         case Tok::LBrace: return parseBlock();
         case Tok::KwNew:
             fail(loc, "declarations ('new ...') are only allowed at top level or inside a type/class");
+        case Tok::KwPub:
+            fail(loc, "'pub' is only allowed on top-level declarations and type/class members");
         default: break;
         }
 
@@ -641,6 +669,12 @@ private:
                 e = std::make_unique<TryExpr>(loc, std::move(e));
             } else if (at(Tok::Dot)) {
                 advance();
+                // Keywords are fine as member names: intrinsic.free, x.type
+                if (peek().kind >= Tok::KwUse && peek().kind <= Tok::KwPub) {
+                    std::string name = advance().text;
+                    e = std::make_unique<MemberExpr>(loc, std::move(e), std::move(name));
+                    continue;
+                }
                 std::string name = expectIdent("a member name after '.'");
                 e = std::make_unique<MemberExpr>(loc, std::move(e), std::move(name));
             } else {

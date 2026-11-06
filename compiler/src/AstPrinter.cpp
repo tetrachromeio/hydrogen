@@ -318,12 +318,14 @@ private:
     void fields(const std::vector<Field>& fs, int depth) {
         for (const auto& f : fs) {
             nl(depth);
-            os_ << "(field " << f.name << " : " << typeStr(*f.type) << ')';
+            os_ << (f.isPub ? "(pub field " : "(field ") << f.name << " : " << typeStr(*f.type) << ')';
         }
     }
 
     void function(const FunctionDecl& f, int depth) {
-        os_ << (f.isOperator ? "(operator " : "(function ") << f.name << genericsStr(f.generics) << " (";
+        if (f.isPub && !f.isOperator) os_ << "(pub ";
+        else os_ << '(';
+        os_ << (f.isOperator ? "operator " : "function ") << f.name << genericsStr(f.generics) << " (";
         for (size_t i = 0; i < f.params.size(); ++i) {
             if (i) os_ << ' ';
             os_ << '(' << f.params[i].name << " : " << typeStr(*f.params[i].type) << ')';
@@ -341,7 +343,7 @@ private:
         switch (d.kind) {
         case DeclKind::Use: {
             const auto& u = static_cast<const UseDecl&>(d);
-            os_ << "(use " << u.path;
+            os_ << (u.isPub ? "(pub use " : "(use ") << u.path;
             if (!u.alias.empty()) os_ << " as " << u.alias;
             os_ << ')';
             break;
@@ -349,7 +351,7 @@ private:
         case DeclKind::Function: function(static_cast<const FunctionDecl&>(d), depth); break;
         case DeclKind::Type: {
             const auto& t = static_cast<const TypeDecl&>(d);
-            os_ << "(type " << t.name << genericsStr(t.generics);
+            os_ << (t.isPub ? "(pub type " : "(type ") << t.name << genericsStr(t.generics);
             switch (t.base) {
             case TypeDecl::Base::Layout: break;
             case TypeDecl::Base::Bits: os_ << " (bits " << t.bits << (t.isSigned ? " signed)" : ")"); break;
@@ -366,7 +368,7 @@ private:
         }
         case DeclKind::Class: {
             const auto& c = static_cast<const ClassDecl&>(d);
-            os_ << "(class " << c.name << genericsStr(c.generics);
+            os_ << (c.isPub ? "(pub class " : "(class ") << c.name << genericsStr(c.generics);
             fields(c.fields, depth + 1);
             for (const auto& m : c.methods) {
                 nl(depth + 1);
@@ -377,7 +379,7 @@ private:
         }
         case DeclKind::Enum: {
             const auto& e = static_cast<const EnumDecl&>(d);
-            os_ << "(enum " << e.name << genericsStr(e.generics);
+            os_ << (e.isPub ? "(pub enum " : "(enum ") << e.name << genericsStr(e.generics);
             for (const auto& v : e.variants) {
                 nl(depth + 1);
                 os_ << '(' << v.name;
@@ -389,7 +391,7 @@ private:
         }
         case DeclKind::Interface: {
             const auto& i = static_cast<const InterfaceDecl&>(d);
-            os_ << "(interface " << i.name << genericsStr(i.generics);
+            os_ << (i.isPub ? "(pub interface " : "(interface ") << i.name << genericsStr(i.generics);
             for (const auto& m : i.members) {
                 nl(depth + 1);
                 function(*m, depth + 1);

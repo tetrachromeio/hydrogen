@@ -1,0 +1,87 @@
+// Atomic: the freestanding core of Hydrogen.
+//
+// Every module implicitly does `use Atomic`, so everything pub here is
+// available everywhere. Primitive types are ordinary `new type` declarations
+// built from raw bits. Their operators lower directly to compiler intrinsics,
+// and `intrinsic` is only usable inside Atomic.
+
+// ---------------------------------------------------------------- integers
+
+pub new type i8  : bits(8)  signed
+pub new type i16 : bits(16) signed
+pub new type i32 : bits(32) signed
+pub new type i64 : bits(64) signed {
+    new operator + (a: i64, b: i64) -> i64 { return intrinsic.add(a, b) }
+    new operator - (a: i64, b: i64) -> i64 { return intrinsic.sub(a, b) }
+    new operator * (a: i64, b: i64) -> i64 { return intrinsic.mul(a, b) }
+    new operator / (a: i64, b: i64) -> i64 { return intrinsic.sdiv(a, b) }
+    new operator % (a: i64, b: i64) -> i64 { return intrinsic.srem(a, b) }
+    new operator - (a: i64) -> i64 { return intrinsic.neg(a) }
+    new operator == (a: i64, b: i64) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: i64, b: i64) -> bool { return intrinsic.slt(a, b) }
+    new operator <= (a: i64, b: i64) -> bool { return intrinsic.sle(a, b) }
+    new operator > (a: i64, b: i64) -> bool { return intrinsic.sgt(a, b) }
+    new operator >= (a: i64, b: i64) -> bool { return intrinsic.sge(a, b) }
+    new operator & (a: i64, b: i64) -> i64 { return intrinsic.and(a, b) }
+    new operator | (a: i64, b: i64) -> i64 { return intrinsic.or(a, b) }
+    new operator ^ (a: i64, b: i64) -> i64 { return intrinsic.xor(a, b) }
+    new operator << (a: i64, n: i64) -> i64 { return intrinsic.shl(a, n) }
+    new operator >> (a: i64, n: i64) -> i64 { return intrinsic.ashr(a, n) }
+}
+
+pub new type u8    : bits(8)
+pub new type u16   : bits(16)
+pub new type u32   : bits(32)
+pub new type u64   : bits(64)
+pub new type usize : bits(64)
+
+// ---------------------------------------------------------------- floats
+
+pub new type f32 : float(32)
+pub new type f64 : float(64) {
+    new operator + (a: f64, b: f64) -> f64 { return intrinsic.fadd(a, b) }
+    new operator - (a: f64, b: f64) -> f64 { return intrinsic.fsub(a, b) }
+    new operator * (a: f64, b: f64) -> f64 { return intrinsic.fmul(a, b) }
+    new operator / (a: f64, b: f64) -> f64 { return intrinsic.fdiv(a, b) }
+    new operator == (a: f64, b: f64) -> bool { return intrinsic.feq(a, b) }
+    new operator < (a: f64, b: f64) -> bool { return intrinsic.flt(a, b) }
+}
+
+// ---------------------------------------------------------------- others
+
+pub new type bool : bits(1) {
+    new operator == (a: bool, b: bool) -> bool { return intrinsic.eq(a, b) }
+    new operator ! (a: bool) -> bool { return intrinsic.not(a) }
+}
+
+pub new type char : bits(32) {
+    new operator == (a: char, b: char) -> bool { return intrinsic.eq(a, b) }
+    new operator < (a: char, b: char) -> bool { return intrinsic.ult(a, b) }
+    new operator > (a: char, b: char) -> bool { return intrinsic.ugt(a, b) }
+}
+
+// Friendly aliases.
+pub new type int   : i64
+pub new type uint  : u64
+pub new type float : f64
+
+// A borrowed run of UTF-8 bytes. Does not own its memory.
+pub new type string {
+    pub data: ptr<u8>
+    pub len:  usize
+
+    new operator [] (s: string, i: usize) -> u8 { return s.data[i] }
+}
+
+// ---------------------------------------------------------------- errors
+
+// Errors are values. `expr?` unwraps Ok, or returns the Err to the caller.
+pub new enum Result<T, E> {
+    Ok(T)
+    Err(E)
+}
+
+pub new enum Option<T> {
+    Some(T)
+    None
+}

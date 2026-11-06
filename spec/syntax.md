@@ -1,22 +1,69 @@
-# Hydrogen Syntax: Draft 3
+# Hydrogen Syntax: Draft 4
 
 Status: **sketch**. Every rule here is up for discussion.
 
-## Imports
-`use` brings a module's public names into scope.
+## Modules and imports
+A module is a **directory** whose entry file is `init.h2`:
 ```
-use Elemental            // print(), sqrt(), string, ... now usable directly
-use Atomic.Memory as mem // aliased: mem.alloc(...)
+lib/Atomic/init.h2            -> module Atomic
+lib/Atomic/Memory/init.h2     -> module Atomic.Memory
+myproject/Geometry/init.h2    -> module Geometry
 ```
-- If two `use`d modules export the same name, using that name unqualified is
-  a compile error. Disambiguate with the full path: `Elemental.IO.print(...)`.
-- Qualified access (`Elemental.IO.print`) always works.
+`use A.B` searches for `A/B/init.h2` in this order:
+1. the directory of the program's main file (your project)
+2. each dependency / `-L` library path
+3. the bundled standard library
+
+```
+use Elemental                // pub names of Elemental are now in scope: print(), sqrt()
+use Atomic.Memory as mem     // aliased: only mem.alloc_bytes(...), nothing unqualified
+```
+
+### Visibility: `pub`
+Everything is **private to its module** unless marked `pub`:
+```
+pub new function distance(a: Point, b: Point) -> f64 { ... }
+new function square(v: f64) -> f64 { ... }       // private helper
+
+pub new class Point {
+    pub x: f64          // visible outside the module
+    cache: f64          // private field
+}
+```
+- `pub` is allowed on top-level declarations, `use`, and type/class fields and methods.
+- Operators are public whenever their type is. Enum variants are public whenever
+  their enum is. Interface members are always public. Writing `pub` on these
+  is an error.
+- `pub use M` **re-exports** M's pub names. That's how `use Elemental` gives
+  you `print`: `Elemental/init.h2` does `pub use Elemental.IO`.
+
+### Name lookup
+An unqualified name is looked up in this order:
+1. local variables, parameters and generic parameters (innermost first)
+2. declarations in the current module, including its enum variants
+3. built-ins: `ptr`, and `intrinsic` (only inside Atomic)
+4. pub names from every `use`d module
+
+Declarations later in a module can be used earlier: order doesn't matter at
+the top level. Inside a function, a local must be declared before it is used.
+
+If two `use`d modules export the same name, using it unqualified is an error.
+Write the qualified form instead: `Geometry.shared()`. A qualified name is
+`<module you used>.<pub name>` or `<alias>.<pub name>`.
+
+### The prelude
+Every module except `Atomic` itself implicitly does `use Atomic`. That's
+where `int`, `bool`, `f64`, `string`, `Result`, `Ok`, `Err`, `Option`, ...
+come from.
 
 ## Variables
 ```
 let x = 10          // immutable, type inferred
 var y: u8 = 255     // mutable, explicit type
 ```
+Function parameters are immutable, like `let`. Copy one into a `var` to change it.
+A name can be re-declared in a nested block (shadowing), but not twice in
+the same block.
 
 ## Functions
 ```

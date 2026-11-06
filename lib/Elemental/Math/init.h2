@@ -1,0 +1,21 @@
+// Re-exports the core math functions.
+pub use Atomic.Math
+
+pub new function abs(x: f64) -> f64 {
+    if x < 0.0 { return -x }
+    return x
+}
+
+pub new function max<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+pub new function min<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return a }
+    return b
+}
+
+pub new interface Ordered {
+    new operator < (a: Self, b: Self) -> bool
+}
