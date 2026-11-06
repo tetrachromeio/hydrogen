@@ -1,4 +1,6 @@
-use Atomic.System
+use Elemental
+
+extern function write(fd: i32, data: ptr<u8>, len: uint) -> int
 
 // print(x) works for anything Printable: every built-in type, and any type
 // or class that defines `new operator string`.

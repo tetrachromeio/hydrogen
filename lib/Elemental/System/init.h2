@@ -1,0 +1,12 @@
+// Thin wrappers over the operating system (through the C library).
+
+extern function write(fd: i32, data: ptr<u8>, len: uint) -> int
+extern function exit(code: i32)
+
+pub new function write_bytes(fd: int, data: ptr<u8>, len: uint) -> int {
+    return write(i32(fd), data, len)
+}
+
+pub new function exit_now(code: int) {
+    exit(i32(code))
+}

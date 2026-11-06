@@ -1,12 +1,4 @@
-// Raw memory. Everything above this (alloc/free, containers) is built on it.
-
-pub new function alloc_bytes(size: usize) -> ptr<u8> {
-    return intrinsic.malloc(size)
-}
-
-pub new function free_bytes(p: ptr<u8>) {
-    intrinsic.free(p)
-}
+// Raw memory operations. Freestanding: no allocation here (see Elemental.Memory).
 
 pub new function copy(dst: ptr<u8>, src: ptr<u8>, len: usize) {
     intrinsic.memcpy(dst, src, len)

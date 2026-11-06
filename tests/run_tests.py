@@ -10,6 +10,8 @@
   tests/projects/<case>/app/     -> `hy check` output must match <case>/expected.out
   tests/run/*.h2     -> compiled with clang and run: stdout + exit code must match .out
                         (under valgrind when available: no leaks or memory errors)
+  tests/freestanding/*.h2 -> must not reference any C function (only llvm.* built-ins);
+                        run, and stdout + exit code must match .out
   examples/**/*.h2, lib/**/*.h2 -> must pass `h2c --check`
 
 Usage: run_tests.py <h2c> <repo-root> [--update]
@@ -86,6 +88,35 @@ def main():
     clang = shutil.which("clang")
     valgrind = shutil.which("valgrind")
     runtime = root / "lib/runtime/h2rt.c"
+    import re, shutil, tempfile
+    clang = shutil.which("clang")
+    for p in sorted((root / "tests/freestanding").glob("*.h2")):
+        count += 1
+        r = run(h2c, "--emit-llvm", p, root)
+        if r.returncode != 0:
+            failures.append(f"{p}: h2c failed\n{r.stderr}")
+            continue
+        outside = [l for l in r.stdout.splitlines()
+                   if l.startswith("declare") and not re.search(r"@(\"?)llvm\.", l)]
+        if outside:
+            failures.append(f"{p}: not freestanding; it calls out to:\n" + "\n".join(outside))
+            continue
+        if not clang:
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            ll, exe = Path(tmp) / "prog.ll", Path(tmp) / "prog"
+            ll.write_text(r.stdout)
+            b = subprocess.run([clang, "-O1", "-w", str(ll), "-o", str(exe)], capture_output=True, text=True)
+            if b.returncode != 0:
+                failures.append(f"{p}: clang failed\n{b.stderr[-2000:]}")
+                continue
+            x = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
+            got = x.stdout + f"[exit {x.returncode}]\n"
+            expected_file = p.with_suffix(".out")
+            if update:
+                expected_file.write_text(got)
+            elif not expected_file.exists() or expected_file.read_text() != got:
+                failures.append(f"{p}: output differs from {expected_file.name}\n--- got ---\n{got}")
     for p in sorted((root / "tests/run").glob("*.h2")):
         count += 1
         if not clang:
@@ -119,7 +150,8 @@ def main():
             elif not expected_file.exists() or expected_file.read_text() != got:
                 failures.append(f"{p}: program output differs from {expected_file.name}\n--- got ---\n{got}")
     for d in ("examples", "lib"):
-        for p in sorted((root / d).rglob("*.h2")):
+        # In lib/, only module roots (init.h2) are programs; other files are included parts.
+        for p in sorted((root / d).rglob("*.h2" if d == "examples" else "init.h2")):
             count += 1
             r = run(h2c, "--check", p, root)
             if r.returncode != 0:

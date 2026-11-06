@@ -183,6 +183,10 @@ new type Meters2 : float {
 - `=` makes an alias, which can't add operators.
 - Overloadable operators: `+ - * / % == < & | ^ ~ ! << >> []`, plus unary `-`/`!`/`~` (one parameter).
 - `operator string` is how a type prints (like Python's `__str__`).
+- **Extension operators:** an operator can also be declared at the top level of a
+  module, outside any type: `pub new operator string (v: int) -> string { ... }`.
+  It applies wherever that module is in use. That's how Elemental gives Atomic's
+  types their text conversions.
 - Layout types are built field by field, in order: `Pair(1, 2)`.
 
 ---
@@ -435,26 +439,45 @@ print(42)   print(3.5)   print(true)   print("hi")   print(line)
 
 ## 15. Standard library
 
-Always available (`Atomic`, the prelude):
+Two layers:
+
+| Layer | Needs | Use it for |
+|---|---|---|
+| **Atomic** | nothing: no OS, no C library, never allocates | everything; kernels, firmware, embedded |
+| **Elemental** | an OS and the C library | normal programs: owned text, printing, heap |
+
+**Atomic** is always available (every module gets `use Atomic` automatically):
 
 | Name | What |
 |---|---|
-| `int uint float`, sized ints/floats, `bool char str string` | types, with their operators and `operator string` |
+| `int uint float`, sized ints/floats, `bool char` | types, with their operators |
+| `str` | borrowed text: `.data` `.len` `[i]` `==` |
 | `Result<T, E>` (`Ok`, `Err`), `Option<T>` (`Some`, `None`) | error handling |
-| `Printable` | interface: has `operator string` |
-| `string`: `init(str)` `len()` `view()` `copy()` `append(str)` `+` `==` `[]` | owned text |
-
-| Module | Functions |
-|---|---|
-| `use Elemental` | everything below |
-| `Elemental.IO` | `print(x)`, `eprint(x)` (stderr) |
-| `Elemental.Math` | `sqrt` `floor` `ceil` `abs` (float); `max` `min` (any `Ordered`); `Ordered` |
-| `Atomic.Memory` | `alloc_bytes(n)` `free_bytes(p)` `copy(dst, src, n)` `fill(dst, byte, n)` |
-| `Atomic.System` | `write(fd, data, len)` `exit(code)` |
+| `Ordered`, `Equatable` | interfaces: has `<` / has `==` |
+| `Atomic.Memory` | `copy(dst, src, n)` `fill(dst, byte, n)` |
 | `Atomic.Math` | `sqrt` `floor` `ceil` |
 
+**Elemental**, after `use Elemental`:
+
+| Name | What |
+|---|---|
+| `string`: `string(x)` `len()` `view()` `copy()` `append(str)` `+` `==` `[]` | owned text |
+| `"a" + "b"`, `"x = " + string(n)` | joining text builds a `string` |
+| `Printable` | interface: has `operator string` |
+| `operator string` for all of Atomic's types | `string(42)`, `string(3.5)`, `string(true)`, ... |
+| `Elemental.IO` | `print(x)`, `eprint(x)` (stderr) |
+| `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
+| `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)` |
+| `Elemental.System` | `write_bytes(fd, data, len)` `exit_now(code)` |
+
+Without `use Elemental` there is no `string` and no `print`. That's by design:
+such a program depends on nothing at all. `alloc`/`free` are language features
+that call the C allocator (`malloc`/`free`); a freestanding program that uses them
+must provide those functions itself.
+
 Inside Atomic only: `intrinsic.add(a, b)` and friends, which map directly to machine
-operations (`add sub mul sdiv srem eq slt shl ...`, `malloc free memcpy`, ...).
+operations (`add sub mul sdiv srem eq slt shl ...`, `memcpy memset`, ...).
+Elemental uses `extern` to reach the C library instead.
 
 ---
 

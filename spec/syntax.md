@@ -335,6 +335,25 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Atomic and Elemental
+- **Atomic** is freestanding: it needs no OS and no C library, and it never
+  allocates. It has the primitive types and their operators, `str`, `Result`,
+  `Option`, `Ordered`, `Equatable`, and `Atomic.Memory` / `Atomic.Math`. A program
+  that only uses Atomic compiles to code that calls nothing outside itself
+  (checked by `tests/freestanding`).
+- **Elemental** is hosted: owned `string`, `Printable`, text conversions,
+  `print`, `Elemental.Memory`, `Elemental.System`. It reaches the C library
+  through `extern`, not through compiler intrinsics.
+- `alloc` / `free` call the C allocator (`malloc` / `free`). A freestanding program
+  that uses them must provide those functions.
+
+## Extension operators
+An operator may be declared at the top level of a module instead of inside a
+type: `pub new operator string (v: int) -> string { ... }`. It must take at
+least one parameter of a named type, and it applies in its own module and in
+every module that uses it (including through `pub use`). Operators declared
+inside the type are looked up first.
+
 ## C interop: `extern`, pointer casts, `null`
 - `extern function name(params) -> T` declares a C function. It's allowed in
   any module, can be `pub`, has no body and can't be generic. Parameters and

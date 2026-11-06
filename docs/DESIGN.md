@@ -48,6 +48,7 @@ Principles:
 | Dependencies      | Library projects named by module name; `path` deps now; git/registry later |
 
 ## Standard library
+- **Atomic is fully freestanding**: no OS, no libc, no allocation. `string`, printing and OS access live in Elemental.
 - **Atomic**: the freestanding core. Primitive types, memory and pointer
   ops, intrinsics, atomics. Works with no OS.
 - **Elemental**: the hosted standard library. IO, strings, collections,

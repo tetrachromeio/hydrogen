@@ -229,7 +229,9 @@ private:
         lang_.boolT = get("bool");
         lang_.charT = get("char");
         lang_.strT = get("str");
-        lang_.stringT = get("string");
+        for (auto& m : prog_.modules)
+            if (m->path == "Elemental")
+                if (auto it = m->defs.find("string"); it != m->defs.end()) lang_.stringT = typeOfSym(it->second, {});
         lang_.intT = get("int");
         lang_.uintT = get("uint");
         lang_.floatT = get("float");
@@ -547,7 +549,13 @@ private:
         if (owner) name = typeName(owner) + ".";
         else if (fnModule_.count(fn)) name = fnModule_[fn]->displayName() + ".";
         // Operators are named with their arity: unary and binary '-' are different functions.
+        // Extension operators (no owner) also need their parameter types to be unique.
         name += fn->isOperator ? "op" + fn->name + "/" + std::to_string(fn->params.size()) : fn->name;
+        if (fn->isOperator && !owner) {
+            name += "(";
+            for (size_t i = 0; i < fn->params.size(); ++i) name += (i ? "," : "") + typeName(paramType(fn, i, s, nullptr));
+            name += ")";
+        }
         if (!fn->generics.empty()) {
             name += "<";
             for (size_t i = 0; i < fn->generics.size(); ++i) {
@@ -662,9 +670,17 @@ private:
             {"ceil", "declare double @llvm.ceil.f64(double)"},
         };
         std::string out;
-        for (const auto& d : externDecls_) out += d + "\n";
+        std::set<std::string> externNames;
+        for (const auto& d : externDecls_) {
+            out += d + "\n";
+            size_t at = d.find('@'), paren = d.find('(', at);
+            std::string name = d.substr(at + 1, paren - at - 1);
+            if (name.size() > 1 && name.front() == '"') name = name.substr(1, name.size() - 2);
+            externNames.insert(name);
+        }
+        // Built-in declarations, unless the program already declared the same C function.
         for (const auto& d : usedDecls_)
-            if (auto it = all.find(d); it != all.end()) out += it->second + "\n";
+            if (auto it = all.find(d); it != all.end() && !externNames.count(d)) out += it->second + "\n";
         return out;
     }
 
@@ -1423,7 +1439,7 @@ private:
         // Operands are borrowed: aggregates by address, scalars by value.
         Val l = operand(*b.lhs, lt), r = operand(*b.rhs, rt);
         // Mixed string/str with no exact operator: compare/combine as str views.
-        if (lang_.strT && !findOperator(lt, op, {lt, rt}) && !findOperator(rt, op, {lt, rt})) {
+        if (lang_.strT && lang_.stringT && !findOperator(lt, op, {lt, rt}) && !findOperator(rt, op, {lt, rt})) {
             if (lt == lang_.stringT && rt == lang_.strT) { l = viewOf(l.v); lt = lang_.strT; }
             else if (rt == lang_.stringT && lt == lang_.strT) { r = viewOf(r.v); rt = lang_.strT; }
         }
@@ -1445,32 +1461,38 @@ private:
 
     // `op` with derived forms: != from ==, > <= >= from <.
     Val applyBinary(const std::string& op, const Type* lt, const Val& l, const Type* rt, const Val& r, SourceLoc loc) {
-        if (const FunctionDecl* fn = findOperator(lt, op, {lt, rt})) return callOpVals(fn, lt, {l, r});
+        if (OpRef f = findOperator(lt, op, {lt, rt})) return callOpVals(f, {l, r});
         if (rt != lt)
-            if (const FunctionDecl* fn = findOperator(rt, op, {lt, rt})) return callOpVals(fn, rt, {l, r});
+            if (OpRef f = findOperator(rt, op, {lt, rt})) return callOpVals(f, {l, r});
         auto negate = [&](Val v) {
             std::string t = tmp();
             emit(t + " = xor i1 " + v.v + ", true");
             return Val{"i1", t};
         };
         if (op == "!=") {
-            if (const FunctionDecl* fn = findOperator(lt, "==", {lt, rt})) return negate(callOpVals(fn, lt, {l, r}));
+            if (OpRef f = findOperator(lt, "==", {lt, rt})) return negate(callOpVals(f, {l, r}));
         }
         if (op == ">" || op == "<=") {
-            if (const FunctionDecl* fn = findOperator(rt, "<", {rt, lt})) {
-                Val v = callOpVals(fn, rt, {r, l});
+            if (OpRef f = findOperator(rt, "<", {rt, lt})) {
+                Val v = callOpVals(f, {r, l});
                 return op == ">" ? v : negate(v);
             }
         }
         if (op == ">=") {
-            if (const FunctionDecl* fn = findOperator(lt, "<", {lt, rt})) return negate(callOpVals(fn, lt, {l, r}));
+            if (OpRef f = findOperator(lt, "<", {lt, rt})) return negate(callOpVals(f, {l, r}));
         }
         unsupported(loc, "operator '" + op + "' on " + typeName(lt));
         return {"i1", "false"};
     }
 
-    const FunctionDecl* findOperator(const Type* owner, const std::string& name, const std::vector<const Type*>& args) {
-        if (owner->kind != K::Named) return nullptr;
+    struct OpRef {
+        const FunctionDecl* fn = nullptr;
+        const Type* owner = nullptr; // null for an extension operator
+        explicit operator bool() const { return fn != nullptr; }
+    };
+
+    OpRef findOperator(const Type* owner, const std::string& name, const std::vector<const Type*>& args) {
+        if (owner->kind != K::Named) return {};
         std::vector<const FunctionDecl*> ops;
         if (owner->sym->kind == Symbol::Kind::Type)
             for (const auto& op : declAs<TypeDecl>(owner->sym)->operators) ops.push_back(op.get());
@@ -1483,14 +1505,25 @@ private:
             bool ok = true;
             for (size_t i = 0; i < args.size(); ++i)
                 if (typeOfRef(*fn->params[i].type, s, owner) != args[i]) ok = false;
-            if (ok) return fn;
+            if (ok) return {fn, owner};
         }
-        return nullptr;
+        // Extension operators (the checker has already enforced visibility).
+        for (auto& m : prog_.modules)
+            for (const FunctionDecl* fn : m->extOps) {
+                if (fn->name != name || fn->params.size() != args.size()) continue;
+                bool ok = true;
+                for (size_t i = 0; i < args.size(); ++i)
+                    if (typeOfRef(*fn->params[i].type, {}, nullptr) != args[i]) ok = false;
+                if (ok) return {fn, nullptr};
+            }
+        return {};
     }
 
     // Calls an operator whose operands were already evaluated (aggregates as pointers).
-    Val callOpVals(const FunctionDecl* fn, const Type* owner, std::vector<Val> args) {
-        Subst s = substFor(owner);
+    Val callOpVals(OpRef op, std::vector<Val> args) {
+        const FunctionDecl* fn = op.fn;
+        const Type* owner = op.owner;
+        Subst s = owner ? substFor(owner) : Subst{};
         std::string name = requestFn(fn, s, owner);
         const Type* ret = retTypeOf(fn, s, owner);
         std::string argList;
@@ -1510,18 +1543,18 @@ private:
 
     Val callOperator(const std::string& op, std::vector<const Expr*> operands, std::vector<const Type*> types,
                      SourceLoc loc) {
-        const FunctionDecl* fn = findOperator(types[0], op, types);
-        if (!fn) {
+        OpRef f = findOperator(types[0], op, types);
+        if (!f) {
             unsupported(loc, "operator '" + op + "' on " + typeName(types[0]));
             return {"i64", "0"};
         }
-        Subst s = substFor(types[0]);
+        Subst s = f.owner ? substFor(f.owner) : Subst{};
         std::vector<Val> vals;
         for (size_t i = 0; i < operands.size(); ++i) {
-            const Type* p = paramType(fn, i, s, types[0]);
-            vals.push_back(passArg(*operands[i], p, fn->params[i].isOwn));
+            const Type* p = paramType(f.fn, i, s, f.owner);
+            vals.push_back(passArg(*operands[i], p, f.fn->params[i].isOwn));
         }
-        return callOpVals(fn, types[0], vals);
+        return callOpVals(f, vals);
     }
 
     // Evaluates an argument for a parameter of type `p`.
@@ -1651,13 +1684,13 @@ private:
         if (lang_.stringT && t == lang_.stringT && c.args.size() == 1) {
             const Type* at = typeOf(*c.args[0]);
             if (at != lang_.strT) {
-                const FunctionDecl* conv = findOperator(at, "string", {at});
+                OpRef conv = findOperator(at, "string", {at});
                 if (!conv) {
                     unsupported(c.loc, "string() of " + typeName(at));
                     return {"i64", "0"};
                 }
                 Val a = isAggregate(at) ? Val{"ptr", addressOf(*c.args[0])} : convertTo(*c.args[0], at);
-                return callOpVals(conv, at, {a});
+                return callOpVals(conv, {a});
             }
         }
         if (t->kind == K::Named && t->sym->kind == Symbol::Kind::Type && scalarOf(t).kind != ScalarInfo::None)

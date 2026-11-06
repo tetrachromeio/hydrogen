@@ -140,7 +140,7 @@ private:
         for (const auto& d : file.ast.decls) {
             if (d->kind == DeclKind::Use || d->kind == DeclKind::Include) continue;
             if (d->kind == DeclKind::Function && static_cast<const FunctionDecl&>(*d).isOperator) {
-                error(d->loc, "operators must be declared inside a type or class");
+                m.extOps.push_back(static_cast<FunctionDecl*>(d.get()));
                 continue;
             }
             std::string name = declName(*d);
@@ -731,8 +731,7 @@ private:
         case DeclKind::Use:
         case DeclKind::Include: return;
         case DeclKind::Function: {
-            auto& f = static_cast<FunctionDecl&>(d);
-            if (!f.isOperator) resolveFunction(f, false);
+            resolveFunction(static_cast<FunctionDecl&>(d), false);
             return;
         }
         case DeclKind::Type: {

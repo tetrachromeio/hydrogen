@@ -1,7 +1,7 @@
 use Elemental
 use Geometry
 use Other
-use Atomic.Memory as mem
+use Elemental.Memory as mem
 
 new function helper() {}
 new function helper() {}

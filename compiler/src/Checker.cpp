@@ -127,7 +127,12 @@ private:
         lang_.boolT = get("bool");
         lang_.charT = get("char");
         lang_.strT = get("str");
-        lang_.stringT = get("string");
+        // The owned string lives in Elemental (Atomic is freestanding).
+        lang_.stringT = tc_.error();
+        for (auto& m : prog_.modules)
+            if (m->path == "Elemental")
+                if (auto it = m->defs.find("string"); it != m->defs.end())
+                    lang_.stringT = typeOfTypeSymbol(it->second, {});
         lang_.intT = get("int");
         lang_.uintT = get("uint");
         lang_.floatT = get("float");
@@ -414,13 +419,53 @@ private:
             const Type* selfT = selfTypeOf(owner->sym);
             for (const FunctionDecl* fn : operatorsOf(owner))
                 if (auto f = tryFn(fn, {}, selfT)) return f;
-        } else if (owner->kind == K::Generic) {
+        }
+        if (owner->kind != K::Generic) {
+            // Extension operators from this module and the modules it uses.
+            for (const ModuleInfo* m : visibleModules()) {
+                for (const FunctionDecl* fn : m->extOps) {
+                    if (fn->name != op || fn->params.size() != args.size()) continue;
+                    if (!fn->isPub && m != mod_) continue;
+                    const Sig& sig = sigOf(*fn, nullptr);
+                    OpFound f{fn, sig.ret, {}};
+                    bool ok = sig.params.size() == args.size();
+                    for (size_t i = 0; ok && i < args.size(); ++i) {
+                        ok = assignable(args[i], sig.params[i]);
+                        f.params.push_back(sig.params[i]);
+                    }
+                    // Only consider it if it's about this operand's type.
+                    bool aboutOwner = std::find(sig.params.begin(), sig.params.end(), owner) != sig.params.end();
+                    if (ok && aboutOwner) return f;
+                }
+            }
+        } else {
             // Interface signatures use Self, which stands for the generic parameter.
             for (auto& [fn, s] : constraintOperators(owner))
                 if (auto f = tryFn(fn, s, owner)) return f;
         }
         return std::nullopt;
     }
+
+    // This module, plus every module it uses (following `pub use` re-exports).
+    std::vector<const ModuleInfo*> visibleModules() {
+        auto cached = visibleCache_.find(mod_);
+        if (cached != visibleCache_.end()) return cached->second;
+        std::vector<const ModuleInfo*> out{mod_};
+        std::set<const ModuleInfo*> seen{mod_};
+        std::vector<const ModuleInfo*> work;
+        for (const auto& imp : mod_->imports)
+            if (imp.target) work.push_back(imp.target);
+        while (!work.empty()) {
+            const ModuleInfo* m = work.back();
+            work.pop_back();
+            if (!seen.insert(m).second) continue;
+            out.push_back(m);
+            for (const auto& imp : m->imports)
+                if (imp.target && imp.decl && imp.decl->isPub) work.push_back(imp.target);
+        }
+        return visibleCache_[mod_] = out;
+    }
+    std::map<const ModuleInfo*, std::vector<const ModuleInfo*>> visibleCache_;
 
     std::optional<OpFound> findBinary(const std::string& op, const Type* l, const Type* r) {
         if (auto f = findOperatorOn(l, op, {l, r})) return f;
@@ -1548,7 +1593,8 @@ private:
         switch (d.kind) {
         case DeclKind::Function: {
             auto& f = static_cast<FunctionDecl&>(d);
-            if (!f.isOperator) checkFunction(f, nullptr);
+            if (f.isOperator) checkExtensionOperator(f);
+            checkFunction(f, nullptr);
             if (!f.isOperator && f.name == "main" && mod_ == prog_.main() && f.generics.empty()) {
                 const Sig& sig = sigOf(f, nullptr);
                 if (!f.params.empty() || (sig.ret != lang_.intT && sig.ret != tc_.voidT() && !sig.ret->isError()))
@@ -1584,6 +1630,22 @@ private:
         }
         default: return;
         }
+    }
+
+    // A top-level operator must be about a named type, so it can be found.
+    void checkExtensionOperator(const FunctionDecl& op) {
+        const Sig& sig = sigOf(op, nullptr);
+        bool unaryOk = op.name == "-" || op.name == "!" || op.name == "~" || op.name == "string";
+        if (op.params.empty() || op.params.size() > 2 || (op.params.size() == 1 && !unaryOk) ||
+            (op.name == "string" && op.params.size() != 1)) {
+            error(op.loc, "operator " + q(op.name) + " has the wrong number of parameters");
+            return;
+        }
+        bool named = std::any_of(sig.params.begin(), sig.params.end(),
+                                 [](const Type* t) { return t->kind == K::Named || t->isError(); });
+        if (!named) error(op.loc, "an operator outside a type must take at least one parameter of a named type");
+        if (op.name == "string" && sig.ret != lang_.stringT && !sig.ret->isError())
+            error(op.loc, "operator string must return string");
     }
 
     // Operators: 1 or 2 parameters, at least one of the owner's type.

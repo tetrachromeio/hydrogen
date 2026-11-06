@@ -68,6 +68,9 @@ struct ModuleInfo {
     std::vector<std::unique_ptr<SourceFile>> files; // files[0] is the root file
     Symbol* self = nullptr; // Kind::Module symbol for this module
     std::vector<Import> imports; // module-wide: written in the root file, apply to every file
+    // Top-level `new operator`s ("extension operators", e.g. Elemental's
+    // `operator string (v: int)`). They apply wherever this module is in use.
+    std::vector<FunctionDecl*> extOps;
 
     SourceFile& root() const { return *files.front(); }
     const std::string& displayFile() const { return files.front()->displayFile; }

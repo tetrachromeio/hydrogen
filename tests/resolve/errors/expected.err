@@ -27,4 +27,3 @@ tests/resolve/errors/main.h2:43:13: error: cannot infer E for Ok; give the value
 tests/resolve/errors/main.h2:44:9: error: variant 'Ok' has 1 field, but the pattern has 2
 tests/resolve/errors/main.h2:45:9: error: variant 'Err' has 1 field, but the pattern has 0
 tests/resolve/errors/main.h2:46:9: error: 'helper' is a function, not an enum variant
-tests/resolve/errors/main.h2:55:1: error: operators must be declared inside a type or class

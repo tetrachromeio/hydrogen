@@ -1,5 +1,10 @@
 // Atomic: the freestanding core of Hydrogen.
 //
+// Freestanding means it needs no operating system and no C library: nothing
+// here allocates, does I/O, or calls out of the program. That makes it usable
+// for kernels, firmware and embedded code. Everything that needs an OS
+// (owned strings, printing, files, memory allocation) lives in Elemental.
+//
 // Every module implicitly does `use Atomic`, so everything pub here is
 // available everywhere. Primitive types are ordinary `new type` declarations
 // built from raw bits. Their operators lower directly to compiler intrinsics,
@@ -25,7 +30,6 @@ pub new type int : bits(64) signed {
     new operator ~ (a: int) -> int { return intrinsic.not(a) }
     new operator << (a: int, n: int) -> int { return intrinsic.shl(a, n) }
     new operator >> (a: int, n: int) -> int { return intrinsic.ashr(a, n) }
-    new operator string (v: int) -> string { return intrinsic.signed_to_string(v) }
 }
 
 pub new type i32 : bits(32) signed {
@@ -43,7 +47,6 @@ pub new type i32 : bits(32) signed {
     new operator ~ (a: i32) -> i32 { return intrinsic.not(a) }
     new operator << (a: i32, n: i32) -> i32 { return intrinsic.shl(a, n) }
     new operator >> (a: i32, n: i32) -> i32 { return intrinsic.ashr(a, n) }
-    new operator string (v: i32) -> string { return intrinsic.signed_to_string(v) }
 }
 
 pub new type i16 : bits(16) signed {
@@ -61,7 +64,6 @@ pub new type i16 : bits(16) signed {
     new operator ~ (a: i16) -> i16 { return intrinsic.not(a) }
     new operator << (a: i16, n: i16) -> i16 { return intrinsic.shl(a, n) }
     new operator >> (a: i16, n: i16) -> i16 { return intrinsic.ashr(a, n) }
-    new operator string (v: i16) -> string { return intrinsic.signed_to_string(v) }
 }
 
 pub new type i8 : bits(8) signed {
@@ -79,7 +81,6 @@ pub new type i8 : bits(8) signed {
     new operator ~ (a: i8) -> i8 { return intrinsic.not(a) }
     new operator << (a: i8, n: i8) -> i8 { return intrinsic.shl(a, n) }
     new operator >> (a: i8, n: i8) -> i8 { return intrinsic.ashr(a, n) }
-    new operator string (v: i8) -> string { return intrinsic.signed_to_string(v) }
 }
 
 pub new type uint : bits(64) {
@@ -96,7 +97,6 @@ pub new type uint : bits(64) {
     new operator ~ (a: uint) -> uint { return intrinsic.not(a) }
     new operator << (a: uint, n: uint) -> uint { return intrinsic.shl(a, n) }
     new operator >> (a: uint, n: uint) -> uint { return intrinsic.lshr(a, n) }
-    new operator string (v: uint) -> string { return intrinsic.unsigned_to_string(v) }
 }
 
 pub new type u32 : bits(32) {
@@ -113,7 +113,6 @@ pub new type u32 : bits(32) {
     new operator ~ (a: u32) -> u32 { return intrinsic.not(a) }
     new operator << (a: u32, n: u32) -> u32 { return intrinsic.shl(a, n) }
     new operator >> (a: u32, n: u32) -> u32 { return intrinsic.lshr(a, n) }
-    new operator string (v: u32) -> string { return intrinsic.unsigned_to_string(v) }
 }
 
 pub new type u16 : bits(16) {
@@ -130,7 +129,6 @@ pub new type u16 : bits(16) {
     new operator ~ (a: u16) -> u16 { return intrinsic.not(a) }
     new operator << (a: u16, n: u16) -> u16 { return intrinsic.shl(a, n) }
     new operator >> (a: u16, n: u16) -> u16 { return intrinsic.lshr(a, n) }
-    new operator string (v: u16) -> string { return intrinsic.unsigned_to_string(v) }
 }
 
 pub new type u8 : bits(8) {
@@ -147,7 +145,6 @@ pub new type u8 : bits(8) {
     new operator ~ (a: u8) -> u8 { return intrinsic.not(a) }
     new operator << (a: u8, n: u8) -> u8 { return intrinsic.shl(a, n) }
     new operator >> (a: u8, n: u8) -> u8 { return intrinsic.lshr(a, n) }
-    new operator string (v: u8) -> string { return intrinsic.unsigned_to_string(v) }
 }
 
 pub new type i64   = int
@@ -164,7 +161,6 @@ pub new type float : float(64) {
     new operator - (a: float) -> float { return intrinsic.fneg(a) }
     new operator == (a: float, b: float) -> bool { return intrinsic.feq(a, b) }
     new operator < (a: float, b: float) -> bool { return intrinsic.flt(a, b) }
-    new operator string (v: float) -> string { return intrinsic.float_to_string(v) }
 }
 
 pub new type f32 : float(32) {
@@ -175,7 +171,6 @@ pub new type f32 : float(32) {
     new operator - (a: f32) -> f32 { return intrinsic.fneg(a) }
     new operator == (a: f32, b: f32) -> bool { return intrinsic.feq(a, b) }
     new operator < (a: f32, b: f32) -> bool { return intrinsic.flt(a, b) }
-    new operator string (v: f32) -> string { return intrinsic.float_to_string(v) }
 }
 
 pub new type f64 = float
@@ -185,96 +180,42 @@ pub new type f64 = float
 pub new type bool : bits(1) {
     new operator == (a: bool, b: bool) -> bool { return intrinsic.eq(a, b) }
     new operator ! (a: bool) -> bool { return intrinsic.not(a) }
-    new operator string (b: bool) -> string {
-        if b { return string("true") }
-        return string("false")
-    }
 }
 
 pub new type char : bits(32) {
     new operator == (a: char, b: char) -> bool { return intrinsic.eq(a, b) }
     new operator < (a: char, b: char) -> bool { return intrinsic.ult(a, b) }
-    new operator string (c: char) -> string { return intrinsic.char_to_string(c) }
 }
 
 // ---------------------------------------------------------------- text
 
-// str: a borrowed view of UTF-8 bytes (pointer + length). Owns nothing.
-// String literals are str. Cheap to pass around; never frees anything.
+// str: a borrowed view of UTF-8 bytes (pointer + length). Owns nothing and
+// never allocates. String literals are str. The owned, growable `string`
+// lives in Elemental, because it needs an allocator.
 pub new type str {
     pub data: ptr<u8>
     pub len:  uint
 
     new operator [] (s: str, i: uint) -> u8 { return s.data[i] }
-    new operator == (a: str, b: str) -> bool { return intrinsic.memeq(a.data, a.len, b.data, b.len) }
-    new operator + (a: str, b: str) -> string {
-        var out = string(a)
-        out.append(b)
-        return out
-    }
-    new operator + (a: str, b: string) -> string {
-        var out = string(a)
-        out.append(b.view())
-        return out
-    }
-    new operator string (s: str) -> string { return string(s) }
-}
-
-// string: owned, growable UTF-8 text. Its memory is freed automatically
-// when it goes out of scope (drop).
-pub new class string {
-    buf:  ptr<u8>
-    used: uint
-    cap:  uint
-
-    // string("hello") copies the text.
-    pub new function init(text: str) {
-        self.buf = intrinsic.malloc(text.len)
-        intrinsic.memcpy(self.buf, text.data, text.len)
-        self.used = text.len
-        self.cap = text.len
-    }
-
-    pub new function drop() { intrinsic.free(self.buf) }
-
-    pub new function len() -> uint { return self.used }
-
-    // An independent copy. Strings are moved, not copied, unless you ask.
-    pub new function copy() -> string { return string(self.view()) }
-
-    // A borrowed view of the text; valid while this string is alive and unchanged.
-    pub new function view() -> str { return str(self.buf, self.used) }
-
-    pub new function append(text: str) {
-        let needed = self.used + text.len
-        if needed > self.cap {
-            var grown = self.cap * 2
-            if grown < needed { grown = needed }
-            self.buf = intrinsic.realloc(self.buf, grown)
-            self.cap = grown
+    new operator == (a: str, b: str) -> bool {
+        if a.len != b.len { return false }
+        var i: uint = 0
+        while i < a.len {
+            if a.data[i] != b.data[i] { return false }
+            i += 1
         }
-        intrinsic.memcpy(&self.buf[self.used], text.data, text.len)
-        self.used = needed
+        return true
     }
-
-    new operator [] (s: string, i: uint) -> u8 { return s.buf[i] }
-    new operator == (a: string, b: string) -> bool { return a.view() == b.view() }
-    new operator + (a: string, b: string) -> string {
-        var out = string(a.view())
-        out.append(b.view())
-        return out
-    }
-    new operator + (a: string, b: str) -> string {
-        var out = string(a.view())
-        out.append(b)
-        return out
-    }
-    new operator string (s: string) -> string { return string(s.view()) }
 }
 
-// Anything with `operator string` can be printed: print(x) calls string(x).
-pub new interface Printable {
-    new operator string (v: Self) -> string
+// ---------------------------------------------------------------- interfaces
+
+pub new interface Equatable {
+    new operator == (a: Self, b: Self) -> bool
+}
+
+pub new interface Ordered {
+    new operator < (a: Self, b: Self) -> bool
 }
 
 // ---------------------------------------------------------------- errors

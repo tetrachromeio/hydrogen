@@ -1,0 +1,119 @@
+// Owned text, conversions to text, and Printable.
+
+extern function malloc(size: uint) -> ptr<u8>
+extern function realloc(p: ptr<u8>, size: uint) -> ptr<u8>
+extern function h2_signed_to_string(v: int, out: ptr<string>)
+extern function h2_unsigned_to_string(v: uint, out: ptr<string>)
+extern function h2_float_to_string(v: float, out: ptr<string>)
+extern function h2_char_to_string(c: char, out: ptr<string>)
+
+// string: owned, growable UTF-8 text. Its memory is freed automatically
+// when it goes out of scope (drop). The empty string allocates nothing.
+pub new class string {
+    buf:  ptr<u8>
+    used: uint
+    cap:  uint
+
+    // string("hello") copies the text.
+    pub new function init(text: str) {
+        if text.len == 0 { return }
+        self.buf = malloc(text.len)
+        copy(self.buf, text.data, text.len)
+        self.used = text.len
+        self.cap = text.len
+    }
+
+    pub new function drop() { free self.buf }
+
+    pub new function len() -> uint { return self.used }
+
+    // An independent copy. Strings are moved, not copied, unless you ask.
+    pub new function copy() -> string { return string(self.view()) }
+
+    // A borrowed view of the text; valid while this string is alive and unchanged.
+    pub new function view() -> str { return str(self.buf, self.used) }
+
+    pub new function append(text: str) {
+        let needed = self.used + text.len
+        if needed > self.cap {
+            var grown = self.cap * 2
+            if grown < needed { grown = needed }
+            self.buf = realloc(self.buf, grown)
+            self.cap = grown
+        }
+        copy(&self.buf[self.used], text.data, text.len)
+        self.used = needed
+    }
+
+    new operator [] (s: string, i: uint) -> u8 { return s.buf[i] }
+    new operator == (a: string, b: string) -> bool { return a.view() == b.view() }
+    new operator + (a: string, b: string) -> string {
+        var out = string(a.view())
+        out.append(b.view())
+        return out
+    }
+    new operator + (a: string, b: str) -> string {
+        var out = string(a.view())
+        out.append(b)
+        return out
+    }
+    new operator string (s: string) -> string { return string(s.view()) }
+}
+
+// Joining borrowed text builds an owned string.
+pub new operator + (a: str, b: str) -> string {
+    var out = string(a)
+    out.append(b)
+    return out
+}
+
+pub new operator + (a: str, b: string) -> string {
+    var out = string(a)
+    out.append(b.view())
+    return out
+}
+
+// Anything with `operator string` can be printed: print(x) calls string(x).
+pub new interface Printable {
+    new operator string (v: Self) -> string
+}
+
+// Text conversions for Atomic's types. These are extension operators: they are
+// declared here, outside the types, because Atomic itself can't allocate.
+pub new operator string (s: str) -> string { return string(s) }
+
+pub new operator string (v: int) -> string {
+    var out = string("")
+    h2_signed_to_string(v, &out)
+    return out
+}
+pub new operator string (v: i32) -> string { return string(int(v)) }
+pub new operator string (v: i16) -> string { return string(int(v)) }
+pub new operator string (v: i8) -> string { return string(int(v)) }
+
+pub new operator string (v: uint) -> string {
+    var out = string("")
+    h2_unsigned_to_string(v, &out)
+    return out
+}
+pub new operator string (v: u32) -> string { return string(uint(v)) }
+pub new operator string (v: u16) -> string { return string(uint(v)) }
+pub new operator string (v: u8) -> string { return string(uint(v)) }
+
+pub new operator string (v: float) -> string {
+    var out = string("")
+    h2_float_to_string(v, &out)
+    return out
+}
+pub new operator string (v: f32) -> string { return string(float(v)) }
+
+pub new operator string (b: bool) -> string {
+    if b { return string("true") }
+    return string("false")
+}
+
+pub new operator string (c: char) -> string {
+    var out = string("")
+    h2_char_to_string(c, &out)
+    return out
+}

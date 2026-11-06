@@ -1,4 +1,4 @@
-// Re-exports the core math functions.
+// Re-exports the core math functions. (Ordered lives in Atomic.)
 pub use Atomic.Math
 
 pub new function abs(x: f64) -> f64 {
@@ -14,8 +14,4 @@ pub new function max<T: Ordered>(a: T, b: T) -> T {
 pub new function min<T: Ordered>(a: T, b: T) -> T {
     if a < b { return a }
     return b
-}
-
-pub new interface Ordered {
-    new operator < (a: Self, b: Self) -> bool
 }

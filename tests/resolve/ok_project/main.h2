@@ -1,7 +1,7 @@
 use Elemental
 use Geometry
 use Geometry.Shapes as shapes
-use Atomic.Memory as mem
+use Elemental.Memory as mem
 
 new enum ParseError { Empty, BadDigit(char) }
 

@@ -1,5 +1,9 @@
-// Elemental: the hosted standard library.
+// Elemental: the hosted standard library, built on Atomic plus the C library.
 // `use Elemental` brings in everything re-exported below.
+
+use Atomic.Memory
 
 pub use Elemental.IO
 pub use Elemental.Math
+
+include text

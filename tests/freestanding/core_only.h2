@@ -1,0 +1,32 @@
+// Uses only Atomic (no `use Elemental`): must not depend on the C library.
+// It reports its result through the exit code.
+
+new enum Shape { Square(int), Rect(int, int) }
+
+new function area(s: Shape) -> int {
+    match s {
+        Square(n) => { return n * n }
+        Rect(w, h) => { return w * h }
+    }
+}
+
+new function biggest<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+new function fib(n: int) -> int {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+new function main() -> int {
+    let word: str = "atomic"
+    var total = 0
+    if word == "atomic" { total += 1 }          // str == works without libc
+    total += biggest(area(Square(3)), area(Rect(2, 4)))
+    total += fib(10)
+    var bytes: [u8; 4] = [1, 2, 3, 4]
+    for b in bytes { total += int(b) }
+    return total                                  // 1 + 9 + 55 + 10 = 75
+}

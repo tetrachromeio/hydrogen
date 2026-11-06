@@ -1,9 +1,0 @@
-// Thin wrappers over the operating system.
-
-pub new function write(fd: int, data: ptr<u8>, len: usize) -> int {
-    return intrinsic.sys_write(fd, data, len)
-}
-
-pub new function exit(code: int) {
-    intrinsic.sys_exit(code)
-}
