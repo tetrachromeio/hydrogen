@@ -48,6 +48,14 @@ new function view_of_local() -> str {
     return s                      // dangling view
 }
 
+new function view_of_temporary() -> str {
+    return "a" + "b"              // the joined string dies here
+}
+
+new function view_of_param(s: string) -> str {
+    return s                      // fine: the caller's string outlives this call
+}
+
 new function errors(flag: bool, param: string) {
     let a = string("a")
     let b = a

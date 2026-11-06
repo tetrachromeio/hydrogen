@@ -2090,12 +2090,24 @@ private:
         }
         case StmtKind::Return: {
             const auto& r = static_cast<const ReturnStmt&>(s);
-            if (r.value && viewCoerced_.count(r.value.get()) && r.value->kind == ExprKind::Ident) {
-                const Symbol* v = static_cast<const IdentExpr&>(*r.value).sym;
-                auto it = vars_.find(v);
-                if (it != vars_.end() && !it->second.borrowed)
-                    moveError(r.value->loc, "returns a view of " + q(v->name) + ", which is freed when the function "
+            if (r.value && viewCoerced_.count(r.value.get())) {
+                // Returning a str view is only safe if the string outlives this
+                // function: a borrowed parameter, or something reached through one.
+                const Expr* root = placeRoot(*r.value);
+                bool borrowedRoot = false;
+                if (root->kind == ExprKind::Ident) {
+                    auto it = vars_.find(static_cast<const IdentExpr&>(*root).sym);
+                    borrowedRoot = it != vars_.end() && it->second.borrowed;
+                } else if (root->kind == ExprKind::Self) {
+                    borrowedRoot = true;
+                }
+                if (!borrowedRoot) {
+                    std::string what = r.value->kind == ExprKind::Ident
+                                           ? q(static_cast<const IdentExpr&>(*r.value).name)
+                                           : "a temporary string";
+                    moveError(r.value->loc, "returns a str view of " + what + ", which is freed when the function "
                                             "ends. Return the string itself (-> string) instead");
+                }
             }
             if (r.value) moveExpr(*r.value, true);
             return false;
