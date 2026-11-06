@@ -24,8 +24,10 @@ Principles:
 | Implementation    | C++                                               |
 | Type system       | Static, with type inference                       |
 | Memory            | Manual + RAII (deterministic destruction), no GC  |
-| Imports           | `use Module` (e.g. `use Elemental`, `use Atomic`) |
-| Declarations      | `new type Name {}`, `new function name() {}`      |
+| Imports           | `use Module` brings its names into scope          |
+| Types             | `new type`: value types (int, bool, string, ...)  |
+| Classes           | `new class`: data + methods + RAII, separate      |
+| Functions         | `new function name() {}`                          |
 
 ## Standard library (proposed split, to confirm)
 - **Atomic**: the freestanding core. Primitive types, memory and pointer
@@ -37,6 +39,5 @@ Principles:
 - Error handling (result types vs. exceptions vs. Swift-style throws)
 - Generics model
 - Pointer syntax and safety defaults
-- Methods: inside `new type` or free functions
 - C interop / ABI
 - File extension (`.h2` used tentatively)

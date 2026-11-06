@@ -1,22 +1,22 @@
-# Hydrogen Syntax: Draft 0
+# Hydrogen Syntax: Draft 1
 
 Status: **sketch**. Every rule here is up for discussion.
 
 ## Imports
+`use` brings a module's public names into scope.
 ```
-use Elemental            // whole module
-use Elemental.IO         // submodule
-use Atomic.Memory as mem // alias
+use Elemental            // print(), sqrt(), string, ... now usable directly
+use Atomic.Memory as mem // aliased: mem.alloc(...)
 ```
+- If two `use`d modules export the same name, using that name unqualified is
+  a compile error. Disambiguate with the full path: `Elemental.IO.print(...)`.
+- Qualified access (`Elemental.IO.print`) always works.
 
 ## Variables
 ```
-let x = 10          // immutable, type inferred (i32)
+let x = 10          // immutable, type inferred
 var y: u8 = 255     // mutable, explicit type
 ```
-
-Primitive types: `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool char`,
-`usize`, `void`.
 
 ## Functions
 ```
@@ -24,38 +24,65 @@ new function add(a: i32, b: i32) -> i32 {
     return a + b
 }
 
-new function log(msg: str) {   // no return type means void
-    Elemental.IO.print(msg)
+new function log(msg: string) {   // no return type means void
+    print(msg)
 }
 ```
 
-## Types
-```
-new type Vec2 {
-    x: f32
-    y: f32
+## Types vs. classes
+These are two separate concepts.
 
-    new function length(self) -> f32 {
-        return Elemental.Math.sqrt(self.x * self.x + self.y * self.y)
-    }
+### `new type`: values
+A **type** is plain data with value semantics, like `int`, `bool` or `string`.
+It has no identity, no inheritance and no hidden behavior. It is copied by
+value and its layout is fully known. The built-in types are themselves
+declared with `new type` in Atomic.
+
+A type is built from raw bits or from an existing type:
+```
+// How Atomic defines primitives
+new type bool : bits(1)
+new type i32  : bits(32) signed
+new type u8   : bits(8)
+new type f64  : float(64)
+
+// A distinct type built on an existing one; it does not mix with f64 implicitly
+new type Meters : f64
+```
+
+Or a type can be a fixed layout of other types, like `string`:
+```
+new type string {
+    data: ptr<u8>
+    len:  usize
 }
-
-let v = Vec2 { x: 3.0, y: 4.0 }
-let n = v.length()
 ```
 
-### RAII
-A type can define `drop`, which runs automatically when the value goes out
-of scope:
+Built-in primitives: `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool char usize`
+(`int` = `i32`? to decide).
+
+### `new class`: objects
+A **class** groups data with behavior: methods, construction and RAII cleanup.
 ```
-new type Buffer {
+new class Buffer {
     data: ptr<u8>
     size: usize
 
-    new function drop(self) {
-        Atomic.Memory.free(self.data)
+    new function init(size: usize) {
+        self.data = mem.alloc(size)
+        self.size = size
+    }
+
+    new function drop() {           // runs automatically at end of scope
+        mem.free(self.data)
+    }
+
+    new function get(i: usize) -> u8 {
+        return self.data[i]
     }
 }
+
+let buf = Buffer(1024)
 ```
 
 ## Control flow
@@ -67,9 +94,8 @@ for i in 0..10 { ... }
 
 ## Low level
 ```
-let p: ptr<i32> = &x      // raw pointer
-let v = p.read()          // or *p, to be decided
-asm { "mov rax, 1" }      // inline assembly
+let p: ptr<i32> = &x
+asm { "mov rax, 1" }
 ```
 
 ## Entry point
@@ -77,7 +103,7 @@ asm { "mov rax, 1" }      // inline assembly
 use Elemental
 
 new function main() -> i32 {
-    Elemental.IO.print("Hello, Hydrogen")
+    print("Hello, Hydrogen")
     return 0
 }
 ```
