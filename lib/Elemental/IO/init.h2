@@ -1,4 +1,5 @@
 use Elemental
+use Atomic.Program
 
 extern function write(fd: i32, data: ptr<u8>, len: uint) -> int
 
@@ -16,4 +17,26 @@ pub new function eprint<T: Printable>(value: T) {
     let v = text.view()
     write(2, v.data, v.len)
     write(2, "\n".data, 1)
+}
+
+
+extern function h2_read_line(out: ptr<string>) -> bool
+extern function strlen(s: ptr<u8>) -> uint
+
+// The next line typed (or piped) into the program, without its newline.
+// None at the end of input.
+pub new function read_line() -> Option<string> {
+    var line = string("")
+    if h2_read_line(&line) { return Some(line) }
+    return None
+}
+
+// The command-line arguments. args()[0] is the program's own name.
+pub new function args() -> List<string> {
+    var out = List<string>()
+    for i in 0..arg_count() {
+        let p = arg_at(i)
+        out.push(string(str(p, strlen(p))))
+    }
+    return out
 }

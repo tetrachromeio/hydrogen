@@ -528,6 +528,7 @@ Two layers:
 | `Ordered`, `Equatable` | interfaces: has `<` / has `==` |
 | `Atomic.Memory` | `copy(dst, src, n)` `fill(dst, byte, n)`; for containers: `take(p)` (move out of raw memory), `destroy(p)` (drop in place), `size_of(p)` |
 | `Atomic.Math` | `sqrt` `floor` `ceil` |
+| `Atomic.Program` | `arg_count()`, `arg_at(i)` (C string): what the OS passes at startup |
 
 **Elemental**, after `use Elemental`:
 
@@ -538,10 +539,33 @@ Two layers:
 | `Printable` | interface: has `operator string` |
 | `operator string` for all of Atomic's types | `string(42)`, `string(3.5)`, `string(true)`, ... |
 | `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `list[i]` `for x in list` `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
-| `Elemental.IO` | `print(x)`, `eprint(x)` (stderr) |
+| `Elemental.IO` | `print(x)`, `eprint(x)` (stderr), `read_line()` (Option, None at end of input), `args()` (List of strings) |
+| `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
+| text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
 | `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
 | `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)` |
 | `Elemental.System` | `write_bytes(fd, data, len)` `exit_now(code)` |
+
+Example: reading numbers from input and a file:
+```
+while true {
+    match read_line() {
+        Some(line) => {
+            match parse_int(trim(line)) {
+                Some(n) => print(n * 2)
+                None => print("not a number: " + line)
+            }
+        }
+        None => { break }
+    }
+}
+match read_file("notes.txt") {
+    Ok(text) => { for l in split(text, "\n") { print(l) } }
+    Err(e) => print(e)                       // "file not found"
+}
+```
+Text tools return views into their input (no allocation), so keep the original
+text alive while you use the results.
 
 Without `use Elemental` there is no `string` and no `print`. That's by design:
 such a program depends on nothing at all. `alloc`/`free` are language features
@@ -556,7 +580,6 @@ Elemental uses `extern` to reach the C library instead.
 
 ## 16. Not supported yet
 
-- Reading input from Hydrogen's own library (use `extern` to call C's `read`, `fopen`, ... for now)
 - `Map<K, V>`
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)

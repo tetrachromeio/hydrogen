@@ -5,6 +5,8 @@ use Atomic.Memory
 
 pub use Elemental.IO
 pub use Elemental.Math
+pub use Elemental.File
 
 include text
 include list
+include textutil

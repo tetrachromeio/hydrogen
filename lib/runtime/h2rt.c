@@ -75,3 +75,84 @@ int64_t h2_write(int64_t fd, const uint8_t* data, uint64_t len) {
 }
 
 void h2_exit(int64_t code) { exit((int)code); }
+
+// ---- input and files (used by Elemental through extern)
+
+// Reads one line from stdin without the trailing newline. Returns 0 at end of input.
+_Bool h2_read_line(H2String* out) {
+    char* line = NULL;
+    size_t cap = 0;
+    ssize_t n = getline(&line, &cap, stdin);
+    if (n < 0) {
+        free(line);
+        return 0;
+    }
+    if (n > 0 && line[n - 1] == '\n') --n;
+    if (n > 0 && line[n - 1] == '\r') --n;
+    out->buf = (uint8_t*)line;
+    out->used = (uint64_t)n;
+    out->cap = (uint64_t)cap;
+    return 1;
+}
+
+static char* c_path(const uint8_t* path, uint64_t len) {
+    char* p = (char*)malloc(len + 1);
+    memcpy(p, path, len);
+    p[len] = '\0';
+    return p;
+}
+
+#include <errno.h>
+static int64_t error_code(void) {
+    if (errno == ENOENT) return 1;
+    if (errno == EACCES || errno == EPERM) return 2;
+    return 3;
+}
+
+// Reads a whole file. Returns 0 on success, or an error code (1 not found, 2 denied, 3 other).
+int64_t h2_read_file(const uint8_t* path, uint64_t len, H2String* out) {
+    char* p = c_path(path, len);
+    FILE* f = fopen(p, "rb");
+    free(p);
+    if (!f) return error_code();
+    size_t cap = 4096, used = 0;
+    uint8_t* buf = (uint8_t*)malloc(cap);
+    size_t n;
+    while ((n = fread(buf + used, 1, cap - used, f)) > 0) {
+        used += n;
+        if (used == cap) buf = (uint8_t*)realloc(buf, cap *= 2);
+    }
+    int failed = ferror(f);
+    fclose(f);
+    if (failed) {
+        free(buf);
+        return 3;
+    }
+    out->buf = buf;
+    out->used = used;
+    out->cap = cap;
+    return 0;
+}
+
+// Writes (or with append=1, appends) bytes to a file. Returns 0 or an error code.
+int64_t h2_write_file(const uint8_t* path, uint64_t len, const uint8_t* data, uint64_t n, _Bool append) {
+    char* p = c_path(path, len);
+    FILE* f = fopen(p, append ? "ab" : "wb");
+    free(p);
+    if (!f) return error_code();
+    size_t written = n ? fwrite(data, 1, n, f) : 0;
+    int failed = written != n;
+    if (fclose(f) != 0) failed = 1;
+    return failed ? 3 : 0;
+}
+
+// Parses a float from text. Returns 0 if the whole text isn't a number.
+_Bool h2_parse_float(const uint8_t* text, uint64_t len, double* out) {
+    if (len == 0 || len > 300) return 0;
+    char tmp[301];
+    memcpy(tmp, text, len);
+    tmp[len] = '\0';
+    char* end = NULL;
+    *out = strtod(tmp, &end);
+    return end == tmp + len;
+}

@@ -1,0 +1,54 @@
+// Reading and writing files.
+use Elemental
+
+extern function h2_read_file(path: ptr<u8>, len: uint, out: ptr<string>) -> int
+extern function h2_write_file(path: ptr<u8>, len: uint, data: ptr<u8>, n: uint, append: bool) -> int
+extern function remove(path: ptr<u8>) -> i32
+
+pub new enum FileError {
+    NotFound
+    PermissionDenied
+    Failed
+}
+
+pub new operator string (e: FileError) -> string {
+    match e {
+        NotFound => { return string("file not found") }
+        PermissionDenied => { return string("permission denied") }
+        Failed => { return string("file operation failed") }
+    }
+}
+
+new function to_error(code: int) -> FileError {
+    if code == 1 { return NotFound }
+    if code == 2 { return PermissionDenied }
+    return Failed
+}
+
+// The whole file as text.
+pub new function read_file(path: str) -> Result<string, FileError> {
+    var text = string("")
+    let code = h2_read_file(path.data, path.len, &text)
+    if code != 0 { return Err(to_error(code)) }
+    return Ok(text)
+}
+
+// Replaces the file's contents (creating it if needed). Returns the bytes written.
+pub new function write_file(path: str, text: str) -> Result<uint, FileError> {
+    let code = h2_write_file(path.data, path.len, text.data, text.len, false)
+    if code != 0 { return Err(to_error(code)) }
+    return Ok(text.len)
+}
+
+// Adds to the end of the file (creating it if needed). Returns the bytes written.
+pub new function append_file(path: str, text: str) -> Result<uint, FileError> {
+    let code = h2_write_file(path.data, path.len, text.data, text.len, true)
+    if code != 0 { return Err(to_error(code)) }
+    return Ok(text.len)
+}
+
+// Deletes a file. Returns false if it couldn't.
+pub new function remove_file(path: str) -> bool {
+    let c = string(path) + "\0"
+    return remove(c.view().data) == 0
+}

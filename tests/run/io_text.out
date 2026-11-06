@@ -1,0 +1,23 @@
+1
+[name = Ada Lovelace]
+true
+true
+true
+found = at 5
+4
+<a>
+<b>
+<>
+<c>
+hydro
+-40
+12x is not a number
+5.0
+skipping: hello
+5 lines, total 42
+wrote 11 bytes
+file: first line
+file: second line
+true
+file not found
+[exit 0]

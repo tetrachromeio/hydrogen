@@ -1,0 +1,8 @@
+// What the operating system hands every program at startup. Freestanding:
+// these read values the program's entry point already received.
+
+// Number of command-line arguments, including the program's own name.
+pub new function arg_count() -> int { return intrinsic.arg_count() }
+
+// Argument `i` as a C string (NUL-terminated bytes). 0 is the program name.
+pub new function arg_at(i: int) -> ptr<u8> { return intrinsic.arg_at(i) }

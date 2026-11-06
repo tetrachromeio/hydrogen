@@ -8,7 +8,8 @@
   tests/resolve/<case>/main.h2 -> `h2c --check` stderr must match <case>/expected.err
                                  (an empty file means the project must check cleanly)
   tests/projects/<case>/app/     -> `hy check` output must match <case>/expected.out
-  tests/run/*.h2     -> compiled with clang and run: stdout + exit code must match .out
+  tests/run/*.h2     -> compiled with clang and run (stdin from .in if present, in a temp dir):
+                        stdout + exit code must match .out
                         (under valgrind when available: no leaks or memory errors)
   tests/freestanding/*.h2 -> must not reference any C function (only llvm.* built-ins);
                         run, and stdout + exit code must match .out
@@ -139,7 +140,9 @@ def main():
             if valgrind:
                 cmd = [valgrind, "-q", "--leak-check=full", "--errors-for-leak-kinds=definite,indirect",
                        "--error-exitcode=99"] + cmd
-            x = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            stdin_file = p.with_suffix(".in")
+            stdin_text = stdin_file.read_text() if stdin_file.exists() else ""
+            x = subprocess.run(cmd, capture_output=True, text=True, timeout=60, input=stdin_text, cwd=tmp)
             if x.returncode == 99:
                 failures.append(f"{p}: memory errors or leaks\n{x.stderr[-3000:]}")
                 continue

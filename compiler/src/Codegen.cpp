@@ -48,6 +48,7 @@ struct Temp {
 struct LoopCtx {
     std::string breakLabel, continueLabel;
     size_t scopeDepth;
+    size_t tempDepth = 0; // temporaries below this belong to the loop statement itself
 };
 
 struct FnCtx {
@@ -63,7 +64,8 @@ struct FnCtx {
     const FunctionDecl* fn = nullptr;
     std::map<const Symbol*, Local> locals;
     std::vector<std::vector<const Symbol*>> scopes; // owned locals per scope
-    std::vector<Temp> temps;                        // temporaries of the current statement
+    std::vector<Temp> temps;                        // temporaries of the statements being emitted
+    size_t tempBase = 0;                            // temps below this belong to an enclosing statement
     std::vector<LoopCtx> loops;
     int dbgScope = -1;  // DISubprogram metadata id, or -1 (no debug info)
     SourceLoc cur;      // source position of the statement being emitted
@@ -146,8 +148,11 @@ public:
         drainWorklist();
 
         const Type* mainRet = mainFn->returnType ? typeOfRef(*mainFn->returnType, {}, nullptr) : tc_.voidT();
+        // The OS passes argc/argv to main; keep them for Atomic.Program.
+        globals_ << "@h2.argc = internal global i32 0\n@h2.argv = internal global ptr null\n";
         std::ostringstream entry;
-        entry << "define i32 @main() {\n";
+        entry << "define i32 @main(i32 %argc, ptr %argv) {\n";
+        entry << "  store i32 %argc, ptr @h2.argc\n  store ptr %argv, ptr @h2.argv\n";
         if (mainRet == tc_.voidT()) {
             entry << "  call void @" << llvmQuote(userMain) << "()\n  ret i32 0\n";
         } else {
@@ -820,10 +825,21 @@ private:
         startBlock(done);
     }
 
+    // Drops the temporaries of the statement that just ended (not those of
+    // an enclosing statement, such as a match subject or a for-loop's list).
     void flushTemps() {
-        auto temps = std::move(f_->temps);
-        f_->temps.clear();
-        for (auto it = temps.rbegin(); it != temps.rend(); ++it) emitDropIfFlag(it->ptr, it->type, it->flag);
+        std::vector<Temp> mine(f_->temps.begin() + static_cast<long>(f_->tempBase), f_->temps.end());
+        f_->temps.resize(f_->tempBase);
+        for (auto it = mine.rbegin(); it != mine.rend(); ++it) emitDropIfFlag(it->ptr, it->type, it->flag);
+    }
+
+    // Runs `body` as nested statements: their temporaries are theirs alone.
+    template <class F>
+    void nestedTemps(F&& body) {
+        size_t saved = f_->tempBase;
+        f_->tempBase = f_->temps.size();
+        body();
+        f_->tempBase = saved;
     }
 
     void dropScope(const std::vector<const Symbol*>& owned) {
@@ -836,8 +852,11 @@ private:
     // Drops for an early exit (return, break, continue, ?): the statement's
     // temporaries and the scopes being left. The temporaries stay registered,
     // because the normal path continues past this point.
-    void dropScopesFrom(size_t depth) {
-        for (auto it = f_->temps.rbegin(); it != f_->temps.rend(); ++it) emitDropIfFlag(it->ptr, it->type, it->flag);
+    void dropScopesFrom(size_t depth, size_t tempDepth = 0) {
+        for (size_t i = f_->temps.size(); i > tempDepth; --i) {
+            const Temp& t = f_->temps[i - 1];
+            emitDropIfFlag(t.ptr, t.type, t.flag);
+        }
         for (size_t i = f_->scopes.size(); i > depth; --i) dropScope(f_->scopes[i - 1]);
     }
 
@@ -974,7 +993,7 @@ private:
 
     void emitScopedBlock(const Block& b) {
         f_->scopes.emplace_back();
-        emitBlockStmts(b);
+        nestedTemps([&] { emitBlockStmts(b); });
         if (!f_->terminated) dropScope(f_->scopes.back());
         f_->scopes.pop_back();
     }
@@ -1047,7 +1066,7 @@ private:
             flushTemps();
             terminate("br i1 " + c + ", label %" + bodyL + ", label %" + endL);
             startBlock(bodyL);
-            f_->loops.push_back({endL, condL, f_->scopes.size()});
+            f_->loops.push_back({endL, condL, f_->scopes.size(), f_->temps.size()});
             emitScopedBlock(*w.body);
             f_->loops.pop_back();
             if (!f_->terminated) terminate("br label %" + condL);
@@ -1072,7 +1091,7 @@ private:
         case StmtKind::Continue: {
             if (f_->loops.empty()) return;
             const LoopCtx& lc = f_->loops.back();
-            dropScopesFrom(lc.scopeDepth);
+            dropScopesFrom(lc.scopeDepth, lc.tempDepth);
             terminate("br label %" + (s.kind == StmtKind::Break ? lc.breakLabel : lc.continueLabel));
             return;
         }
@@ -1115,7 +1134,7 @@ private:
             emit(c + " = icmp " + (scalarOf(et).isSigned ? "slt " : "ult ") + ety + " " + cur + ", " + hi);
             terminate("br i1 " + c + ", label %" + bodyL + ", label %" + endL);
             startBlock(bodyL);
-            f_->loops.push_back({endL, stepL, f_->scopes.size()});
+            f_->loops.push_back({endL, stepL, f_->scopes.size(), f_->temps.size()});
             emitScopedBlock(*fs.body);
             f_->loops.pop_back();
             startBlock(stepL);
@@ -1190,7 +1209,7 @@ private:
                 emit(ep + " = getelementptr inbounds " + lty(elemT) + ", ptr " + base + ", i64 " + i2);
             f_->locals[fs.sym] = {ep, elemT, ""}; // borrowed element
         }
-        f_->loops.push_back({endL, stepL, f_->scopes.size()});
+        f_->loops.push_back({endL, stepL, f_->scopes.size(), f_->temps.size()});
         emitScopedBlock(*fs.body);
         f_->loops.pop_back();
         startBlock(stepL);
@@ -2037,6 +2056,16 @@ private:
             }
             return {"i64", std::to_string(sizeOf(ts[0]->elem()))};
         }
+        if (name == "arg_count") {
+            std::string c = load("i32", "@h2.argc"), w = tmp();
+            emit(w + " = sext i32 " + c + " to i64");
+            return {"i64", w};
+        }
+        if (name == "arg_at") {
+            std::string base = load("ptr", "@h2.argv"), p = tmp();
+            emit(p + " = getelementptr inbounds ptr, ptr " + base + ", i64 " + a[0].v);
+            return {"ptr", load("ptr", p)};
+        }
         if (name == "neg") {
             std::string t = tmp();
             emit(t + " = sub " + a[0].ty + " 0, " + a[0].v);
@@ -2218,19 +2247,19 @@ private:
             startBlock(armL);
             f_->scopes.emplace_back();
             bindPattern(*arm.pattern, subj, st);
-            if (arm.block) {
-                emitBlockStmts(*arm.block);
-            } else if (hasValue) {
-                store(consume(*arm.expr, resultT), slot);
-            } else {
-                const Type* t = typeOf(*arm.expr);
-                Val v = rvalue(*arm.expr);
-                if (t != tc_.voidT() && !t->isError() && isResource(t) && !isPlace(*arm.expr)) spill(v, t, true);
-            }
-            if (!f_->terminated) {
-                flushTemps();
-                dropScope(f_->scopes.back());
-            }
+            nestedTemps([&] {
+                if (arm.block) {
+                    emitBlockStmts(*arm.block);
+                } else if (hasValue) {
+                    store(consume(*arm.expr, resultT), slot);
+                } else {
+                    const Type* t = typeOf(*arm.expr);
+                    Val v = rvalue(*arm.expr);
+                    if (t != tc_.voidT() && !t->isError() && isResource(t) && !isPlace(*arm.expr)) spill(v, t, true);
+                }
+                if (!f_->terminated) flushTemps();
+            });
+            if (!f_->terminated) dropScope(f_->scopes.back());
             f_->scopes.pop_back();
             if (!f_->terminated) terminate("br label %" + endL);
             startBlock(nextL);
