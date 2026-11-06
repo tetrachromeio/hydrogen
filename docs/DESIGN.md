@@ -1,10 +1,17 @@
 # Design Notes
 
-Open decisions (to be filled in):
-- Paradigm / goals
-- Execution model (interpreter, bytecode VM, native compiler, transpiler)
-- Implementation language
-- Type system
-- Memory management
+## Decided
+| Area              | Decision                                         |
+|-------------------|--------------------------------------------------|
+| Execution model   | Ahead-of-time native compiler, LLVM backend      |
+| Implementation    | C++                                              |
+| Type system       | Static, with type inference                      |
+| Domain / memory   | Systems language; manual memory + RAII, no GC    |
+
+## Open
 - Syntax style
+- Generics / polymorphism model
+- Error handling (exceptions vs. result types)
+- Module / package system
+- C interop
 - File extension
