@@ -43,6 +43,7 @@ struct Symbol {
     const Decl* decl = nullptr;       // Function/Type/Class/Enum/Interface; parent enum for Variant
     const Variant* variant = nullptr; // Variant
     bool isMutable = false;           // Local declared with var
+    const struct SourceFile* file = nullptr; // file that declares it (top-level symbols)
     std::map<std::string, Symbol*> members; // Enum: its variants
 };
 
@@ -53,13 +54,22 @@ struct Import {
     ModuleInfo* target = nullptr;  // null if the module could not be found
 };
 
-struct ModuleInfo {
-    std::string path;        // "Atomic.Memory"; the main file's inferred path, or "" for a program
-    std::string displayFile; // path used in diagnostics
+// One .h2 file. A module is its root file (init.h2, or an app's main file)
+// plus the files the root `include`s. Each file has its own `use` imports.
+struct SourceFile {
     std::filesystem::path file;
+    std::string displayFile; // path used in diagnostics
     Module ast;
     std::vector<Import> imports;
+};
+
+struct ModuleInfo {
+    std::string path; // "Atomic.Memory"; the main file's inferred path, or "" for a program
+    std::vector<std::unique_ptr<SourceFile>> files; // files[0] is the root file
     Symbol* self = nullptr; // Kind::Module symbol for this module
+
+    SourceFile& root() const { return *files.front(); }
+    const std::string& displayFile() const { return files.front()->displayFile; }
 
     // Filled in by the resolver.
     std::unordered_map<std::string, Symbol*> defs;                 // top-level definitions

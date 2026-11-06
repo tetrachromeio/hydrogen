@@ -223,7 +223,7 @@ struct AsmStmt : Stmt {
 
 // ---------------------------------------------------------------- declarations
 
-enum class DeclKind { Use, Function, Type, Class, Enum, Interface };
+enum class DeclKind { Use, Include, Function, Type, Class, Enum, Interface };
 
 struct Decl {
     DeclKind kind;
@@ -237,6 +237,13 @@ struct UseDecl : Decl {
     std::string path;  // "Atomic.Memory"
     std::string alias; // empty if none
     UseDecl(SourceLoc l) : Decl(DeclKind::Use, l) {}
+};
+
+// `include shapes` in a module's root file adds shapes.h2 (same directory)
+// to the module.
+struct IncludeDecl : Decl {
+    std::string name;
+    IncludeDecl(SourceLoc l) : Decl(DeclKind::Include, l) {}
 };
 
 struct Param {

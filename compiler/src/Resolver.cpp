@@ -71,10 +71,14 @@ public:
 
     void run() {
         for (auto& m : prog_.modules) collect(*m);
-        for (auto& m : prog_.modules) buildImports(*m);
+        for (auto& m : prog_.modules)
+            for (auto& f : m->files) buildImports(*f);
         for (auto& m : prog_.modules) {
             mod_ = m.get();
-            for (auto& d : m->ast.decls) resolveDecl(*d);
+            for (auto& f : m->files) {
+                file_ = f.get();
+                for (auto& d : f->ast.decls) resolveDecl(*d);
+            }
         }
     }
 
@@ -91,13 +95,14 @@ private:
     };
     std::map<ModuleInfo*, NameTable> exports_;
     std::set<ModuleInfo*> exporting_;
-    std::map<ModuleInfo*, Imports> imports_;
+    std::map<const SourceFile*, Imports> imports_; // per file
 
     ModuleInfo* mod_ = nullptr;
+    SourceFile* file_ = nullptr;
     std::vector<std::map<std::string, Symbol*>> scopes_;
     bool selfAllowed_ = false; // inside a class method
 
-    void error(SourceLoc loc, std::string msg) { diags_.error(mod_->displayFile, loc, std::move(msg)); }
+    void error(SourceLoc loc, std::string msg) { diags_.error(file_->displayFile, loc, std::move(msg)); }
 
     // -------------------------------------------------------------- phase 1: definitions
 
@@ -108,7 +113,8 @@ private:
         case DeclKind::Class: return static_cast<const ClassDecl&>(d).name;
         case DeclKind::Enum: return static_cast<const EnumDecl&>(d).name;
         case DeclKind::Interface: return static_cast<const InterfaceDecl&>(d).name;
-        case DeclKind::Use: break;
+        case DeclKind::Use:
+        case DeclKind::Include: break;
         }
         return "";
     }
@@ -125,8 +131,15 @@ private:
 
     void collect(ModuleInfo& m) {
         mod_ = &m;
-        for (const auto& d : m.ast.decls) {
-            if (d->kind == DeclKind::Use) continue;
+        for (auto& f : m.files) {
+            file_ = f.get();
+            collectFile(m, *f);
+        }
+    }
+
+    void collectFile(ModuleInfo& m, SourceFile& file) {
+        for (const auto& d : file.ast.decls) {
+            if (d->kind == DeclKind::Use || d->kind == DeclKind::Include) continue;
             if (d->kind == DeclKind::Function && static_cast<const FunctionDecl&>(*d).isOperator) {
                 error(d->loc, "operators must be declared inside a type or class");
                 continue;
@@ -135,9 +148,13 @@ private:
             Symbol* s = prog_.newSymbol(declSymbolKind(d->kind), name, d->loc, &m);
             s->decl = d.get();
             s->isPub = d->isPub;
+            s->file = &file;
             if (auto it = m.defs.find(name); it != m.defs.end()) {
-                error(d->loc, "'" + name + "' is already defined at line " +
-                                  std::to_string(it->second->loc.line));
+                const Symbol* prev = it->second;
+                std::string where = prev->file == &file ? "at line " + std::to_string(prev->loc.line)
+                                                        : "in " + prev->file->displayFile + ":" +
+                                                              std::to_string(prev->loc.line);
+                error(d->loc, "'" + name + "' is already defined " + where);
                 continue;
             }
             m.defs[name] = s;
@@ -171,24 +188,27 @@ private:
             addUnique(table[name], s);
             for (const auto& [vname, v] : s->members) addUnique(table[vname], v);
         }
-        for (const auto& imp : m->imports) {
-            if (!imp.decl || !imp.decl->isPub || !imp.target) continue;
-            if (imp.decl->alias.empty()) {
-                for (const auto& [name, syms] : exportsOf(imp.target))
-                    for (Symbol* s : syms) addUnique(table[name], s);
-            } else {
-                Symbol* alias = prog_.newSymbol(Symbol::Kind::Module, imp.decl->alias, imp.decl->loc, imp.target);
-                alias->isPub = true;
-                addUnique(table[imp.decl->alias], alias);
+        for (const auto& f : m->files) {
+            for (const auto& imp : f->imports) {
+                if (!imp.decl || !imp.decl->isPub || !imp.target) continue;
+                if (imp.decl->alias.empty()) {
+                    for (const auto& [name, syms] : exportsOf(imp.target))
+                        for (Symbol* s : syms) addUnique(table[name], s);
+                } else {
+                    Symbol* alias =
+                        prog_.newSymbol(Symbol::Kind::Module, imp.decl->alias, imp.decl->loc, imp.target);
+                    alias->isPub = true;
+                    addUnique(table[imp.decl->alias], alias);
+                }
             }
         }
         exporting_.erase(m);
         return exports_[m] = std::move(table);
     }
 
-    void buildImports(ModuleInfo& m) {
-        Imports& imps = imports_[&m];
-        for (const auto& imp : m.imports) {
+    void buildImports(const SourceFile& f) {
+        Imports& imps = imports_[&f];
+        for (const auto& imp : f.imports) {
             if (!imp.target) continue;
             bool aliased = imp.decl && !imp.decl->alias.empty();
             if (aliased) {
@@ -246,7 +266,7 @@ private:
         }
         if (name == "ptr") return ptr_;
         if (name == "intrinsic") return intrinsic_;
-        auto& imported = imports_[mod_].names;
+        auto& imported = imports_[file_].names;
         if (auto it = imported.find(name); it != imported.end()) {
             if (it->second.size() > 1) {
                 std::string quals;
@@ -264,10 +284,20 @@ private:
 
     // Explains why `name` was not found: private, missing `use`, or a typo.
     std::string unknownHint(const std::string& name) {
-        for (const auto& imp : mod_->imports) {
+        for (const auto& imp : file_->imports) {
             if (!imp.target) continue;
             if (auto it = imp.target->defs.find(name); it != imp.target->defs.end() && !it->second->isPub)
                 return ": it exists in module " + imp.target->displayName() + " but is not pub";
+        }
+        // Imported by a sibling file of this module, but not by this one?
+        for (const auto& f : mod_->files) {
+            if (f.get() == file_) continue;
+            for (const auto& imp : f->imports) {
+                if (!imp.decl || !imp.target || !imp.decl->alias.empty()) continue;
+                if (exportsOf(imp.target).count(name))
+                    return ": " + f->displayFile + " imports it, but each file needs its own 'use'. Add 'use " +
+                           imp.decl->path + "' to this file";
+            }
         }
         bool isModule = prog_.packages.count(name) > 0;
         for (const auto& dir : prog_.searchPaths) {
@@ -288,8 +318,8 @@ private:
             for (const auto& [n, s] : sc) consider(n);
         for (const auto& [n, s] : mod_->defs) consider(n);
         for (const auto& [n, s] : mod_->variants) consider(n);
-        for (const auto& [n, s] : imports_[mod_].names) consider(n);
-        for (const auto& [n, m] : imports_[mod_].refs) consider(n.substr(0, n.find('.')));
+        for (const auto& [n, s] : imports_[file_].names) consider(n);
+        for (const auto& [n, m] : imports_[file_].refs) consider(n.substr(0, n.find('.')));
         return best.empty() ? "" : "; did you mean '" + best + "'?";
     }
 
@@ -324,7 +354,7 @@ private:
             return {s, 1};
         }
 
-        const auto& refs = imports_[mod_].refs;
+        const auto& refs = imports_[file_].refs;
         std::string prefix;
         std::vector<std::string> prefixes; // prefixes[k] = segs[0..k] joined
         for (const auto& s : segs) {
@@ -707,7 +737,8 @@ private:
 
     void resolveDecl(Decl& d) {
         switch (d.kind) {
-        case DeclKind::Use: return;
+        case DeclKind::Use:
+        case DeclKind::Include: return;
         case DeclKind::Function: {
             auto& f = static_cast<FunctionDecl&>(d);
             if (!f.isOperator) resolveFunction(f, false);

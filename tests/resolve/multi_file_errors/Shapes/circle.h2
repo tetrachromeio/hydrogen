@@ -1,0 +1,8 @@
+include other
+
+pub new class Circle { pub radius: f64 }
+
+new function area(c: Circle) -> f64 {
+    print("no use Elemental in this file")
+    return 1.0
+}

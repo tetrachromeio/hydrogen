@@ -1,4 +1,4 @@
-# Hydrogen Syntax: Draft 4
+# Hydrogen Syntax: Draft 5
 
 Status: **sketch**. Every rule here is up for discussion.
 
@@ -9,6 +9,26 @@ lib/Atomic/init.h2            -> module Atomic
 lib/Atomic/Memory/init.h2     -> module Atomic.Memory
 myproject/Geometry/init.h2    -> module Geometry
 ```
+### Multi-file modules: `include`
+A module's root file (`init.h2`, or an app's main file) can pull in other
+files from the same folder with `include`:
+```
+Shapes/
+  init.h2        include circle
+                 include square
+  circle.h2      pub new class Circle { ... }
+  square.h2      pub new class Square { ... }
+  Polygon/       <- a folder with its own init.h2 is a submodule: use Shapes.Polygon
+    init.h2
+```
+- All included files form **one module** with one shared namespace. Private
+  (non-`pub`) items in one file are visible in the others, but not outside the module.
+- Only the root file may `include`, so `init.h2` lists every file of the module.
+  Files in the folder that aren't included are not part of the module.
+- Write the file name without quotes or `.h2`: `include circle`.
+- **Each file has its own `use` lines.** Imports don't leak between files.
+
+### Finding modules
 `use A.B` searches for `A/B/init.h2` in this order:
 1. the directory of the program's main file (your project)
 2. each dependency / `-L` library path

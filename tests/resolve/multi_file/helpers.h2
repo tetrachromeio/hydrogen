@@ -1,0 +1,3 @@
+use Elemental
+
+new function greet() { print("hi") }

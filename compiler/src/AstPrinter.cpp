@@ -348,6 +348,7 @@ private:
             os_ << ')';
             break;
         }
+        case DeclKind::Include: os_ << "(include " << static_cast<const IncludeDecl&>(d).name << ')'; break;
         case DeclKind::Function: function(static_cast<const FunctionDecl&>(d), depth); break;
         case DeclKind::Type: {
             const auto& t = static_cast<const TypeDecl&>(d);

@@ -36,6 +36,7 @@ Principles:
 | File extension    | `.h2`                                             |
 | Visibility        | Private by default; `pub` to export; `pub use` re-exports |
 | Module layout     | `use A.B` → `A/B/init.h2` (project dir, deps, stdlib) |
+| Multi-file modules| Root file does `include name` for sibling `name.h2`; shared namespace, per-file `use` |
 | Prelude           | Every module implicitly does `use Atomic`         |
 | Tooling           | `hy` CLI (`new`, `check`, `build`, `run`, `deps`) driven by `hy.toml` |
 | Dependencies      | Library projects named by module name; `path` deps now; git/registry later |
@@ -47,7 +48,6 @@ Principles:
   math, files.
 
 ## Open
-- Can a module span several files in its directory, besides `init.h2`?
 - C interop / ABI and `extern` declarations
 - Integer overflow behavior (wrap, trap or undefined)
 - String interpolation

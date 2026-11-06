@@ -1,0 +1,3 @@
+use Shapes
+
+pub new function unit() -> Square { return Square(1.0) }

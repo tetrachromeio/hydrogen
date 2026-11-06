@@ -131,8 +131,8 @@ private:
     }
     void syncTopLevel() {
         syncUntil([](const Token& t) {
-            return t.newlineBefore &&
-                   (t.kind == Tok::KwNew || t.kind == Tok::KwUse || t.kind == Tok::KwPub);
+            return t.newlineBefore && (t.kind == Tok::KwNew || t.kind == Tok::KwUse ||
+                                       t.kind == Tok::KwPub || t.kind == Tok::KwInclude);
         });
     }
 
@@ -199,6 +199,8 @@ private:
     // ------------------------------------------------------------ declarations
 
     DeclPtr parseTopDecl() {
+        if (at(Tok::KwPub) && peek(1).kind == Tok::KwInclude)
+            fail(peek().loc, "'pub' is not allowed on 'include': an included file is part of the module");
         bool isPub = accept(Tok::KwPub);
         DeclPtr d = parseTopDeclAfterPub();
         d->isPub = isPub;
@@ -212,7 +214,16 @@ private:
 
     DeclPtr parseTopDeclAfterPub() {
         if (at(Tok::KwUse)) return parseUse();
-        if (!at(Tok::KwNew)) failExpected("'new', 'use' or 'pub' at top level");
+        if (at(Tok::KwInclude)) {
+            auto d = std::make_unique<IncludeDecl>(advance().loc);
+            if (at(Tok::StringLit))
+                fail(peek().loc, "write the file name without quotes or extension: include " +
+                                     peek().text.substr(0, peek().text.rfind(".h2")));
+            d->name = expectIdent("a file name (without .h2) after 'include'");
+            expectTerminator("'include'");
+            return d;
+        }
+        if (!at(Tok::KwNew)) failExpected("'new', 'use', 'include' or 'pub' at top level");
         switch (peek(1).kind) {
         case Tok::KwFunction:
         case Tok::KwOperator: return parseFunction(/*bodyOptional=*/false);

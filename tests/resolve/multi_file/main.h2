@@ -1,0 +1,10 @@
+use Elemental
+use Shapes
+use Shapes.Polygon
+include helpers
+
+new function main() -> int {
+    let total = describe(Circle(1.0), unit())
+    greet()
+    return 0
+}

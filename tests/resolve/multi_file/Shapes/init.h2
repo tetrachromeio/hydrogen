@@ -1,0 +1,7 @@
+// Module Shapes = this file + the files it includes.
+include circle
+include square
+
+pub new function describe(c: Circle, s: Square) -> f64 {
+    return area_of_circle(c) + side_squared(s)
+}

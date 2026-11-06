@@ -1,0 +1,9 @@
+include circle
+include circle
+include missing
+include Sub
+include init
+
+use Elemental
+
+new function area(x: int) -> int { return x }

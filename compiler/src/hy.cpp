@@ -141,7 +141,7 @@ int checkProject(const Loaded& p) {
     if (!p.manifest.isLibrary && program->main()) {
         auto it = program->main()->defs.find("main");
         if (it == program->main()->defs.end() || it->second->kind != h2::Symbol::Kind::Function)
-            diags.error(program->main()->displayFile, {1, 1},
+            diags.error(program->main()->displayFile(), {1, 1},
                         "an app needs 'new function main() -> int' (or set type = \"lib\" in hy.toml)");
     }
     diags.print(std::cerr);

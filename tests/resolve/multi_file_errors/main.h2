@@ -1,0 +1,8 @@
+use Elemental
+use Shapes
+include extra
+
+new function main() -> int {
+    let a = area(Circle(1.0))
+    return 0
+}

@@ -1,0 +1,1 @@
+new function main() -> int { return 1 }
