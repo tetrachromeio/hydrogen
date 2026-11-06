@@ -13,7 +13,7 @@ anything not yet supported is listed at the end.
 | `hy new <name>` | Create an app in `./<name>` (`--lib` for a library) |
 | `hy check` | Check the whole project: syntax, names, types, ownership |
 | `hy run` | Build and run (`hy run -- args` passes arguments) |
-| `hy build` | Build to `build/<name>` (`--release` for `-O2`) |
+| `hy build` | Build to `build/<name>` (`--release`: `-O2`, no overflow checks) |
 | `hy deps` | List resolved dependencies |
 | `h2c --types file.h2` | Print the inferred type of every local |
 | `h2c --emit-llvm file.h2` | Print the generated LLVM IR |
@@ -133,6 +133,8 @@ Precedence, high to low:
 
 - Bitwise binds tighter than comparison: `x & 1 == 0` is `(x & 1) == 0`.
 - Assignment is a statement: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`.
+- **Integer overflow** (`+ - *`) and **division by zero** stop the program in normal
+  builds. `--release` builds skip the checks, and overflow wraps around.
 - Every operator is a declaration on a type (see §6). Derived for free:
   `!=` from `==`; `>`, `<=`, `>=` from `<`.
 
@@ -206,7 +208,7 @@ pub new class Account {
         self.balance = 0
     }
 
-    pub new function deposit(amount: int) { self.balance += amount }
+    pub new mut function deposit(amount: int) { self.balance += amount }
     pub new function total() -> int { return self.balance }
 
     new function drop() {                 // runs automatically at end of scope
@@ -216,7 +218,7 @@ pub new class Account {
     new operator string (a: Account) -> string { return a.owner + ": " + string(a.balance) }
 }
 
-let acct = Account("ada")
+var acct = Account("ada")
 acct.deposit(50)
 print(acct.total())
 print(acct)
@@ -225,6 +227,13 @@ print(acct)
 - Without `init`, construction takes the fields in order: `Point(1.0, 2.0)`.
   From another module that requires every field to be `pub` (or a `pub init`).
 - `self` is available in methods (not in operators: those take explicit parameters).
+- **A method that changes `self` must say so:** `new mut function deposit(...)`.
+  `init` and `drop` may always change `self`. Calling a `mut` method needs a `var`
+  (not a `let` or a parameter), a pointer, or a temporary:
+  ```
+  var acct = Account("ada")     // var: deposit changes it
+  acct.deposit(50)
+  ```
 - An object is zero-filled before `init` runs.
 - `Self` inside a type/class/interface means "this type".
 
@@ -454,7 +463,7 @@ Two layers:
 | `str` | borrowed text: `.data` `.len` `[i]` `==` |
 | `Result<T, E>` (`Ok`, `Err`), `Option<T>` (`Some`, `None`) | error handling |
 | `Ordered`, `Equatable` | interfaces: has `<` / has `==` |
-| `Atomic.Memory` | `copy(dst, src, n)` `fill(dst, byte, n)` |
+| `Atomic.Memory` | `copy(dst, src, n)` `fill(dst, byte, n)`; for containers: `take(p)` (move out of raw memory), `destroy(p)` (drop in place), `size_of(p)` |
 | `Atomic.Math` | `sqrt` `floor` `ceil` |
 
 **Elemental**, after `use Elemental`:
@@ -465,6 +474,7 @@ Two layers:
 | `"a" + "b"`, `"x = " + string(n)` | joining text builds a `string` |
 | `Printable` | interface: has `operator string` |
 | `operator string` for all of Atomic's types | `string(42)`, `string(3.5)`, `string(true)`, ... |
+| `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
 | `Elemental.IO` | `print(x)`, `eprint(x)` (stderr) |
 | `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
 | `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)` |
@@ -484,7 +494,7 @@ Elemental uses `extern` to reach the C library instead.
 ## 16. Not supported yet
 
 - Reading input from Hydrogen's own library (use `extern` to call C's `read`, `fopen`, ... for now)
-- Built-in growable `List<T>` / `Map<K, V>`
+- `Map<K, V>`, and `for x in list` (use `for i in 0..list.len()` with `*list.at(i)`)
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
 - Functions as values, closures

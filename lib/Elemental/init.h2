@@ -7,3 +7,4 @@ pub use Elemental.IO
 pub use Elemental.Math
 
 include text
+include list

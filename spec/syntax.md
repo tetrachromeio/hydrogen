@@ -335,6 +335,19 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Mutating methods: `mut`
+A method that changes `self` (assigns to its fields, or calls another `mut`
+method on it) must be declared `new mut function name(...)`. `init` and `drop`
+may always change `self`. Calling a `mut` method requires a changeable
+receiver: a `var`, a pointer, `self` inside another `mut` method, or a temporary.
+A `let`, a parameter, or a `match`/`for` binding can't be changed.
+Writing through a pointer stored in `self` (`self.items[i] = x`) doesn't change
+`self`, so it's allowed in any method.
+
+## Integer overflow and division by zero
+In normal (debug) builds, `+ - *` that overflow, and `/ %` by zero, stop the
+program. `--release` builds skip these checks, and arithmetic wraps around.
+
 ## Atomic and Elemental
 - **Atomic** is freestanding: it needs no OS and no C library, and it never
   allocates. It has the primitive types and their operators, `str`, `Result`,

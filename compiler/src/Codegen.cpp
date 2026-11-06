@@ -1216,6 +1216,12 @@ private:
             std::string len = load("i64", gepField(st, p, 1));
             return makeStruct(lty(target), {{"ptr", buf}, {"i64", len}});
         }
+        if (e.kind == ExprKind::Call) {
+            // Intrinsics have no checked type; the context says what they produce.
+            std::string iname;
+            if (isIntrinsic(*static_cast<const CallExpr&>(e).callee, iname))
+                return emitIntrinsic(iname, static_cast<const CallExpr&>(e), target);
+        }
         const Type* t = typeOf(e);
         if (t->kind == K::Array && target->kind == K::Slice) {
             std::string p = addressOf(e);
@@ -1604,7 +1610,7 @@ private:
 
     Val emitCall(const CallExpr& c) {
         std::string intrinsicName;
-        if (isIntrinsic(*c.callee, intrinsicName)) return emitIntrinsic(intrinsicName, c);
+        if (isIntrinsic(*c.callee, intrinsicName)) return emitIntrinsic(intrinsicName, c, nullptr);
 
         auto callInfo = info_.calls.find(&c);
         // Method call.
@@ -1740,7 +1746,7 @@ private:
         return {tty, t};
     }
 
-    Val emitIntrinsic(const std::string& name, const CallExpr& c) {
+    Val emitIntrinsic(const std::string& name, const CallExpr& c, const Type* expected) {
         std::vector<Val> a;
         std::vector<const Type*> ts;
         for (const auto& arg : c.args) {
@@ -1786,6 +1792,20 @@ private:
         }
         if (auto it = arith.find(name); it != arith.end()) return bin(it->second);
         if (auto it = cmps.find(name); it != cmps.end()) return cmp(it->second);
+        if (name == "load") { // take(p): read the value at p (the target type comes from context)
+            if (!expected || expected->isError() || ts[0]->kind != K::Ptr) {
+                unsupported(c.loc, "intrinsic.load without a known result type");
+                return {"i64", "0"};
+            }
+            return {lty(expected), load(lty(expected), a[0].v)};
+        }
+        if (name == "size_of") {
+            if (ts[0]->kind != K::Ptr) {
+                unsupported(c.loc, "intrinsic.size_of of a non-pointer");
+                return {"i64", "0"};
+            }
+            return {"i64", std::to_string(sizeOf(ts[0]->elem()))};
+        }
         if (name == "neg") {
             std::string t = tmp();
             emit(t + " = sub " + a[0].ty + " 0, " + a[0].v);

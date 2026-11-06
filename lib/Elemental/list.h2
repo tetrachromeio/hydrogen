@@ -1,0 +1,55 @@
+// List<T>: a growable array. Elements live in one heap buffer that doubles
+// as needed. Elements are owned by the list and dropped with it.
+
+pub new class List<T> {
+    items: ptr<T>
+    count: uint
+    cap:   uint
+
+    // List<int>() is empty and allocates nothing until the first push.
+    pub new function init() {}
+
+    pub new function len() -> uint { return self.count }
+    pub new function is_empty() -> bool { return self.count == 0 }
+
+    // Adds an item at the end. The list takes ownership of it.
+    pub new mut function push(item: own T) {
+        if self.count == self.cap {
+            var grown = self.cap * 2
+            if grown < 4 { grown = 4 }
+            let bytes = grown * size_of(self.items)
+            self.items = ptr<T>(realloc(ptr<u8>(self.items), bytes))
+            self.cap = grown
+        }
+        self.items[self.count] = item
+        self.count += 1
+    }
+
+    // Removes and returns the last item, or None if the list is empty.
+    pub new mut function pop() -> Option<T> {
+        if self.count == 0 { return None }
+        self.count -= 1
+        return Some(take(&self.items[self.count]))
+    }
+
+    // A pointer to item `i`, valid until the list changes.
+    // Read with list.at(i).field or *list.at(i).
+    pub new function at(i: uint) -> ptr<T> { return &self.items[i] }
+
+    // Drops every item; keeps the buffer for reuse.
+    pub new mut function clear() {
+        while self.count > 0 {
+            self.count -= 1
+            destroy(&self.items[self.count])
+        }
+    }
+
+    pub new function drop() {
+        var i: uint = 0
+        while i < self.count {
+            destroy(&self.items[i])
+            i += 1
+        }
+        free ptr<u8>(self.items)
+    }
+}

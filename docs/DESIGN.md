@@ -33,6 +33,8 @@ Principles:
 | Ownership         | Values with drop move (no implicit copies); `.copy()` explicit |
 | Parameters        | Borrowed by default; `own` takes ownership         |
 | C interop         | `extern function` (any module), `ptr<T>(x)` casts, `null` |
+| Overflow          | Debug: + - * overflow and /0 stop the program; release: wrap |
+| Mutation          | `new mut function`; calling it needs var / pointer / temporary |
 | Type forms        | `: base` = new distinct type; `= other` = alias    |
 | Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
 | Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
@@ -55,7 +57,5 @@ Principles:
   math, files.
 
 ## Open
-- Integer overflow behavior (wrap, trap or undefined)
-- Mutating methods on `let` values
 - String interpolation ("x = {x}")
 - Borrow lifetimes: a str view can outlive its string in some cases (only returns are checked)
