@@ -1,0 +1,2 @@
+"tab\there\n" 'a' '\x41' '\'' 0xFF_FF 1..5 3.0 a>>=b List<List<int>>
+/* nested /* block */ comment */ x // line comment

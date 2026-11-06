@@ -1,0 +1,7 @@
+new function f() {
+    let s = "unterminated
+    let c = 'ab'
+    let n = 12abc
+    let e = "\q"
+    let a = 1 @ 2
+}

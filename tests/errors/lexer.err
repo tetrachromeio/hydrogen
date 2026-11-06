@@ -1,0 +1,6 @@
+tests/errors/lexer.h2:2:13: error: unterminated string literal
+tests/errors/lexer.h2:3:13: error: char literal must contain exactly one character
+tests/errors/lexer.h2:4:15: error: invalid character in number literal
+tests/errors/lexer.h2:5:15: error: unknown escape sequence '\q'
+tests/errors/lexer.h2:6:15: error: unexpected character '@'
+tests/errors/lexer.h2:6:17: error: expected end of statement (newline or ';') before integer literal

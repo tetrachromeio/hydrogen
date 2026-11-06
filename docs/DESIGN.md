@@ -31,6 +31,9 @@ Principles:
 | Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
 | Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
 | Functions         | `new function name() {}`                          |
+| Errors            | `Result<T, E>` enum + `?` propagation; no exceptions |
+| Generics          | Monomorphized; constrained by structural interfaces |
+| File extension    | `.h2`                                             |
 
 ## Standard library (proposed split, to confirm)
 - **Atomic**: the freestanding core. Primitive types, memory and pointer
@@ -39,8 +42,7 @@ Principles:
   math, files.
 
 ## Open
-- Error handling (result types vs. exceptions vs. Swift-style throws)
-- Generics model
-- Pointer syntax and safety defaults
-- C interop / ABI
-- File extension (`.h2` used tentatively)
+- Visibility (`pub`?) and the module/file mapping
+- C interop / ABI and `extern` declarations
+- Integer overflow behavior (wrap, trap or undefined)
+- String interpolation

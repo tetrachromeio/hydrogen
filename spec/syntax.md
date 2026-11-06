@@ -1,4 +1,4 @@
-# Hydrogen Syntax: Draft 2
+# Hydrogen Syntax: Draft 3
 
 Status: **sketch**. Every rule here is up for discussion.
 
@@ -66,7 +66,7 @@ new type Meters : f64 {
     new operator == (a: Meters, b: Meters) -> bool  { return f64(a) == f64(b) }
 }
 ```
-Overloadable operators: `+ - * / % == != < <= > >= & | ^ ~ << >> [] unary-`.
+Overloadable operators: `+ - * / % == != < <= > >= & | ^ ~ ! << >> []`. A `-` or `!` operator with one parameter is the unary form.
 `!=` is derived from `==` when not defined. Assignment and `&` (address-of)
 cannot be overloaded.
 
@@ -123,24 +123,135 @@ free b                        // runs drop(), then releases the memory
 - `free` is explicit. Owning smart pointers (`Box`, `Shared`) can be built
   on top of this in Elemental.
 
+## Enums
+A tagged union. Variants may carry data.
+```
+new enum Color { Red, Green, Blue }
+
+new enum ParseError {
+    Empty
+    BadDigit(char)
+    Overflow
+}
+```
+
+## Error handling: `Result` and `?`
+Errors are ordinary values. There are no exceptions and no unwinding.
+`Result` is a plain generic enum in Atomic:
+```
+new enum Result<T, E> { Ok(T), Err(E) }
+```
+`?` unwraps `Ok` or returns the `Err` from the enclosing function:
+```
+new function parse_digit(c: char) -> Result<int, ParseError> {
+    if c < '0' || c > '9' { return Err(BadDigit(c)) }
+    return Ok(int(c) - int('0'))
+}
+
+new function parse(s: string) -> Result<int, ParseError> {
+    if s.len == 0 { return Err(Empty) }
+    var n = 0
+    for c in s {
+        n = n * 10 + parse_digit(c)?
+    }
+    return Ok(n)
+}
+
+match parse("42") {
+    Ok(v)  => print(v)
+    Err(e) => print("bad input")
+}
+```
+Enum variants are usable unqualified when unambiguous (`Ok`, `Empty`) and
+qualified when not (`ParseError.Empty`).
+
+## Generics
+Generics are **monomorphized**: each instantiation compiles to its own
+specialized code, with no boxing and no runtime dispatch. Constraints are
+**interfaces**, which list the operators and functions a type must provide.
+```
+new interface Comparable {
+    new operator < (a: Self, b: Self) -> bool
+}
+
+new function max<T: Comparable>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+new class List<T> {
+    data: ptr<T>
+    len:  usize
+    cap:  usize
+
+    new function push(item: T) { ... }
+}
+
+let xs = List<int>()     // explicit type arguments
+let m  = max(3, 7)       // inferred: max<int>
+```
+Types satisfy interfaces **structurally**: if `int` defines `<`, it is
+`Comparable`. You don't declare it. Multiple constraints: `T: Comparable + Hashable`.
+
 ## Control flow
 ```
-if x > 5 { ... } else { ... }
+if x > 5 { ... } else if x > 2 { ... } else { ... }
 while i < 10 { i += 1 }
-for i in 0..10 { ... }
+for i in 0..10 { ... }          // half-open range
+break / continue
+match value { pattern => expr_or_block ... }
 ```
 
 ## Low level
 ```
 let p: ptr<i32> = &x
-asm { "mov rax, 1" }
+let v = *p
+let arr: [u8; 16] = [0, 1, 2]
+asm { "mov rax, 1" "syscall" }
 ```
+
+## Lexical rules
+- Files use the `.h2` extension.
+- Comments: `// line` and `/* block */` (nestable).
+- Numbers: `42`, `1_000`, `0xFF`, `0b1010`, `0o17`, `3.14`, `1e9`.
+- No semicolons. A statement ends at the end of the line. `;` is allowed to
+  put several statements on one line.
+- **Line rule:** a binary operator, call `(`, index `[` or `?` must be on the
+  same line as the expression before it. To continue an expression, break the
+  line *after* an operator:
+  ```
+  let total = a +
+              b          // ok
+  let x = f
+  (y)                    // two statements: `f`, then `(y)`
+  ```
+  `.member` may start a new line, for method chains.
+
+## Operator precedence (high to low)
+| Level | Operators                          |
+|-------|------------------------------------|
+| 1     | postfix: `()` `[]` `.` `?`         |
+| 2     | prefix: `-` `!` `~` `&` `*` `alloc` |
+| 3     | `*` `/` `%`                        |
+| 4     | `+` `-`                            |
+| 5     | `<<` `>>`                          |
+| 6     | `&`                                |
+| 7     | `^`                                |
+| 8     | `\|`                              |
+| 9     | `==` `!=` `<` `<=` `>` `>=`        |
+| 10    | `&&`                               |
+| 11    | `\|\|`                           |
+| 12    | `..`                               |
+
+Unlike C, the bitwise operators bind tighter than comparisons, so
+`x & 1 == 0` means `(x & 1) == 0`.
+Assignment (`=`, `+=`, ...) is a statement, not an expression.
 
 ## Entry point
 ```
 use Elemental
 
-new function main() -> i32 {
+new function main() -> int {
     print("Hello, Hydrogen")
     return 0
 }

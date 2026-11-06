@@ -1,0 +1,7 @@
+tests/errors/recovery.h2:3:22: error: expected a parameter name, found '{'
+tests/errors/recovery.h2:7:9: error: types cannot have methods, only operators. Use 'new class' for data with behavior
+tests/errors/recovery.h2:11:5: error: a type built on bits or another type cannot also declare fields
+tests/errors/recovery.h2:15:5: error: 'let' needs a value: let x = ...
+tests/errors/recovery.h2:16:15: error: expected end of statement (newline or ';') before integer literal
+tests/errors/recovery.h2:17:5: error: 'var' needs a type or a value: var z: T
+tests/errors/recovery.h2:23:5: error: expected 'function', 'operator', 'type', 'class', 'enum' or 'interface' after 'new', found 'widget'

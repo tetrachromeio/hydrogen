@@ -1,0 +1,43 @@
+(module
+  (function control ((x : int)) -> int
+    (block
+      (var i : int)
+      (var total = 0)
+      (if (> x 5)
+        (block
+          (= total 1))
+        (else (if (> x 2)
+          (block
+            (= total 2))
+          (else (block
+            (= total 3))))))
+      (while (< i 10)
+        (block
+          (+= i 1)
+          (-= total 1)))
+      (for k (.. 0 10)
+        (block
+          (if (== k 3)
+            (block
+              (continue)))
+          (if (== k 8)
+            (block
+              (break)))
+          (*= total k)))
+      (>>= total 1)
+      (<<= total 2)
+      (|= total 0xFF)
+      (&= total 0b1010)
+      (let flags = (== (& x 1) 0))
+      (let neg = (+ (- x) (! true)))
+      (let long = (+ (+ (+ (+ 1000000 0o17) 3.14) 1e9) 2.5e-3))
+      (let sum = (+ total x))
+      (let chained = (. (call (. list first)) value))
+      (asm "mov rax, 1" "syscall")
+      (return total)))
+  (function line_rule ()
+    (block
+      (let f = g)
+      h
+      (block
+        (let scoped = 1)))))

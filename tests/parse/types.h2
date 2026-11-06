@@ -1,0 +1,32 @@
+// Value types: from bits, from float, distinct aliases, layouts, operators.
+new type bool : bits(1)
+new type u8 : bits(8)
+new type i64 : bits(64) signed {
+    new operator + (a: i64, b: i64) -> i64 { return intrinsic.add(a, b) }
+    new operator - (a: i64) -> i64 { return intrinsic.neg(a) }
+    new operator >> (a: i64, n: i64) -> i64 { return intrinsic.ashr(a, n) }
+    new operator == (a: i64, b: i64) -> bool { return intrinsic.eq(a, b) }
+}
+new type f64 : float(64)
+new type Meters : f64
+new type Handle : ptr<u8>
+
+new type string {
+    data: ptr<u8>
+    len: usize
+
+    new operator [] (s: string, i: usize) -> u8 { return s.data[i] }
+}
+
+new type Pair<A, B> { first: A, second: B }
+
+new class Buffer {
+    data: ptr<u8>
+    size: usize
+
+    new function init(size: usize) {
+        self.data = mem.alloc_bytes(size)
+        self.size = size
+    }
+    new function drop() { mem.free_bytes(self.data) }
+}

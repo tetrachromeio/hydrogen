@@ -1,0 +1,23 @@
+new function ok1() {}
+
+new function broken( {
+}
+
+new type Bad {
+    new function nope() {}
+}
+
+new type Flat : bits(8) {
+    field: u8
+}
+
+new function body() {
+    let x
+    let y = 1 2
+    var z
+    return 0
+}
+
+new function ok2() -> int { return 1 }
+
+new widget Thing {}
