@@ -84,7 +84,7 @@ private:
     std::map<std::pair<const FunctionDecl*, const Type*>, Sig> sigCache_; // keyed by (fn, Self)
 
     struct Lang {
-        const Type *boolT, *charT, *stringT, *intT, *uintT, *floatT;
+        const Type *boolT, *charT, *strT, *stringT, *intT, *uintT, *floatT;
         const Symbol *result = nullptr, *option = nullptr;
     } lang_{};
 
@@ -113,6 +113,7 @@ private:
         };
         lang_.boolT = get("bool");
         lang_.charT = get("char");
+        lang_.strT = get("str");
         lang_.stringT = get("string");
         lang_.intT = get("int");
         lang_.uintT = get("uint");
@@ -267,6 +268,7 @@ private:
         if (from->kind == K::IntLit) return isNumeric(to);
         if (from->kind == K::FloatLit) return isFloatType(to);
         if (from->kind == K::Array && to->kind == K::Slice) return from->elem() == to->elem();
+        if (from == lang_.stringT && to == lang_.strT) return true; // borrowing a view is free
         return false;
     }
 
@@ -334,6 +336,7 @@ private:
 
     std::string conversionHint(const Type* from, const Type* to) {
         if (from->isError() || to->isError()) return "";
+        if (from == lang_.strT && to == lang_.stringT) return ". Make an owned copy with string(...)";
         bool fromNum = from->isLiteral() || scalarOf(from).kind != Scalar::None;
         if (fromNum && scalarOf(to).kind != Scalar::None && to->kind == K::Named)
             return ". Convert explicitly with " + str(to) + "(...)";
@@ -431,7 +434,7 @@ private:
             return tc_.intLit();
         }
         case ExprKind::FloatLit: return tc_.floatLit();
-        case ExprKind::StringLit: return lang_.stringT;
+        case ExprKind::StringLit: return lang_.strT;
         case ExprKind::CharLit: return lang_.charT;
         case ExprKind::BoolLit: return lang_.boolT;
         case ExprKind::Self: return selfType_ ? selfType_ : tc_.error();
@@ -829,8 +832,9 @@ private:
         if (generics) {
             for (const auto& g : *generics) {
                 auto it = s.find(g.sym);
+                bool argError = std::any_of(argTypes.begin(), argTypes.end(), [](const Type* t) { return t->isError(); });
                 if (it == s.end() || !it->second) {
-                    if (expected && expected->isError()) { // the annotation was already wrong
+                    if ((expected && expected->isError()) || argError) { // already reported
                         s[g.sym] = tc_.error();
                         ok = false;
                         continue;
@@ -896,9 +900,16 @@ private:
                         if (!meth->isOperator && meth->name == m->name && meth->params.size() == m->params.size())
                             found = true;
                 }
-                if (!found)
-                    error(loc, str(t) + " does not satisfy " + c->sym->name + ": it has no " +
-                                   (m->isOperator ? "operator " : "method ") + q(m->name) + " with the right signature");
+                if (!found) {
+                    std::string sigText = m->name + " (";
+                    for (size_t i = 0; i < ps.size(); ++i)
+                        sigText += (i ? ", " : "") + m->params[i].name + ": " + str(ps[i]);
+                    sigText += ")";
+                    const Type* r = subst(sig.ret, s);
+                    if (r != tc_.voidT()) sigText += " -> " + str(r);
+                    error(loc, str(t) + " does not satisfy " + c->sym->name + ": it needs " +
+                                   (m->isOperator ? "new operator " : "new function ") + sigText);
+                }
             }
         }
     }
@@ -1013,6 +1024,8 @@ private:
     // Point(1.0, 2.0), List<int>(), int(c), Meters(5.0)
     const Type* checkConstruct(CallExpr& c, const Symbol* s, const std::vector<const Type*>& explicitArgs,
                                const Type* expected) {
+        if (lang_.stringT->kind == K::Named && s == lang_.stringT->sym && c.args.size() == 1)
+            return checkToString(c);
         if (s->kind == Symbol::Kind::Type) {
             const auto* td = declAs<TypeDecl>(s);
             if (td->base != TypeDecl::Base::Layout) {
@@ -1060,6 +1073,20 @@ private:
         std::vector<const Type*> args;
         for (const auto& g : *gs) args.push_back(sub[g.sym] ? sub[g.sym] : tc_.error());
         return tc_.named(s, std::move(args));
+    }
+
+    // string(x): text from a str (copy) or from any type with `operator string`.
+    const Type* checkToString(CallExpr& c) {
+        checkExpr(*c.args[0], nullptr);
+        const Type* t = finalize(*c.args[0]);
+        if (t->isError() || t == lang_.strT) return lang_.stringT;
+        if (findOperatorOn(t, "string", {t})) return lang_.stringT;
+        if (t->kind == K::Generic)
+            error(c.loc, "cannot convert " + str(t) + " to string; add the constraint <" + str(t) + ": Printable>");
+        else
+            error(c.loc, str(t) + " can't be converted to string. Give it a conversion: new operator string (v: " +
+                             str(t) + ") -> string");
+        return lang_.stringT;
     }
 
     // int(c), Meters(5.0): explicit conversion between scalar types.
@@ -1337,7 +1364,7 @@ private:
             const Type* it = finalize(*f.iterable);
             const Type* elem = tc_.error();
             if (it->kind == K::Range || it->kind == K::Array || it->kind == K::Slice) elem = it->elem();
-            else if (it == lang_.stringT) elem = lang_.charT;
+            else if (it == lang_.strT || it == lang_.stringT) elem = lang_.charT;
             else if (!it->isError()) error(f.iterable->loc, "cannot loop over " + str(it) +
                                                              "; 'for' works with ranges (a..b), arrays and strings");
             if (f.sym) localTypes_[f.sym] = elem;
@@ -1487,6 +1514,14 @@ private:
     // Operators: 1 or 2 parameters, at least one of the owner's type.
     void checkOperatorShape(const FunctionDecl& op, const Type* owner) {
         size_t n = op.params.size();
+        if (op.name == "string") {
+            const Sig& sig = sigOf(op, owner);
+            if (n != 1 || sig.params[0] != owner)
+                error(op.loc, "operator string takes exactly one parameter of type " + str(owner));
+            else if (sig.ret != lang_.stringT && !sig.ret->isError())
+                error(op.loc, "operator string must return string");
+            return;
+        }
         bool unaryOk = op.name == "-" || op.name == "!" || op.name == "~";
         if (n == 0 || n > 2 || (n == 1 && !unaryOk)) {
             error(op.loc, "operator " + q(op.name) + (unaryOk ? " takes 1 or 2 parameters" : " takes 2 parameters"));

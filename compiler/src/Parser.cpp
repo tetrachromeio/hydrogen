@@ -267,6 +267,13 @@ private:
             advance();
             expect(Tok::RBracket, "']' in 'operator []'");
             return "[]";
+        case Tok::Ident:
+            // Conversion operator: how a value becomes text (like Python's __str__).
+            if (t.text == "string") {
+                advance();
+                return "string";
+            }
+            fail(t.loc, "'" + t.text + "' is not an operator. The only conversion operator is 'operator string'");
         default: failExpected("an overloadable operator");
         }
     }

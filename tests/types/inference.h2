@@ -38,7 +38,7 @@ new function digit(c: char) -> Result<int, ParseError> {
     return Ok(int(c) - int('0'))
 }
 
-new function parse(s: string) -> Result<int, ParseError> {
+new function parse(s: str) -> Result<int, ParseError> {
     if s.len == 0 { return Err(NoDigits) }
     var n = 0
     for c in s { n = n * 10 + digit(c)? }
@@ -84,10 +84,28 @@ new function main() -> int {
     let first = text[0]
     var acc = 0
     for i in 0..count { acc += i }
+    print(count)
+    print(ratio)
+    print("literal")
+    let owned = string(count)
+    let sentence = "count = " + string(count)
+    let borrowed: str = owned
+    let size = owned.len()
+    let parsed_again = parse(owned)
     let label = match parsed {
         Ok(v) => "number"
         Err(NoDigits) => "empty"
         Err(BadChar(ch)) => "bad"
     }
     return 0
+}
+
+// Printing user types: give them `operator string`.
+new class Temperature {
+    degrees: float
+    new operator string (t: Temperature) -> string { return string(t.degrees) + " C" }
+}
+
+new function show_temperature() {
+    print(Temperature(21.5))
 }

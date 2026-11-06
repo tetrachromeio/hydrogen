@@ -1,4 +1,4 @@
-# Hydrogen Syntax: Draft 6
+# Hydrogen Syntax: Draft 7
 
 Status: **sketch**. Every rule here is up for discussion.
 
@@ -267,6 +267,35 @@ let m  = max(3, 7)       // inferred: max<int>
 ```
 Types satisfy interfaces **structurally**: if `int` defines `<`, it is
 `Comparable`. You don't declare it. Multiple constraints: `T: Comparable + Hashable`.
+
+## Text and printing
+| Type     | What it is | Owns memory? |
+|----------|------------|--------------|
+| `str`    | A borrowed view: pointer + length. String literals are `str`. | No |
+| `string` | Owned, growable text. Freed automatically at end of scope. | Yes |
+
+```
+let name: str = "Ada"              // no allocation
+let owned = string(name)           // explicit copy into an owned string
+let line = "x = " + string(42)     // + on text builds a new string
+let view: str = owned              // string -> str is automatic (a free borrow)
+```
+- `str` -> `string` is always explicit, because it allocates. `string` -> `str`
+  is automatic, because it's free. Functions that only read text should take `str`.
+- **Printing works like Python's `str()`.** `print(x)` accepts anything that
+  can become a string. A type says how, with a conversion operator (Hydrogen's
+  `__str__`):
+  ```
+  new type Meters : float {
+      new operator string (m: Meters) -> string { return string(float(m)) + " m" }
+  }
+  print(Meters(3.0))        // "3.0 m"
+  print(42)                 // built-in types already convert
+  print(Point(1.0, 2.0))    // error: Point needs new operator string (v: Point) -> string
+  ```
+- `print` is `print<T: Printable>(value: T)`, where `Printable` (in Atomic)
+  means "has `operator string`". `string(x)` uses the same operator.
+- `string` is a `class` rather than a `type` because it owns memory and needs `drop`.
 
 ## Type checking
 - **Inference.** `let x = 10` is `int`, `let y = 1.5` is `float`. A literal

@@ -6,6 +6,7 @@ new type Meters : float {
     new operator + (a: Meters, b: Meters) -> Meters { return Meters(float(a) + float(b)) }
     new operator * (a: Meters, b: Meters) -> Meters { return Meters(float(a) * float(b)) }
     new operator < (a: Meters, b: Meters) -> bool { return float(a) < float(b) }
+    new operator string (m: Meters) -> string { return string(float(m)) + " m" }
 }
 
 new class Point {
@@ -21,6 +22,7 @@ new function main() -> int {
     let p = Point(3.0, 4.0)          // stack: cleaned up at end of scope
     let q = alloc Point(6.0, 8.0)    // heap: q is a ptr<Point>
     print("Hello, Hydrogen")
+    print(p.length())                // "5.0 m": Meters knows how to print itself
     if p.length() < q.length() {
         print("p is closer to the origin")
     }

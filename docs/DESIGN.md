@@ -28,6 +28,8 @@ Principles:
 | Types             | `new type`: value types (int, bool, string, ...)  |
 | Type operators    | Types define core operators (`+ - == ...`) only    |
 | Primitives        | `int`/`uint`/`float` (64-bit) are canonical; `i64`, `u64`, `usize`, `f64` alias them |
+| Text              | `str` borrowed view (literals); `string` owned class with drop; `string`→`str` implicit |
+| Printing          | `print<T: Printable>`; types define `new operator string` (like `__str__`) |
 | Type forms        | `: base` = new distinct type; `= other` = alias    |
 | Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
 | Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
@@ -51,6 +53,6 @@ Principles:
 ## Open
 - C interop / ABI and `extern` declarations
 - Integer overflow behavior (wrap, trap or undefined)
-- Function overloading (e.g. print(int) and print(string))
 - Mutating methods on `let` values
-- String interpolation
+- String interpolation ("x = {x}")
+- Ownership of classes with drop: move vs copy on assignment
