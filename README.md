@@ -27,6 +27,10 @@ new function main() -> int {
 }
 ```
 
+**New here?** Start with the [cheat sheet](docs/CHEATSHEET.md): every piece of syntax and
+every system (modules, ownership, memory, the standard library) on one page.
+The full rules are in [spec/syntax.md](spec/syntax.md).
+
 ## Layout
 - `compiler/`: `hy` (project tool) and `h2c` (compiler driver), in C++20
 - `lib/`: the standard library. `Atomic` is the freestanding core, `Elemental` the hosted library
