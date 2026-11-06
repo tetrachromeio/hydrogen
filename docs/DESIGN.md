@@ -1,17 +1,42 @@
 # Design Notes
 
+## Vision
+Hydrogen is element 1: the lowest-level language in a family of languages.
+Higher languages (Helium, ...) will be built on top of it.
+
+It sits between assembly and C++. You get the control of C/C++ (raw memory,
+explicit layout, inline asm, no GC) with friendlier syntax and an easy
+learning curve. Think "simplified C++".
+
+Principles:
+- **Simple, readable keywords.** Declarations read like sentences:
+  `new type`, `new function`, `use`.
+- **One obvious way** to do common things.
+- **No hidden cost.** No GC and no implicit heap allocation. Every allocation
+  and every copy is visible in the code.
+- **Low level is opt-in, not hidden.** Pointers, inline asm and memory layout
+  are first-class, but everyday code doesn't need them.
+
 ## Decided
-| Area              | Decision                                         |
-|-------------------|--------------------------------------------------|
-| Execution model   | Ahead-of-time native compiler, LLVM backend      |
-| Implementation    | C++                                              |
-| Type system       | Static, with type inference                      |
-| Domain / memory   | Systems language; manual memory + RAII, no GC    |
+| Area              | Decision                                          |
+|-------------------|---------------------------------------------------|
+| Execution model   | Ahead-of-time native compiler, LLVM backend       |
+| Implementation    | C++                                               |
+| Type system       | Static, with type inference                       |
+| Memory            | Manual + RAII (deterministic destruction), no GC  |
+| Imports           | `use Module` (e.g. `use Elemental`, `use Atomic`) |
+| Declarations      | `new type Name {}`, `new function name() {}`      |
+
+## Standard library (proposed split, to confirm)
+- **Atomic**: the freestanding core. Primitive types, memory and pointer
+  ops, intrinsics, atomics. Works with no OS.
+- **Elemental**: the hosted standard library. IO, strings, collections,
+  math, files.
 
 ## Open
-- Syntax style
-- Generics / polymorphism model
-- Error handling (exceptions vs. result types)
-- Module / package system
-- C interop
-- File extension
+- Error handling (result types vs. exceptions vs. Swift-style throws)
+- Generics model
+- Pointer syntax and safety defaults
+- Methods: inside `new type` or free functions
+- C interop / ABI
+- File extension (`.h2` used tentatively)
