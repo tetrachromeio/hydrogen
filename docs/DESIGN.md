@@ -26,7 +26,10 @@ Principles:
 | Memory            | Manual + RAII (deterministic destruction), no GC  |
 | Imports           | `use Module` brings its names into scope          |
 | Types             | `new type`: value types (int, bool, string, ...)  |
-| Classes           | `new class`: data + methods + RAII, separate      |
+| Type operators    | Types define core operators (`+ - == ...`) only    |
+| Primitives        | Sized (`i32`, `f64`) plus aliases `int`, `float`   |
+| Classes           | `new class`: data + methods + RAII; composition only, no inheritance |
+| Heap              | Explicit: `alloc T(...)` / `free p`; stack by default |
 | Functions         | `new function name() {}`                          |
 
 ## Standard library (proposed split, to confirm)
