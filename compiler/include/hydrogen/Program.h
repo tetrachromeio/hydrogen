@@ -55,18 +55,18 @@ struct Import {
 };
 
 // One .h2 file. A module is its root file (init.h2, or an app's main file)
-// plus the files the root `include`s. Each file has its own `use` imports.
+// plus the files the root `include`s.
 struct SourceFile {
     std::filesystem::path file;
     std::string displayFile; // path used in diagnostics
     Module ast;
-    std::vector<Import> imports;
 };
 
 struct ModuleInfo {
     std::string path; // "Atomic.Memory"; the main file's inferred path, or "" for a program
     std::vector<std::unique_ptr<SourceFile>> files; // files[0] is the root file
     Symbol* self = nullptr; // Kind::Module symbol for this module
+    std::vector<Import> imports; // module-wide: written in the root file, apply to every file
 
     SourceFile& root() const { return *files.front(); }
     const std::string& displayFile() const { return files.front()->displayFile; }

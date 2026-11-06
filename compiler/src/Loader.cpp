@@ -59,10 +59,7 @@ public:
             return;
         }
         // prog_.modules grows while we iterate: each new module gets its uses loaded.
-        for (size_t i = 0; i < prog_.modules.size(); ++i) {
-            ModuleInfo& m = *prog_.modules[i];
-            for (auto& f : m.files) loadImports(m, *f);
-        }
+        for (size_t i = 0; i < prog_.modules.size(); ++i) loadImports(*prog_.modules[i]);
     }
 
 private:
@@ -160,11 +157,16 @@ private:
                 err("cannot include '" + inc.name + "': " + displayPath(p) + " not found" + hint);
                 continue;
             }
-            for (const auto& nested : f->ast.decls)
+            std::string rootName = root.file.filename().string();
+            for (const auto& nested : f->ast.decls) {
                 if (nested->kind == DeclKind::Include)
                     diags_.error(f->displayFile, nested->loc,
-                                 "only a module's root file (" + root.file.filename().string() +
-                                     ") can include files; move this include there");
+                                 "only a module's root file (" + rootName + ") can include files; move this include there");
+                if (nested->kind == DeclKind::Use)
+                    diags_.error(f->displayFile, nested->loc,
+                                 "'use' belongs in the module's root file (" + rootName +
+                                     "); it applies to every file of the module");
+            }
             byFile_[p] = &m;
             m.files.push_back(std::move(f));
         }
@@ -202,7 +204,8 @@ private:
         return nullptr;
     }
 
-    void loadImports(ModuleInfo& m, SourceFile& file) {
+    void loadImports(ModuleInfo& m) {
+        SourceFile& file = m.root();
         if (m.path != "Atomic") {
             std::vector<fs::path> tried;
             ModuleInfo* atomic = get("Atomic", tried);
@@ -212,14 +215,14 @@ private:
                              "the Atomic core library was not found; pass -L <dir> where <dir> contains "
                              "Atomic/init.h2, or set H2_PATH");
             }
-            file.imports.push_back({nullptr, atomic});
+            m.imports.push_back({nullptr, atomic});
         }
         for (const auto& d : file.ast.decls) {
             if (d->kind != DeclKind::Use) continue;
             const auto& use = static_cast<const UseDecl&>(*d);
             if (use.path == m.path) {
                 diags_.error(file.displayFile, use.loc, "module '" + use.path + "' cannot use itself");
-                file.imports.push_back({&use, nullptr});
+                m.imports.push_back({&use, nullptr});
                 continue;
             }
             std::vector<fs::path> tried;
@@ -229,7 +232,7 @@ private:
                 for (const auto& t : tried) msg += "\n    " + displayPath(t);
                 diags_.error(file.displayFile, use.loc, msg);
             }
-            file.imports.push_back({&use, target});
+            m.imports.push_back({&use, target});
         }
     }
 };

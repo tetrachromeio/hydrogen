@@ -1,6 +1,6 @@
 tests/resolve/multi_file_errors/Shapes/circle.h2:1:1: error: only a module's root file (init.h2) can include files; move this include there
-tests/resolve/multi_file_errors/Shapes/circle.h2:5:1: error: 'area' is already defined in tests/resolve/multi_file_errors/Shapes/init.h2:9
-tests/resolve/multi_file_errors/Shapes/circle.h2:6:5: error: unknown name 'print': tests/resolve/multi_file_errors/Shapes/init.h2 imports it, but each file needs its own 'use'. Add 'use Elemental' to this file
+tests/resolve/multi_file_errors/Shapes/circle.h2:2:1: error: 'use' belongs in the module's root file (init.h2); it applies to every file of the module
+tests/resolve/multi_file_errors/Shapes/circle.h2:6:1: error: 'area' is already defined in tests/resolve/multi_file_errors/Shapes/init.h2:9
 tests/resolve/multi_file_errors/Shapes/init.h2:2:1: error: 'circle' is already included at line 1
 tests/resolve/multi_file_errors/Shapes/init.h2:3:1: error: cannot include 'missing': tests/resolve/multi_file_errors/Shapes/missing.h2 not found
 tests/resolve/multi_file_errors/Shapes/init.h2:4:1: error: cannot include 'Sub': tests/resolve/multi_file_errors/Shapes/Sub.h2 not found. 'Sub' is a folder with init.h2, so it is a submodule: use it with 'use'

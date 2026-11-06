@@ -1,4 +1,7 @@
 // Module Shapes = this file + the files it includes.
+// `use` lives here and applies to every file of the module.
+use Elemental
+
 include circle
 include square
 

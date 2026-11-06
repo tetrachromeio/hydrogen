@@ -1,5 +1,3 @@
-use Elemental
-
 pub new class Circle { pub radius: f64 }
 
 // Private, but visible to the other files of Shapes.

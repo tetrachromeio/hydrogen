@@ -71,8 +71,7 @@ public:
 
     void run() {
         for (auto& m : prog_.modules) collect(*m);
-        for (auto& m : prog_.modules)
-            for (auto& f : m->files) buildImports(*f);
+        for (auto& m : prog_.modules) buildImports(*m);
         for (auto& m : prog_.modules) {
             mod_ = m.get();
             for (auto& f : m->files) {
@@ -95,7 +94,7 @@ private:
     };
     std::map<ModuleInfo*, NameTable> exports_;
     std::set<ModuleInfo*> exporting_;
-    std::map<const SourceFile*, Imports> imports_; // per file
+    std::map<const ModuleInfo*, Imports> imports_;
 
     ModuleInfo* mod_ = nullptr;
     SourceFile* file_ = nullptr;
@@ -188,27 +187,24 @@ private:
             addUnique(table[name], s);
             for (const auto& [vname, v] : s->members) addUnique(table[vname], v);
         }
-        for (const auto& f : m->files) {
-            for (const auto& imp : f->imports) {
-                if (!imp.decl || !imp.decl->isPub || !imp.target) continue;
-                if (imp.decl->alias.empty()) {
-                    for (const auto& [name, syms] : exportsOf(imp.target))
-                        for (Symbol* s : syms) addUnique(table[name], s);
-                } else {
-                    Symbol* alias =
-                        prog_.newSymbol(Symbol::Kind::Module, imp.decl->alias, imp.decl->loc, imp.target);
-                    alias->isPub = true;
-                    addUnique(table[imp.decl->alias], alias);
-                }
+        for (const auto& imp : m->imports) {
+            if (!imp.decl || !imp.decl->isPub || !imp.target) continue;
+            if (imp.decl->alias.empty()) {
+                for (const auto& [name, syms] : exportsOf(imp.target))
+                    for (Symbol* s : syms) addUnique(table[name], s);
+            } else {
+                Symbol* alias = prog_.newSymbol(Symbol::Kind::Module, imp.decl->alias, imp.decl->loc, imp.target);
+                alias->isPub = true;
+                addUnique(table[imp.decl->alias], alias);
             }
         }
         exporting_.erase(m);
         return exports_[m] = std::move(table);
     }
 
-    void buildImports(const SourceFile& f) {
-        Imports& imps = imports_[&f];
-        for (const auto& imp : f.imports) {
+    void buildImports(const ModuleInfo& m) {
+        Imports& imps = imports_[&m];
+        for (const auto& imp : m.imports) {
             if (!imp.target) continue;
             bool aliased = imp.decl && !imp.decl->alias.empty();
             if (aliased) {
@@ -266,7 +262,7 @@ private:
         }
         if (name == "ptr") return ptr_;
         if (name == "intrinsic") return intrinsic_;
-        auto& imported = imports_[file_].names;
+        auto& imported = imports_[mod_].names;
         if (auto it = imported.find(name); it != imported.end()) {
             if (it->second.size() > 1) {
                 std::string quals;
@@ -284,20 +280,10 @@ private:
 
     // Explains why `name` was not found: private, missing `use`, or a typo.
     std::string unknownHint(const std::string& name) {
-        for (const auto& imp : file_->imports) {
+        for (const auto& imp : mod_->imports) {
             if (!imp.target) continue;
             if (auto it = imp.target->defs.find(name); it != imp.target->defs.end() && !it->second->isPub)
                 return ": it exists in module " + imp.target->displayName() + " but is not pub";
-        }
-        // Imported by a sibling file of this module, but not by this one?
-        for (const auto& f : mod_->files) {
-            if (f.get() == file_) continue;
-            for (const auto& imp : f->imports) {
-                if (!imp.decl || !imp.target || !imp.decl->alias.empty()) continue;
-                if (exportsOf(imp.target).count(name))
-                    return ": " + f->displayFile + " imports it, but each file needs its own 'use'. Add 'use " +
-                           imp.decl->path + "' to this file";
-            }
         }
         bool isModule = prog_.packages.count(name) > 0;
         for (const auto& dir : prog_.searchPaths) {
@@ -318,8 +304,8 @@ private:
             for (const auto& [n, s] : sc) consider(n);
         for (const auto& [n, s] : mod_->defs) consider(n);
         for (const auto& [n, s] : mod_->variants) consider(n);
-        for (const auto& [n, s] : imports_[file_].names) consider(n);
-        for (const auto& [n, m] : imports_[file_].refs) consider(n.substr(0, n.find('.')));
+        for (const auto& [n, s] : imports_[mod_].names) consider(n);
+        for (const auto& [n, m] : imports_[mod_].refs) consider(n.substr(0, n.find('.')));
         return best.empty() ? "" : "; did you mean '" + best + "'?";
     }
 
@@ -354,7 +340,7 @@ private:
             return {s, 1};
         }
 
-        const auto& refs = imports_[file_].refs;
+        const auto& refs = imports_[mod_].refs;
         std::string prefix;
         std::vector<std::string> prefixes; // prefixes[k] = segs[0..k] joined
         for (const auto& s : segs) {

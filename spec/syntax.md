@@ -26,7 +26,9 @@ Shapes/
 - Only the root file may `include`, so `init.h2` lists every file of the module.
   Files in the folder that aren't included are not part of the module.
 - Write the file name without quotes or `.h2`: `include circle`.
-- **Each file has its own `use` lines.** Imports don't leak between files.
+- **`use` is module-wide.** All `use` lines go in the root file and apply to
+  every included file. Writing `use` in an included file is an error. That
+  way the root file is the module's table of contents: its imports and its files.
 
 ### Finding modules
 `use A.B` searches for `A/B/init.h2` in this order:
