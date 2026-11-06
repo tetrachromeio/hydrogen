@@ -1,0 +1,46 @@
+use Elemental
+
+new class Stack<T> {
+    items: ptr<T>
+    count: uint
+    cap: uint
+
+    new function init(cap: uint) {
+        self.items = alloc [T; 16]
+        self.count = 0
+        self.cap = cap
+    }
+    new function push(item: own T) {
+        self.items[self.count] = item
+        self.count += 1
+    }
+    new function top() -> T { return self.items[self.count - 1] }
+    new function drop() { free self.items }
+}
+
+new interface Shape {
+    new operator < (a: Self, b: Self) -> bool
+}
+
+new function smallest<T: Ordered>(a: T, b: T, c: T) -> T {
+    var m = a
+    if b < m { m = b }
+    if c < m { m = c }
+    return m
+}
+
+new function main() -> int {
+    let s = Stack<int>(16)
+    s.push(1)
+    s.push(2)
+    s.push(3)
+    print(s.top())
+    print(s.count)
+    print(smallest(5, 2, 9))
+    print(smallest(2.5, 1.5, 3.5))
+    print(smallest('q', 'b', 'z'))
+    let words = Stack<float>(4)
+    words.push(0.25)
+    print(words.top())
+    return 0
+}

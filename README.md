@@ -33,7 +33,8 @@ new function main() -> int {
 - `spec/`: language specification
 - `docs/`: design notes and decisions
 - `examples/`: sample programs
-- `tests/`: golden tests for the lexer, parser and diagnostics
+- `tests/`: golden tests for the lexer, parser and diagnostics, plus
+  programs that are compiled, run and checked for leaks (`tests/run/`)
 
 ## Projects: `hy`
 `hy` is the project tool. A project is a directory with a `hy.toml`:
@@ -62,8 +63,9 @@ module name: `use Geometry` loads `../Geometry/init.h2`, and `use Geometry.Shape
 loads `../Geometry/Shapes/init.h2`. Dependencies are resolved transitively.
 For now, only `path` dependencies are supported.
 
-> `hy build` and `hy run` currently stop after checking: native code
-> generation (the LLVM backend) is the next milestone.
+`hy build` compiles to native code through LLVM: Hydrogen generates LLVM IR
+and uses `clang` (set `H2_CC` to use a different one) to optimize and link it
+with a small C runtime (`lib/runtime/h2rt.c`). `--release` builds with `-O2`.
 
 ## Build the toolchain
 ```bash
@@ -78,6 +80,7 @@ ctest --test-dir build --output-on-failure
 ./build/compiler/h2c --tokens examples/hello.h2  # dump tokens
 ./build/compiler/h2c --check examples/hello.h2   # full check: names and types
 ./build/compiler/h2c --types examples/hello.h2   # print the inferred type of each local
+./build/compiler/h2c --emit-llvm examples/hello.h2   # print the generated LLVM IR
 ```
 
 To regenerate golden files after an intentional change:
@@ -92,6 +95,6 @@ python3 tests/run_tests.py build/compiler/h2c . --update
 - [x] `hy` project tool: `hy.toml`, path dependencies, `hy new` / `check` / `deps`
 - [x] Type checking and inference
 - [x] Ownership: move semantics, borrowed parameters, `own`
-- [ ] Generic monomorphization
-- [ ] LLVM IR codegen
+- [x] Generic monomorphization
+- [x] LLVM IR codegen: generics, classes, enums/match, `?`, strings, automatic drops
 - [ ] Atomic / Elemental standard libraries

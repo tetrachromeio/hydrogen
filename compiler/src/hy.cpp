@@ -9,6 +9,7 @@
 // hy finds the project by walking up from the current directory to hy.toml.
 
 #include "hydrogen/Checker.h"
+#include "hydrogen/Codegen.h"
 #include "hydrogen/Program.h"
 #include "hydrogen/Project.h"
 
@@ -16,6 +17,8 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #ifndef H2_STDLIB_DIR
 #define H2_STDLIB_DIR ""
@@ -30,8 +33,8 @@ constexpr const char* kUsage = R"(hy: the Hydrogen project tool
 usage:
   hy new <name> [--lib]   create a new project in ./<name>
   hy check                check the project for errors
-  hy build                compile the project to build/<name>
-  hy run [-- args...]     build and run the project
+  hy build [--release]    compile the project to build/<name>
+  hy run [--release] [-- args...]   build and run the project
   hy deps                 show resolved dependencies
   hy help                 show this message
 
@@ -128,7 +131,8 @@ std::optional<Loaded> loadProject() {
 }
 
 // Runs the front end over the project. Returns the number of modules, or -1 on errors.
-int checkProject(const Loaded& p) {
+// If `llPath` is given, also writes the program's LLVM IR there.
+int checkProject(const Loaded& p, const fs::path* llPath = nullptr) {
     std::error_code ec;
     if (!fs::is_regular_file(p.manifest.entry, ec)) {
         fail("entry file " + p.manifest.entry.generic_string() + " does not exist");
@@ -138,9 +142,10 @@ int checkProject(const Loaded& p) {
     h2::LoadOptions opts{stdlibPaths(), p.packages};
     auto program = h2::loadProgram(p.manifest.entry, opts, diags);
     h2::TypeContext types;
+    h2::SemaInfo info;
     if (program->main()) {
         h2::resolveProgram(*program, diags);
-        h2::typecheckProgram(*program, types, diags);
+        h2::typecheckProgram(*program, types, diags, nullptr, &info);
     }
 
     if (!p.manifest.isLibrary && program->main()) {
@@ -148,6 +153,14 @@ int checkProject(const Loaded& p) {
         if (it == program->main()->defs.end() || it->second->kind != h2::Symbol::Kind::Function)
             diags.error(program->main()->displayFile(), {1, 1},
                         "an app needs 'new function main() -> int' (or set type = \"lib\" in hy.toml)");
+    }
+    if (llPath && !diags.hasErrors()) {
+        std::ofstream out(*llPath);
+        if (!out) {
+            fail("cannot write " + llPath->generic_string());
+            return -1;
+        }
+        h2::emitLLVM(*program, types, info, diags, out);
     }
     diags.print(std::cerr);
     if (diags.hasErrors()) {
@@ -168,18 +181,53 @@ int cmdCheck() {
     return 0;
 }
 
-int cmdBuild(bool thenRun) {
+// Runs a command, returning its exit status (or -1 if it couldn't start).
+int runProcess(const std::vector<std::string>& argv) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        std::vector<char*> args;
+        for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
+        args.push_back(nullptr);
+        execvp(args[0], args.data());
+        _exit(127);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+}
+
+int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release) {
     auto p = loadProject();
     if (!p) return 1;
-    int n = checkProject(*p);
-    if (n < 0) return 1;
-    std::cout << "Checked " << p->manifest.name << " (" << n << " modules)\n";
     if (p->manifest.isLibrary)
         return fail(std::string("'") + p->manifest.name + "' is a library; there is nothing to " +
                     (thenRun ? "run" : "build") + ". Use 'hy check', or depend on it from an app");
-    return fail("cannot " + std::string(thenRun ? "run" : "build") +
-                " yet: native code generation (the LLVM backend) is not implemented. "
-                "The program checked without errors");
+    fs::path buildDir = p->manifest.dir / "build";
+    std::error_code ec;
+    fs::create_directories(buildDir, ec);
+    fs::path ll = buildDir / (p->manifest.name + ".ll");
+    fs::path exe = buildDir / p->manifest.name;
+    if (checkProject(*p, &ll) < 0) return 1;
+
+    const char* cc = std::getenv("H2_CC");
+    std::string runtime = std::string(H2_STDLIB_DIR) + "/runtime/h2rt.c";
+    std::vector<std::string> cmd = {cc && *cc ? cc : "clang", release ? "-O2" : "-O1", "-g", "-w",
+                                    ll.string(), runtime, "-lm", "-o", exe.string()};
+    int rc = runProcess(cmd);
+    if (rc == 127 || rc < 0)
+        return fail("could not run '" + cmd[0] + "'. Hydrogen uses clang to turn LLVM IR into a program; install "
+                    "clang, or set H2_CC to its path");
+    if (rc != 0) return fail("clang failed to build " + ll.generic_string() + " (exit " + std::to_string(rc) + ")");
+    if (!thenRun) {
+        std::cout << "Built " << fs::relative(exe, fs::current_path(ec)).generic_string() << '\n';
+        return 0;
+    }
+    std::vector<std::string> argv = {exe.string()};
+    argv.insert(argv.end(), runArgs.begin(), runArgs.end());
+    std::cout.flush();
+    return runProcess(argv);
 }
 
 int cmdDeps() {
@@ -210,8 +258,19 @@ int main(int argc, char** argv) {
     std::vector<std::string> rest(args.begin() + 1, args.end());
     if (cmd == "new") return cmdNew(rest);
     if (cmd == "check") return cmdCheck();
-    if (cmd == "build") return cmdBuild(false);
-    if (cmd == "run") return cmdBuild(true);
+    if (cmd == "build" || cmd == "run") {
+        bool release = false;
+        std::vector<std::string> runArgs;
+        for (size_t i = 0; i < rest.size(); ++i) {
+            if (rest[i] == "--") {
+                runArgs.assign(rest.begin() + i + 1, rest.end());
+                break;
+            }
+            if (rest[i] == "--release") release = true;
+            else return fail("unknown option '" + rest[i] + "' (did you mean: hy " + cmd + " -- " + rest[i] + "?)");
+        }
+        return cmdBuild(cmd == "run", runArgs, release);
+    }
     if (cmd == "deps") return cmdDeps();
     std::cerr << "error: unknown command '" << cmd << "'\n\n" << kUsage;
     return 2;

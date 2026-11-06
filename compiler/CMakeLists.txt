@@ -9,6 +9,7 @@ add_library(h2front
   src/Project.cpp
   src/Types.cpp
   src/Checker.cpp
+  src/Codegen.cpp
 )
 target_include_directories(h2front PUBLIC include)
 target_compile_options(h2front PRIVATE -Wall -Wextra -Wpedantic)

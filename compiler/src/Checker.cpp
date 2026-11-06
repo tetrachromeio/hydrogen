@@ -810,6 +810,14 @@ private:
 
     // -------------------------------------------------------------- calls
 
+    static bool mentions(const Type* t, const std::set<const Symbol*>& vars) {
+        if (!t) return false;
+        if (t->kind == K::Generic) return vars.count(t->sym) > 0;
+        for (const Type* a : t->args)
+            if (mentions(a, vars)) return true;
+        return false;
+    }
+
     // Infers generic bindings by matching a parameter type against an argument type.
     void unify(const Type* p, const Type* a, Subst& s, const std::set<const Symbol*>& vars) {
         if (!p || !a || a->isError()) return;
@@ -842,6 +850,8 @@ private:
         std::vector<const Type*> argTypes;
         for (size_t i = 0; i < c.args.size(); ++i) {
             const Type* p = subst(params[i], s);
+            // A parameter type still mentioning our unbound generics is no real expectation.
+            if (mentions(p, vars)) p = nullptr;
             argTypes.push_back(checkExpr(*c.args[i], p));
             unify(params[i], argTypes.back(), s, vars);
         }
@@ -1572,6 +1582,12 @@ private:
     // Generic bodies are re-checked for each concrete instantiation.
 
 public:
+    void exportInfo(SemaInfo& info) const {
+        for (const auto& [e, ci] : calls_)
+            if (e->kind == ExprKind::Call) info.calls[e] = {ci.fn, ci.subst};
+        info.viewCoerced = viewCoerced_;
+    }
+
     void runMoveChecks() {
         // Baseline: every function body once, with generic parameters unknown.
         for (auto& m : prog_.modules) {
@@ -2065,10 +2081,12 @@ private:
 
 } // namespace
 
-void typecheckProgram(Program& program, TypeContext& types, Diagnostics& diags, std::vector<LocalTypeNote>* notes) {
+void typecheckProgram(Program& program, TypeContext& types, Diagnostics& diags, std::vector<LocalTypeNote>* notes,
+                      SemaInfo* info) {
     Checker checker(program, types, diags, notes);
     checker.run();
     checker.runMoveChecks();
+    if (info) checker.exportInfo(*info);
 }
 
 } // namespace h2

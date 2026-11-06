@@ -2,6 +2,8 @@
 #include "hydrogen/Program.h"
 #include "hydrogen/Types.h"
 
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -15,9 +17,20 @@ struct LocalTypeNote {
     std::string type;
 };
 
+// Facts the checker works out that code generation needs.
+struct SemaInfo {
+    struct Call {
+        const FunctionDecl* fn = nullptr; // function, method or init (null for field-wise construction / variants)
+        std::map<const Symbol*, const Type*> subst; // generic bindings at this call (may mention outer generics)
+    };
+    std::map<const Expr*, Call> calls;
+    std::set<const Expr*> viewCoerced; // `string` expressions used where a `str` is expected
+};
+
 // Type-checks every function body in the program. Expr::type is filled in.
 // If `notes` is given, records the type of every let/var in the main module.
+// If `info` is given, it receives what code generation needs.
 void typecheckProgram(Program& program, TypeContext& types, Diagnostics& diags,
-                      std::vector<LocalTypeNote>* notes = nullptr);
+                      std::vector<LocalTypeNote>* notes = nullptr, SemaInfo* info = nullptr);
 
 } // namespace h2

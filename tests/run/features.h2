@@ -1,0 +1,131 @@
+use Elemental
+
+new type Meters : float {
+    new operator + (a: Meters, b: Meters) -> Meters { return Meters(float(a) + float(b)) }
+    new operator < (a: Meters, b: Meters) -> bool { return float(a) < float(b) }
+    new operator string (m: Meters) -> string { return string(float(m)) + " m" }
+}
+
+new class Point {
+    x: float
+    y: float
+    new function length() -> float { return sqrt(self.x * self.x + self.y * self.y) }
+    new operator string (p: Point) -> string {
+        return "(" + string(p.x) + ", " + string(p.y) + ")"
+    }
+}
+
+new class Named {
+    name: string
+    count: int
+    new function init(name: own string) {
+        self.name = name
+        self.count = 0
+    }
+    new function bump() { self.count += 1 }
+}
+
+new enum Shape {
+    Circle(float)
+    Rect(float, float)
+    Empty
+}
+
+new enum ParseError { NoDigits, BadChar(char) }
+
+new function digit(c: char) -> Result<int, ParseError> {
+    if c < '0' || c > '9' { return Err(BadChar(c)) }
+    return Ok(int(c) - int('0'))
+}
+
+new function parse(s: str) -> Result<int, ParseError> {
+    if s.len == 0 { return Err(NoDigits) }
+    var n = 0
+    for c in s { n = n * 10 + digit(c)? }
+    return Ok(n)
+}
+
+new function area(s: Shape) -> float {
+    match s {
+        Circle(r) => { return 3.0 * r * r }
+        Rect(w, h) => { return w * h }
+        Empty => { return 0.0 }
+    }
+}
+
+new function biggest<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+new function fib(n: int) -> int {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+new function describe(r: Result<int, ParseError>) -> string {
+    return match r {
+        Ok(v) => "ok " + string(v)
+        Err(NoDigits) => string("no digits")
+        Err(BadChar(c)) => "bad char " + string(c)
+    }
+}
+
+new function main() -> int {
+    print(42)
+    print(-7)
+    print(3.5)
+    print(true)
+    print('x')
+    print("text")
+    print(fib(20))
+    let d = Meters(1.5) + Meters(2.0)
+    print(d)
+    print(biggest(3, 9))
+    print(biggest(Meters(1.0), d))
+    let p = Point(3.0, 4.0)
+    print(p)
+    print(p.length())
+    var total = 0
+    for i in 0..10 { total += i }
+    print(total)
+    var k = 0
+    while true {
+        k += 1
+        if k == 5 { break }
+    }
+    print(k)
+    let arr = [10, 20, 30]
+    var sum = 0
+    for x in arr { sum += x }
+    print(sum)
+    print(arr.len)
+    print(area(Circle(2.0)))
+    print(area(Rect(2.0, 3.0)))
+    print(area(Empty))
+    print(describe(parse("123")))
+    print(describe(parse("")))
+    print(describe(parse("1x3")))
+    let owned = string("moved")
+    let n = Named(owned)
+    n.bump()
+    print(n.count)
+    print(n.name)
+    let a = string("copy me")
+    let b = a.copy()
+    print(a == b)
+    print(a + "!" == "copy me!")
+    let heap = alloc Point(1.0, 2.0)
+    print(heap.x)
+    free heap
+    let big: u8 = 200
+    print(big)
+    print(7 / 2)
+    print(7 % 3)
+    print(1 << 4)
+    print(-1 >> 1)
+    print(5 & 3)
+    print(float(7) / 2.0)
+    print(int(3.9))
+    return 0
+}

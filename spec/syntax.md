@@ -335,6 +335,18 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Cleanup (drop) at run time
+- A value with `drop` is dropped when its owner goes out of scope, in reverse
+  order of declaration. A moved value is dropped once, by its new owner.
+- `return`, `break` and `continue` drop everything they leave behind.
+- Assigning a new value to a variable or field drops the old one first.
+  Storing through a raw pointer (`p[i] = v`, `*p = v`) does not, because that
+  memory may be uninitialized. Managing it is up to you.
+- Temporaries (for example `look(make())`) are dropped at the end of their statement.
+- `free p` runs `drop` on the pointee, then releases the memory.
+- An object is zero-filled before its `init` runs.
+- `for c in text` visits bytes as `char` (no UTF-8 decoding yet).
+
 ## Type checking
 - **Inference.** `let x = 10` is `int`, `let y = 1.5` is `float`. A literal
   takes its type from context when there is one: `let b: u8 = 200`, and the

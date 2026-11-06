@@ -4,6 +4,7 @@
 //   h2c --ast file.h2      dump the parsed AST (single file)
 //   h2c --check file.h2    load every used module, resolve names, type-check
 //   h2c --types file.h2    like --check, then print the type of every local
+//   h2c --emit-llvm file.h2   check, then print LLVM IR for the program
 //
 // Options:
 //   -L <dir>   add a library search path (searched after the main file's directory)
@@ -15,6 +16,7 @@
 
 #include "hydrogen/AstPrinter.h"
 #include "hydrogen/Checker.h"
+#include "hydrogen/Codegen.h"
 #include "hydrogen/Lexer.h"
 #include "hydrogen/Parser.h"
 #include "hydrogen/Program.h"
@@ -31,7 +33,7 @@
 namespace {
 
 int usage() {
-    std::cerr << "usage: h2c (--tokens | --ast | --check | --types) [-L <dir>]... <file.h2>\n";
+    std::cerr << "usage: h2c (--tokens | --ast | --check | --types | --emit-llvm) [-L <dir>]... <file.h2>\n";
     return 2;
 }
 
@@ -54,7 +56,7 @@ int main(int argc, char** argv) {
     std::vector<std::filesystem::path> libs;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--tokens" || a == "--ast" || a == "--check" || a == "--types") {
+        if (a == "--tokens" || a == "--ast" || a == "--check" || a == "--types" || a == "--emit-llvm") {
             if (!mode.empty()) return usage();
             mode = a;
         } else if (a == "-L") {
@@ -70,7 +72,7 @@ int main(int argc, char** argv) {
     if (mode.empty() || file.empty()) return usage();
 
     h2::Diagnostics diags(file);
-    if (mode == "--check" || mode == "--types") {
+    if (mode == "--check" || mode == "--types" || mode == "--emit-llvm") {
         if (const char* env = std::getenv("H2_PATH")) {
             std::stringstream ss(env);
             std::string dir;
@@ -81,10 +83,12 @@ int main(int argc, char** argv) {
         auto program = h2::loadProgram(file, {libs, {}}, diags);
         std::vector<h2::LocalTypeNote> notes;
         h2::TypeContext types;
+        h2::SemaInfo info;
         if (program->main()) {
             h2::resolveProgram(*program, diags);
-            h2::typecheckProgram(*program, types, diags, mode == "--types" ? &notes : nullptr);
+            h2::typecheckProgram(*program, types, diags, mode == "--types" ? &notes : nullptr, &info);
         }
+        if (mode == "--emit-llvm" && !diags.hasErrors()) h2::emitLLVM(*program, types, info, diags, std::cout);
         for (const auto& n : notes)
             std::cout << n.file << ':' << n.loc.line << ':' << n.loc.col << ": " << n.name << ": " << n.type << '\n';
         diags.print(std::cerr);
