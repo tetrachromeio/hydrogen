@@ -156,6 +156,14 @@ new function log(msg: str) {          // no "->" means no return value
 - **`own`** takes ownership (needed to store or keep the value):
   `new function keep(item: own string) { ... }`
 - Parameters are immutable. Copy into a `var` to change one.
+- **`var` parameters change the caller's variable in place** (like C++'s `T&`):
+  ```
+  new function bump(n: var int) { n += 1 }
+  var count = 1
+  bump(count)          // count is now 2; bump(5) or a let would be an error
+  ```
+  The argument must be a variable that can change. A `var` parameter can't be
+  moved out of, but assigning to it replaces the caller's value (dropping the old one).
 - Every path of a function with a return type must `return`.
 - The program starts at `new function main() -> int` (0 = success).
 

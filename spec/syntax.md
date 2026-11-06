@@ -335,6 +335,16 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## In-place parameters: `var`
+`new function bump(n: var int) { n += 1 }` borrows the caller's variable and
+may change it, like C++'s `T&` or Swift's `inout`. The argument must be a
+changeable place: a `var`, a field or element of one, something reached through
+a pointer, or `self`'s data inside a `mut` method. Literals, temporaries, `let`s and
+ordinary parameters are rejected. A `var` parameter is borrowed: it can be read,
+changed and assigned (the caller's old value is dropped), but not moved out of.
+It is passed as a pointer, so even large values aren't copied. Extern functions
+can't take `var` parameters; pass `&x` instead.
+
 ## Mutating methods: `mut`
 A method that changes `self` (assigns to its fields, or calls another `mut`
 method on it) must be declared `new mut function name(...)`. `init` and `drop`

@@ -331,7 +331,7 @@ private:
         os_ << (f.isOperator ? "operator " : "function ") << f.name << genericsStr(f.generics) << " (";
         for (size_t i = 0; i < f.params.size(); ++i) {
             if (i) os_ << ' ';
-            os_ << '(' << f.params[i].name << " : " << (f.params[i].isOwn ? "own " : "")
+            os_ << '(' << f.params[i].name << " : " << (f.params[i].isOwn ? "own " : (f.params[i].isVar ? "var " : ""))
                 << typeStr(*f.params[i].type) << ')';
         }
         os_ << ')';

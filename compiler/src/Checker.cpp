@@ -1026,6 +1026,7 @@ private:
                     std::set<const Symbol*> vars;
                     for (const auto& g : fn->generics) vars.insert(g.sym);
                     checkArgs(c, sig.params, s, vars, sig.ret, expected, m.member, &fn->generics);
+                    checkVarArgs(c, *fn);
                     calls_[&c] = {CallInfo::Fn, fn.get(), s};
                     m.type = tc_.voidT();
                     return subst(sig.ret, s);
@@ -1074,6 +1075,7 @@ private:
                 if (i < explicitArgs.size()) sub[fn->generics[i].sym] = explicitArgs[i];
             }
             checkArgs(c, sig.params, sub, vars, sig.ret, expected, s->name, &fn->generics);
+            checkVarArgs(c, *fn);
             calls_[&c] = {CallInfo::Fn, fn, sub};
             return subst(sig.ret, sub);
         }
@@ -1184,6 +1186,7 @@ private:
             what += " (fields in order)";
         }
         checkArgs(c, params, sub, vars, selfT, expected, what, gs);
+        if (initFn) checkVarArgs(c, *initFn);
         calls_[&c] = usesInit ? CallInfo{CallInfo::Fn, initFn, sub} : CallInfo{CallInfo::ConsumeAll, nullptr, sub};
         std::vector<const Type*> args;
         for (const auto& g : *gs) args.push_back(sub[g.sym] ? sub[g.sym] : tc_.error());
@@ -1580,6 +1583,8 @@ private:
                     error(f.params[i].loc, "extern functions take numbers, bools, chars and pointers; pass " +
                                                str(sig.params[i]) + " by pointer instead");
                 if (f.params[i].isOwn) error(f.params[i].loc, "'own' has no meaning for an extern function");
+                if (f.params[i].isVar)
+                    error(f.params[i].loc, "extern functions can't take var parameters; pass a pointer (&x) instead");
             }
             if (!ok(sig.ret)) error(f.loc, "an extern function must return a number, bool, char, pointer or nothing");
             return;
@@ -1621,6 +1626,23 @@ private:
             return selfRooted(*i.object);
         }
         default: return false;
+        }
+    }
+
+    // Arguments for `var` parameters must be variables that can be changed.
+    void checkVarArgs(CallExpr& c, const FunctionDecl& fn) {
+        for (size_t i = 0; i < fn.params.size() && i < c.args.size(); ++i) {
+            if (!fn.params[i].isVar) continue;
+            Expr& a = *c.args[i];
+            std::string p = q(fn.params[i].name);
+            if (!a.type || a.type->isError()) continue;
+            if (!isPlace(a) || a.type->isLiteral() || viewCoerced_.count(&a))
+                error(a.loc, p + " is a var parameter: pass a variable that can be changed, not a value");
+            else if (const Symbol* root = immutableRoot(a))
+                error(a.loc, p + " is a var parameter, but " + q(root->name) +
+                                 " can't be changed (it's a let or a parameter). Declare it with var");
+            else if (selfRooted(a) && !selfMutable_)
+                error(a.loc, p + " is a var parameter, and passing self's data changes self" + mutHint());
         }
     }
 

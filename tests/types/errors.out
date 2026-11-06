@@ -22,6 +22,8 @@ tests/types/errors.h2:60:5: t: string
 tests/types/errors.h2:76:5: fixed: Counter
 tests/types/errors.h2:79:5: changing: Counter
 tests/types/errors.h2:82:5: p: ptr<Counter>
+tests/types/errors.h2:89:5: fixed: int
+tests/types/errors.h2:93:5: ok: int
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -59,3 +61,6 @@ tests/types/errors.h2:70:33: error: this method can't change self; mark the meth
 tests/types/errors.h2:72:36: error: 'bump' changes self, but this method can't; mark the method 'new mut function calls_mut' to allow it
 tests/types/errors.h2:77:10: error: 'bump' changes the value, but 'fixed' can't be changed (it's a let or a parameter). Declare it with var
 tests/types/errors.h2:78:10: error: 'bump' changes the value, but 'param' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:90:9: error: 'n' is a var parameter, but 'fixed' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:91:9: error: 'n' is a var parameter, but 'param' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:92:9: error: 'n' is a var parameter: pass a variable that can be changed, not a value

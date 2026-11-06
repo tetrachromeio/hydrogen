@@ -700,7 +700,7 @@ private:
         declareGenerics(f.generics);
         for (auto& p : f.params) {
             resolveType(*p.type);
-            p.sym = declareLocal(p.name, p.loc, false);
+            p.sym = declareLocal(p.name, p.loc, p.isVar);
         }
         if (f.returnType) resolveType(*f.returnType);
         if (f.body) {

@@ -83,3 +83,13 @@ new function use_counter(param: Counter) {
     p.bump()                                           // fine: through a pointer
     free p
 }
+
+new function inc(n: var int) { n += 1 }
+new function var_errors(param: int) {
+    let fixed = 1
+    inc(fixed)          // let can't be changed
+    inc(param)          // parameter can't be changed
+    inc(5)              // not a variable
+    var ok = 1
+    inc(ok)             // fine
+}

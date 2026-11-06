@@ -318,6 +318,8 @@ private:
                 if (atIdent("own") && (peek(1).kind == Tok::Ident || peek(1).kind == Tok::LBracket)) {
                     advance();
                     p.isOwn = true;
+                } else if (accept(Tok::KwVar)) {
+                    p.isVar = true; // `x: var T`: changes the caller's variable in place
                 }
                 p.type = parseType();
                 f->params.push_back(std::move(p));

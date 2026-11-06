@@ -36,6 +36,7 @@ struct Local {
     std::string ptr;         // address of the value
     const Type* type = nullptr;
     std::string flag;        // drop flag (i1 alloca), empty if not a resource or borrowed
+    bool varParam = false;   // `var` parameter: ptr is the caller's variable
 };
 
 struct Temp {
@@ -831,7 +832,11 @@ private:
             if (!sig.empty()) sig += ", ";
             Local local;
             local.type = pt;
-            if (isAggregate(pt)) {
+            if (p.isVar) {
+                sig += "ptr " + pname; // the caller's variable, changed in place
+                local.ptr = pname;
+                local.varParam = true;
+            } else if (isAggregate(pt)) {
                 sig += "ptr " + pname;
                 local.ptr = pname;
                 if (p.isOwn && isResource(pt)) {
@@ -1091,6 +1096,7 @@ private:
                 const Symbol* s = static_cast<const IdentExpr&>(*a.target).sym;
                 Local& l = f_->locals[s];
                 if (!l.flag.empty()) emitDropIfFlag(l.ptr, l.type, l.flag);
+                else if (l.varParam && isResource(t)) emit("call void @" + llvmQuote(dropFn(t)) + "(ptr " + l.ptr + ")");
                 store(v, l.ptr);
                 if (!l.flag.empty()) emit("store i1 true, ptr " + l.flag);
                 return;
@@ -1561,13 +1567,14 @@ private:
         std::vector<Val> vals;
         for (size_t i = 0; i < operands.size(); ++i) {
             const Type* p = paramType(f.fn, i, s, f.owner);
-            vals.push_back(passArg(*operands[i], p, f.fn->params[i].isOwn));
+            vals.push_back(passArg(*operands[i], p, f.fn->params[i].isOwn, f.fn->params[i].isVar));
         }
         return callOpVals(f, vals);
     }
 
     // Evaluates an argument for a parameter of type `p`.
-    Val passArg(const Expr& e, const Type* p, bool own) {
+    Val passArg(const Expr& e, const Type* p, bool own, bool isVar = false) {
+        if (isVar) return {"ptr", addressOf(e)}; // in place: the variable itself
         if (isAggregate(p)) {
             if (own) {
                 Val v = consume(e, p);
@@ -1681,7 +1688,7 @@ private:
         if (!self.empty()) args = "ptr " + self;
         for (size_t i = 0; i < c.args.size() && i < fn->params.size(); ++i) {
             const Type* p = paramType(fn, i, s, owner);
-            Val v = passArg(*c.args[i], p, fn->params[i].isOwn);
+            Val v = passArg(*c.args[i], p, fn->params[i].isOwn, fn->params[i].isVar);
             args += (args.empty() ? "" : ", ") + v.ty + " " + v.v;
         }
         return callRet(ret, "@" + llvmQuote(name), args);
