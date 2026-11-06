@@ -100,6 +100,8 @@ private:
     SourceFile* file_ = nullptr;
     std::vector<std::map<std::string, Symbol*>> scopes_;
     bool selfAllowed_ = false; // inside a class method
+    size_t captureBoundary_ = 0;
+    bool captureReported_ = false; // scopes below this index belong to an enclosing function (lambdas)
 
     void error(SourceLoc loc, std::string msg) { diags_.error(file_->displayFile, loc, std::move(msg)); }
 
@@ -250,8 +252,17 @@ private:
 
     // Unqualified lookup. Reports ambiguity; returns null (silently) if not found.
     Symbol* lookup(const std::string& name, SourceLoc loc) {
-        for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it)
-            if (auto f = it->find(name); f != it->end()) return f->second;
+        for (size_t i = scopes_.size(); i > 0; --i) {
+            auto f = scopes_[i - 1].find(name);
+            if (f == scopes_[i - 1].end()) continue;
+            if (i - 1 < captureBoundary_ && f->second->kind == Symbol::Kind::Local) {
+                error(loc, "a lambda can't use " + std::string("'") + name +
+                               "' from the function around it yet (captures aren't supported); pass it as a parameter");
+                captureReported_ = true;
+                return nullptr;
+            }
+            return f->second;
+        }
         if (auto it = mod_->defs.find(name); it != mod_->defs.end()) return it->second;
         if (auto it = mod_->variants.find(name); it != mod_->variants.end()) {
             if (it->second.size() > 1) {
@@ -377,6 +388,10 @@ private:
             error(head.loc, "'" + head.name + "' is a module; write " + head.name + ".<name>");
             return {};
         }
+        if (captureReported_) {
+            captureReported_ = false;
+            return {};
+        }
         error(head.loc, "unknown name '" + head.name + "'" + unknownHint(head.name));
         return {};
     }
@@ -426,6 +441,11 @@ private:
     enum class TypeCtx { Normal, Constraint };
 
     void resolveType(TypeRef& t, TypeCtx ctx = TypeCtx::Normal) {
+        if (t.kind == TypeRef::Kind::Function) {
+            for (auto& a : t.args) resolveType(*a);
+            if (t.elem) resolveType(*t.elem);
+            return;
+        }
         if (t.kind == TypeRef::Kind::Array) {
             resolveType(*t.elem);
             if (t.size) resolveExpr(*t.size);
@@ -541,6 +561,14 @@ private:
         case ExprKind::ArrayLit:
             for (auto& x : static_cast<ArrayLitExpr&>(e).elems) resolveExpr(*x);
             return;
+        case ExprKind::Lambda: {
+            auto& fn = *static_cast<LambdaExpr&>(e).fn;
+            size_t savedBoundary = captureBoundary_;
+            captureBoundary_ = scopes_.size();
+            resolveFunction(fn, false);
+            captureBoundary_ = savedBoundary;
+            return;
+        }
         case ExprKind::Match: {
             auto& m = static_cast<MatchExpr&>(e);
             resolveExpr(*m.subject);

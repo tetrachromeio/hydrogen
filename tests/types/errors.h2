@@ -93,3 +93,13 @@ new function var_errors(param: int) {
     var ok = 1
     inc(ok)             // fine
 }
+
+new function twice<T>(x: T) -> T { return x }
+new function lambda_errors() {
+    let k = 10
+    let add_k = function(n: int) -> int { return n + k }      // captures aren't supported yet
+    let g = twice                                               // generic: can't be a value directly
+    let h: function(int) -> int = function(s: str) -> int { return 1 }   // wrong type
+    let one = function(n: int) -> int { return n }
+    one(1, 2)                                                   // wrong number of arguments
+}

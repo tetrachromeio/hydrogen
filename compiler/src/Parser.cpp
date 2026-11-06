@@ -151,6 +151,19 @@ private:
     TypeRefPtr parseType() {
         auto t = std::make_unique<TypeRef>();
         t->loc = peek().loc;
+        if (accept(Tok::KwFunction)) {
+            // function(int, str) -> bool
+            NestIn in(*this);
+            t->kind = TypeRef::Kind::Function;
+            expect(Tok::LParen, "'(' after 'function' in a function type");
+            while (!at(Tok::RParen)) {
+                t->args.push_back(parseType());
+                if (!accept(Tok::Comma)) break;
+            }
+            expect(Tok::RParen, "')' to close the function type");
+            if (accept(Tok::Arrow)) t->elem = parseType();
+            return t;
+        }
         if (accept(Tok::LBracket)) {
             NestIn in(*this);
             t->kind = TypeRef::Kind::Array;
@@ -292,20 +305,8 @@ private:
         }
     }
 
-    std::unique_ptr<FunctionDecl> parseFunction(bool bodyOptional) {
-        auto f = std::make_unique<FunctionDecl>(expect(Tok::KwNew).loc);
-        if (atIdent("mut") && peek(1).kind == Tok::KwFunction) {
-            advance();
-            f->isMut = true;
-        }
-        if (accept(Tok::KwOperator)) {
-            f->isOperator = true;
-            f->name = parseOperatorSymbol();
-        } else {
-            expect(Tok::KwFunction);
-            f->name = expectIdent("a function name");
-            f->generics = parseGenericParams();
-        }
+    void parseParams(FunctionDecl& fd) {
+        FunctionDecl* f = &fd;
         {
             NestIn in(*this);
             expect(Tok::LParen, "'(' to start the parameter list");
@@ -327,6 +328,23 @@ private:
             }
             expect(Tok::RParen, "')' to close the parameter list");
         }
+    }
+
+    std::unique_ptr<FunctionDecl> parseFunction(bool bodyOptional) {
+        auto f = std::make_unique<FunctionDecl>(expect(Tok::KwNew).loc);
+        if (atIdent("mut") && peek(1).kind == Tok::KwFunction) {
+            advance();
+            f->isMut = true;
+        }
+        if (accept(Tok::KwOperator)) {
+            f->isOperator = true;
+            f->name = parseOperatorSymbol();
+        } else {
+            expect(Tok::KwFunction);
+            f->name = expectIdent("a function name");
+            f->generics = parseGenericParams();
+        }
+        parseParams(*f);
         if (accept(Tok::Arrow)) f->returnType = parseType();
         if (at(Tok::LBrace))
             f->body = parseBlock();
@@ -791,6 +809,16 @@ private:
             return arr;
         }
         case Tok::KwMatch: return parseMatch();
+        case Tok::KwFunction: {
+            // function(a: int) -> int { ... }
+            auto lam = std::make_unique<LambdaExpr>(advance().loc);
+            lam->fn = std::make_unique<FunctionDecl>(loc);
+            lam->fn->name = "lambda";
+            parseParams(*lam->fn);
+            if (accept(Tok::Arrow)) lam->fn->returnType = parseType();
+            lam->fn->body = parseBlock();
+            return lam;
+        }
         default: failExpected("an expression");
         }
     }

@@ -335,6 +335,16 @@ Plain values (`int`, `float`, `str`, `ptr<T>`, and types and classes without
 type it's used with: `max<string>` must not move a borrowed parameter, even
 though `max<int>` is fine.
 
+## Function values and lambdas
+- A function type is written `function(T1, T2) -> R` (`-> R` omitted for no result).
+- A non-generic function's name used as a value is a function value: `let f = double`.
+  Generic functions must be wrapped in a lambda with concrete types.
+- `function(a: int) -> int { ... }` is a lambda expression. Lambdas can't use the
+  enclosing function's local variables yet (that would need captures).
+- Calls through a function value pass arguments borrowed, like other calls.
+  Functions with `own` or `var` parameters can't be used as values yet.
+- Function values are plain code pointers: copied freely, never dropped.
+
 ## In-place parameters: `var`
 `new function bump(n: var int) { n += 1 }` borrows the caller's variable and
 may change it, like C++'s `T&` or Swift's `inout`. The argument must be a

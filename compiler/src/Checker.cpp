@@ -91,6 +91,12 @@ private:
     };
     std::map<const Expr*, CallInfo> calls_;
     std::set<const Expr*> viewCoerced_; // string expressions used as str (a borrow, not a move)
+    struct LambdaSite {
+        FunctionDecl* fn;
+        ModuleInfo* mod;
+        SourceFile* file;
+    };
+    std::vector<LambdaSite> lambdas_;
 
     void noteCoercion(const Expr& e, const Type* from, const Type* to) {
         if (from == lang_.stringT && to == lang_.strT) viewCoerced_.insert(&e);
@@ -198,6 +204,11 @@ private:
     }
 
     const Type* convert(const TypeRef& t, const Type* selfT) {
+        if (t.kind == TypeRef::Kind::Function) {
+            std::vector<const Type*> ps;
+            for (const auto& a : t.args) ps.push_back(convert(*a, selfT));
+            return tc_.function(t.elem ? convert(*t.elem, selfT) : tc_.voidT(), ps);
+        }
         if (t.kind == TypeRef::Kind::Array) {
             const Type* elem = convert(*t.elem, selfT);
             if (!t.size) return tc_.slice(elem);
@@ -240,6 +251,11 @@ private:
         case K::Array: return tc_.array(subst(t->elem(), s), t->size);
         case K::Slice: return tc_.slice(subst(t->elem(), s));
         case K::Range: return tc_.range(subst(t->elem(), s));
+        case K::Function: {
+            std::vector<const Type*> ps;
+            for (size_t i = 1; i < t->args.size(); ++i) ps.push_back(subst(t->args[i], s));
+            return tc_.function(subst(t->args[0], s), ps);
+        }
         default: return t;
         }
     }
@@ -534,6 +550,18 @@ private:
         }
         case ExprKind::ArrayLit: return checkArrayLit(static_cast<ArrayLitExpr&>(e), expected);
         case ExprKind::Match: return checkMatch(static_cast<MatchExpr&>(e), expected);
+        case ExprKind::Lambda: {
+            auto& fn = *static_cast<LambdaExpr&>(e).fn;
+            for (const auto& p : fn.params)
+                if (p.isOwn || p.isVar) error(p.loc, "lambda parameters can't be 'own' or 'var' yet");
+            int savedLoops = loopDepth_;
+            loopDepth_ = 0;
+            checkFunction(fn, selfType_);
+            loopDepth_ = savedLoops;
+            lambdas_.push_back({&fn, mod_, file_});
+            const Sig& sig = sigOf(fn, selfType_);
+            return tc_.function(sig.ret, sig.params);
+        }
         }
         return tc_.error();
     }
@@ -584,9 +612,21 @@ private:
             }
             return t;
         }
-        case Symbol::Kind::Function:
-            error(loc, "functions can't be used as values yet; call it: " + s->name + "(...)");
-            return tc_.error();
+        case Symbol::Kind::Function: {
+            const auto* fn = declAs<FunctionDecl>(s);
+            if (!fn->generics.empty()) {
+                error(loc, q(s->name) + " is generic, so it can't be used as a value directly; wrap it in a lambda "
+                               "with concrete types");
+                return tc_.error();
+            }
+            for (const auto& p : fn->params)
+                if (p.isOwn || p.isVar) {
+                    error(loc, q(s->name) + " has 'own' or 'var' parameters, so it can't be used as a value yet");
+                    return tc_.error();
+                }
+            const Sig& sig = sigOf(*fn, nullptr);
+            return tc_.function(sig.ret, sig.params);
+        }
         case Symbol::Kind::Type:
         case Symbol::Kind::Class:
             error(loc, q(s->name) + " is a type; to make a value, call it: " + s->name + "(...)");
@@ -1032,6 +1072,22 @@ private:
                     return subst(sig.ret, s);
                 }
             }
+            // A field holding a function: obj.callback(...)
+            bool hasField = false;
+            if (base->kind == K::Named && (base->sym->kind == Symbol::Kind::Class || base->sym->kind == Symbol::Kind::Type)) {
+                const auto& fields = base->sym->kind == Symbol::Kind::Class ? declAs<ClassDecl>(base->sym)->fields
+                                                                           : declAs<TypeDecl>(base->sym)->fields;
+                for (const auto& f : fields) hasField = hasField || f.name == m.member;
+            }
+            if (hasField) {
+                const Type* ft = checkField(m);
+                if (ft->kind == K::Function) {
+                    m.type = ft;
+                    return callValue(c, ft);
+                }
+                if (!ft->isError()) error(m.loc, str(base) + " has no method " + q(m.member));
+                return argsUnchecked(c);
+            }
             error(m.loc, str(base) + " has no method " + q(m.member));
             return argsUnchecked(c);
         }
@@ -1055,6 +1111,7 @@ private:
         }
         if (!s) {
             const Type* t = checkExpr(*c.callee, nullptr);
+            if (t->kind == K::Function) return callValue(c, t);
             if (!t->isError()) error(c.loc, "cannot call a value of type " + str(t));
             return argsUnchecked(c);
         }
@@ -1104,6 +1161,10 @@ private:
         case Symbol::Kind::Type: return checkConstruct(c, s, explicitArgs, expected);
         case Symbol::Kind::Local: {
             auto it = localTypes_.find(s);
+            if (it != localTypes_.end() && it->second->kind == K::Function) {
+                c.callee->type = it->second;
+                return callValue(c, it->second);
+            }
             if (it != localTypes_.end() && !it->second->isError())
                 error(c.loc, q(s->name) + " is a variable of type " + str(it->second) + ", not a function");
             return argsUnchecked(c);
@@ -1128,6 +1189,18 @@ private:
             return tc_.error();
         default: return argsUnchecked(c);
         }
+    }
+
+    // Calls through a function value: f(x), self.compare(a, b), function(...){...}(x)
+    const Type* callValue(CallExpr& c, const Type* ft) {
+        size_t n = ft->args.size() - 1;
+        if (c.args.size() != n) {
+            error(c.loc, "this function takes " + std::to_string(n) + " argument" + (n == 1 ? "" : "s") + ", but " +
+                             std::to_string(c.args.size()) + (c.args.size() == 1 ? " was" : " were") + " given");
+            return argsUnchecked(c);
+        }
+        for (size_t i = 0; i < n; ++i) coerce(*c.args[i], ft->args[i + 1], "argument " + std::to_string(i + 1));
+        return ft->args[0];
     }
 
     const Type* argsUnchecked(CallExpr& c) {
@@ -1762,6 +1835,13 @@ public:
                     moveCheckFunction(fn, {}, "");
                 });
             }
+        }
+        // Lambda bodies are functions of their own.
+        for (const auto& l : lambdas_) {
+            mod_ = l.mod;
+            file_ = l.file;
+            fnLocation_[l.fn] = {l.mod, l.file};
+            moveCheckFunction(*l.fn, {}, "");
         }
         // Instantiations discovered along the way (worklist grows while we go).
         while (!pending_.empty()) {

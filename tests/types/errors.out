@@ -24,6 +24,11 @@ tests/types/errors.h2:79:5: changing: Counter
 tests/types/errors.h2:82:5: p: ptr<Counter>
 tests/types/errors.h2:89:5: fixed: int
 tests/types/errors.h2:93:5: ok: int
+tests/types/errors.h2:99:5: k: int
+tests/types/errors.h2:100:5: add_k: function(int) -> int
+tests/types/errors.h2:101:5: g: <error>
+tests/types/errors.h2:102:5: h: function(int) -> int
+tests/types/errors.h2:103:5: one: function(int) -> int
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -64,3 +69,7 @@ tests/types/errors.h2:78:10: error: 'bump' changes the value, but 'param' can't 
 tests/types/errors.h2:90:9: error: 'n' is a var parameter, but 'fixed' can't be changed (it's a let or a parameter). Declare it with var
 tests/types/errors.h2:91:9: error: 'n' is a var parameter, but 'param' can't be changed (it's a let or a parameter). Declare it with var
 tests/types/errors.h2:92:9: error: 'n' is a var parameter: pass a variable that can be changed, not a value
+tests/types/errors.h2:100:54: error: a lambda can't use 'k' from the function around it yet (captures aren't supported); pass it as a parameter
+tests/types/errors.h2:101:13: error: 'twice' is generic, so it can't be used as a value directly; wrap it in a lambda with concrete types
+tests/types/errors.h2:102:35: error: value of 'h': expected function(int) -> int, found function(str) -> int
+tests/types/errors.h2:104:8: error: this function takes 1 argument, but 2 were given

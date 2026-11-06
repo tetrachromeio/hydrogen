@@ -1,0 +1,74 @@
+use Elemental
+
+new function apply(f: function(int) -> int, x: int) -> int { return f(x) }
+new function double(n: int) -> int { return n * 2 }
+new function shout(s: str) -> string { return s + "!" }
+
+// Sorting with a custom comparison.
+new function sort(items: var List<int>, before: function(int, int) -> bool) {
+    var i: uint = 0
+    while i < items.len() {
+        var j: uint = 0
+        while j + 1 < items.len() - i {
+            let a = *items.at(j)
+            let b = *items.at(j + 1)
+            if before(b, a) {
+                *items.at(j) = b
+                *items.at(j + 1) = a
+            }
+            j += 1
+        }
+        i += 1
+    }
+}
+
+// Generic map over a list.
+new function map<T, U>(items: List<T>, f: function(T) -> U) -> List<U> {
+    var out = List<U>()
+    for i in 0..items.len() { out.push(f(*items.at(i))) }
+    return out
+}
+
+// A class holding a callback.
+new class Button {
+    label: str
+    on_click: function(str) -> string
+    new function click() { print(self.on_click(self.label)) }
+}
+
+new function pick(fancy: bool) -> function(int) -> int {
+    if fancy { return function(n: int) -> int { return n * n } }
+    return double
+}
+
+new function show(items: List<int>) {
+    var line = string("")
+    for i in 0..items.len() { line = line + string(*items.at(i)) + " " }
+    print(line)
+}
+
+new function main() -> int {
+    print(apply(double, 21))
+    print(apply(function(n: int) -> int { return n + 1 }, 41))
+
+    let f = double
+    print(f(5))
+    print(pick(true)(9))
+    print(pick(false)(9))
+
+    var nums = List<int>()
+    for x in [5, 3, 9, 1, 7] { nums.push(x) }
+    sort(nums, function(a: int, b: int) -> bool { return a < b })
+    show(nums)
+    sort(nums, function(a: int, b: int) -> bool { return a > b })
+    show(nums)
+
+    let squares = map(nums, function(n: int) -> int { return n * n })
+    show(squares)
+    let labels = map(nums, function(n: int) -> string { return "#" + string(n) })
+    print(*labels.at(0))
+
+    let b = Button("save", shout)
+    b.click()
+    return 0
+}

@@ -169,6 +169,24 @@ new function log(msg: str) {          // no "->" means no return value
 
 ---
 
+### Functions as values
+```
+new function apply(f: function(int) -> int, x: int) -> int { return f(x) }
+new function double(n: int) -> int { return n * 2 }
+
+apply(double, 21)                                          // pass a named function
+apply(function(n: int) -> int { return n + 1 }, 41)        // or a lambda
+let f = double                                             // store it
+sort(nums, function(a: int, b: int) -> bool { return a > b })
+```
+- Function types: `function(int, str) -> bool`, or `function(int)` for no result.
+- They work as parameters, return values, variables and class fields
+  (`self.on_click(...)` calls a field).
+- Lambdas can't use the surrounding function's variables yet (no captures):
+  pass what they need as parameters. Generic functions need a lambda wrapper.
+
+---
+
 ## 6. Types: `new type`
 
 A **type** is plain data with value semantics: like `int`, `bool` or `str`.
@@ -505,7 +523,7 @@ Elemental uses `extern` to reach the C library instead.
 - `Map<K, V>`, and `for x in list` (use `for i in 0..list.len()` with `*list.at(i)`)
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
-- Functions as values, closures
+- Closures that capture variables (lambdas without captures work)
 - Inline `asm` (parses, but the code generator rejects it). Use `extern` instead
 - Variadic C functions (like `printf`) through `extern`
 - UTF-8 decoding in `for c in text` (iterates bytes)

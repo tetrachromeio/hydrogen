@@ -278,6 +278,11 @@ private:
     }
 
     const Type* typeOfRef(const TypeRef& r, const Subst& s, const Type* self) {
+        if (r.kind == TypeRef::Kind::Function) {
+            std::vector<const Type*> ps;
+            for (const auto& a : r.args) ps.push_back(typeOfRef(*a, s, self));
+            return tc_.function(r.elem ? typeOfRef(*r.elem, s, self) : tc_.voidT(), ps);
+        }
         if (r.kind == TypeRef::Kind::Array) {
             const Type* elem = typeOfRef(*r.elem, s, self);
             if (!r.size) return tc_.slice(elem);
@@ -322,6 +327,11 @@ private:
         case K::Array: return tc_.array(subst(t->elem(), s), t->size);
         case K::Slice: return tc_.slice(subst(t->elem(), s));
         case K::Range: return tc_.range(subst(t->elem(), s));
+        case K::Function: {
+            std::vector<const Type*> ps;
+            for (size_t i = 1; i < t->args.size(); ++i) ps.push_back(subst(t->args[i], s));
+            return tc_.function(subst(t->args[0], s), ps);
+        }
         case K::IntLit: return lang_.intT ? lang_.intT : t;
         case K::FloatLit: return lang_.floatT ? lang_.floatT : t;
         default: return t;
@@ -346,6 +356,11 @@ private:
         case K::Array: return "[" + typeName(t->elem()) + ";" + std::to_string(t->size) + "]";
         case K::Slice: return "[" + typeName(t->elem()) + "]";
         case K::Range: return "Range<" + typeName(t->elem()) + ">";
+        case K::Function: {
+            std::string n = "fn(";
+            for (size_t i = 1; i < t->args.size(); ++i) n += (i > 1 ? "," : "") + typeName(t->args[i]);
+            return n + ")->" + typeName(t->args[0]);
+        }
         default: return TypeContext::str(t);
         }
     }
@@ -385,7 +400,8 @@ private:
         case K::Error: return "void";
         case K::IntLit: return "i64";
         case K::FloatLit: return "double";
-        case K::Ptr: return "ptr";
+        case K::Ptr:
+        case K::Function: return "ptr";
         case K::Array: return "[" + std::to_string(t->size) + " x " + lty(t->elem()) + "]";
         case K::Slice: return "{ ptr, i64 }";
         case K::Range: return "{ " + lty(t->elem()) + ", " + lty(t->elem()) + " }";
@@ -570,7 +586,24 @@ private:
         return name;
     }
 
+    std::map<const FunctionDecl*, int> lambdaIds_;
+
     std::string requestFn(const FunctionDecl* fn, const Subst& s, const Type* owner) {
+        if (auto it = lambdaIds_.find(fn); it != lambdaIds_.end()) {
+            // A lambda: one function per enclosing instantiation.
+            std::string name = "lambda." + std::to_string(it->second);
+            if (!s.empty()) {
+                name += "<";
+                bool first = true;
+                for (const auto& [k, v] : s) {
+                    name += (first ? "" : ",") + typeName(v);
+                    first = false;
+                }
+                name += ">";
+            }
+            if (fnsRequested_.insert(name).second) worklist_.push_back({fn, s, nullptr, name});
+            return name;
+        }
         if (fn->isExtern) {
             // A C function: declared once under its own name.
             std::string decl = "declare " + lty(retTypeOf(fn, s, nullptr)) + " @" + llvmQuote(fn->name) + "(";
@@ -1298,12 +1331,16 @@ private:
                 return {ty, load(ty, l.ptr)};
             }
             if (id.sym && id.sym->kind == Symbol::Kind::Variant) return makeVariant(typeOf(e), id.sym, {});
+            if (id.sym && id.sym->kind == Symbol::Kind::Function)
+                return {"ptr", "@" + llvmQuote(requestFn(static_cast<const FunctionDecl*>(id.sym->decl), {}, nullptr))};
             unsupported(e.loc, "this kind of name");
             return {"i64", "0"};
         }
         case ExprKind::Member: {
             const auto& m = static_cast<const MemberExpr&>(e);
             if (m.sym && m.sym->kind == Symbol::Kind::Variant) return makeVariant(typeOf(e), m.sym, {});
+            if (m.sym && m.sym->kind == Symbol::Kind::Function)
+                return {"ptr", "@" + llvmQuote(requestFn(static_cast<const FunctionDecl*>(m.sym->decl), {}, nullptr))};
             const Type* ot = typeOf(*m.object);
             if ((ot->kind == K::Array) && m.member == "len") return {"i64", std::to_string(ot->size)};
             if (ot->kind == K::Slice && m.member == "len") {
@@ -1361,6 +1398,15 @@ private:
             return {lty(t), load(lty(t), slot)};
         }
         case ExprKind::Match: return emitMatch(static_cast<const MatchExpr&>(e), typeOf(e));
+        case ExprKind::Lambda: {
+            const FunctionDecl* fn = static_cast<const LambdaExpr&>(e).fn.get();
+            if (!lambdaIds_.count(fn)) {
+                int id = static_cast<int>(lambdaIds_.size());
+                lambdaIds_[fn] = id;
+            }
+            if (f_->fn) fnFile_[fn] = fnFile_[f_->fn];
+            return {"ptr", "@" + llvmQuote(requestFn(fn, f_->subst, nullptr))};
+        }
         }
         return {"i64", "0"};
     }
@@ -1636,6 +1682,8 @@ private:
                 for (const auto& mm : declAs<ClassDecl>(ot->sym)->methods)
                     if (!mm->isOperator && mm->name == m.member) fn = mm.get();
             if (!fn) {
+                const Type* ft = typeOf(*c.callee);
+                if (ft->kind == K::Function) return callIndirect(rvalue(*c.callee), ft, c);
                 unsupported(c.loc, "this method call");
                 return {"i64", "0"};
             }
@@ -1648,7 +1696,9 @@ private:
         const Symbol* sym = nullptr;
         if (c.callee->kind == ExprKind::Ident) sym = static_cast<const IdentExpr&>(*c.callee).sym;
         else if (c.callee->kind == ExprKind::Member) sym = static_cast<const MemberExpr&>(*c.callee).sym;
-        if (!sym) {
+        if (!sym || sym->kind == Symbol::Kind::Local) {
+            const Type* ft = typeOf(*c.callee);
+            if (ft->kind == K::Function) return callIndirect(rvalue(*c.callee), ft, c);
             unsupported(c.loc, "this call");
             return {"i64", "0"};
         }
@@ -1678,6 +1728,16 @@ private:
             return {"i64", "0"};
         default: unsupported(c.loc, "this call"); return {"i64", "0"};
         }
+    }
+
+    // Calls through a function pointer. Parameters are borrowed, like any call.
+    Val callIndirect(const Val& fp, const Type* ft, const CallExpr& c) {
+        std::string args;
+        for (size_t i = 0; i < c.args.size() && i + 1 < ft->args.size(); ++i) {
+            Val v = passArg(*c.args[i], ft->args[i + 1], false);
+            args += (args.empty() ? "" : ", ") + v.ty + " " + v.v;
+        }
+        return callRet(ft->args[0], fp.v, args);
     }
 
     Val callFunction(const FunctionDecl* fn, const Subst& s, const Type* owner, const std::string& self,

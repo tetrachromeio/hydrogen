@@ -23,7 +23,7 @@ using PatternPtr = std::unique_ptr<Pattern>;
 // ---------------------------------------------------------------- types
 
 struct TypeRef {
-    enum class Kind { Named, Array };
+    enum class Kind { Named, Array, Function };
     Kind kind = Kind::Named;
     SourceLoc loc;
     // Named: dotted path (e.g. "Atomic.Memory.Block") plus optional type args.
@@ -31,6 +31,7 @@ struct TypeRef {
     std::string name;
     std::vector<TypeRefPtr> args;
     // Array: [elem; size] or [elem] (slice) when size is null.
+    // Function: function(args...) -> elem   (elem null means no result)
     TypeRefPtr elem;
     ExprPtr size;
     const Symbol* sym = nullptr; // resolved type (Named only)
@@ -47,7 +48,7 @@ struct GenericParam {
 
 enum class ExprKind {
     IntLit, FloatLit, StringLit, CharLit, BoolLit, NullLit, Ident, Self,
-    Unary, Binary, Call, Member, Index, Try, Alloc, ArrayLit, Match
+    Unary, Binary, Call, Member, Index, Try, Alloc, ArrayLit, Match, Lambda
 };
 
 struct Type; // defined in Types.h; filled in by the type checker
@@ -153,6 +154,15 @@ struct MatchExpr : Expr {
     ExprPtr subject;
     std::vector<MatchArm> arms;
     explicit MatchExpr(SourceLoc l) : Expr(ExprKind::Match, l) {}
+};
+
+struct FunctionDecl;
+
+// function(a: int) -> int { return a + 1 }   (no captured variables yet)
+struct LambdaExpr : Expr {
+    std::unique_ptr<FunctionDecl> fn;
+    explicit LambdaExpr(SourceLoc l);
+    ~LambdaExpr() override;
 };
 
 // ---------------------------------------------------------------- statements
@@ -326,6 +336,9 @@ struct InterfaceDecl : Decl {
     std::vector<std::unique_ptr<FunctionDecl>> members; // signatures (body may be null)
     InterfaceDecl(SourceLoc l) : Decl(DeclKind::Interface, l) {}
 };
+
+inline LambdaExpr::LambdaExpr(SourceLoc l) : Expr(ExprKind::Lambda, l) {}
+inline LambdaExpr::~LambdaExpr() = default;
 
 struct Module {
     std::string fileName;

@@ -25,6 +25,7 @@ struct Type {
         Slice,    // [T]
         Generic,  // a generic parameter T
         Range,    // a..b
+        Function, // function(params) -> result; args = {result, params...}
     };
     Kind kind;
     const Symbol* sym = nullptr;   // Named: the type/class/enum; Generic: the parameter
@@ -52,6 +53,7 @@ public:
     const Type* slice(const Type* elem);
     const Type* range(const Type* elem);
     const Type* generic(const Symbol* param);
+    const Type* function(const Type* result, const std::vector<const Type*>& params);
 
     // Human-readable form for diagnostics: int, ptr<u8>, List<int>, [u8; 16]
     static std::string str(const Type* t);

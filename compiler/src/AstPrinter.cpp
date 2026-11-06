@@ -56,6 +56,13 @@ private:
     // ---------------------------------------------------------- types
 
     std::string typeStr(const TypeRef& t) {
+        if (t.kind == TypeRef::Kind::Function) {
+            std::string s = "function(";
+            for (size_t i = 0; i < t.args.size(); ++i) s += (i ? ", " : "") + typeStr(*t.args[i]);
+            s += ")";
+            if (t.elem) s += " -> " + typeStr(*t.elem);
+            return s;
+        }
         if (t.kind == TypeRef::Kind::Array) {
             std::string s = "[" + typeStr(*t.elem);
             if (t.size) s += "; " + exprStr(*t.size);
@@ -185,6 +192,13 @@ private:
             exprList(static_cast<const ArrayLitExpr&>(e).elems, depth);
             os_ << ')';
             break;
+        case ExprKind::Lambda: {
+            std::ostringstream ss;
+            Printer sub(ss);
+            sub.function(*static_cast<const LambdaExpr&>(e).fn, depth);
+            os_ << ss.str();
+            break;
+        }
         case ExprKind::Match: {
             const auto& m = static_cast<const MatchExpr&>(e);
             os_ << "(match ";
