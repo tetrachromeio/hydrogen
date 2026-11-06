@@ -195,8 +195,18 @@ sort(nums, function(a: int, b: int) -> bool { return a > b })
 - Function types: `function(int, str) -> bool`, or `function(int)` for no result.
 - They work as parameters, return values, variables and class fields
   (`self.on_click(...)` calls a field).
-- Lambdas can't use the surrounding function's variables yet (no captures):
-  pass what they need as parameters. Generic functions need a lambda wrapper.
+- **Lambdas can use the surrounding variables** (captured by reference, like C++ `[&]`):
+  ```
+  var total = 0
+  each(nums, function(n: int) { total += n })     // changes total
+  let small = filter(nums, function(n: int) -> bool { return n < limit })
+  ```
+- A lambda that captures can't outlive those variables, so it can only be called,
+  passed to a function parameter, or kept in a local. It can't be returned, stored in
+  a field or list, or passed to an `own` parameter. Inside a function, a function
+  parameter follows the same rule; write `f: own function(...)` to store it (then
+  callers must pass a named function or a lambda that captures nothing).
+- Generic functions need a lambda wrapper to be used as values.
 
 ---
 
@@ -597,7 +607,7 @@ Elemental uses `extern` to reach the C library instead.
 
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
-- Closures that capture variables (lambdas without captures work)
+- Closures that outlive the variables they capture (escaping closures)
 - Inline `asm` (parses, but the code generator rejects it). Use `extern` instead
 - Variadic C functions (like `printf`) through `extern`
 - UTF-8 decoding in `for c in text` (iterates bytes)

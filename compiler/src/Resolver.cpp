@@ -101,8 +101,9 @@ private:
     SourceFile* file_ = nullptr;
     std::vector<std::map<std::string, Symbol*>> scopes_;
     bool selfAllowed_ = false; // inside a class method
-    size_t captureBoundary_ = 0;
-    bool captureReported_ = false; // scopes below this index belong to an enclosing function (lambdas)
+    size_t captureBoundary_ = 0; // scopes below this index belong to an enclosing function (lambdas)
+    bool captureReported_ = false;
+    std::vector<std::pair<size_t, FunctionDecl*>> lambdaStack_; // (scope boundary, lambda) being resolved
 
     void error(SourceLoc loc, std::string msg) { diags_.error(file_->displayFile, loc, std::move(msg)); }
 
@@ -258,11 +259,12 @@ private:
         for (size_t i = scopes_.size(); i > 0; --i) {
             auto f = scopes_[i - 1].find(name);
             if (f == scopes_[i - 1].end()) continue;
-            if (i - 1 < captureBoundary_ && f->second->kind == Symbol::Kind::Local) {
-                error(loc, "a lambda can't use " + std::string("'") + name +
-                               "' from the function around it yet (captures aren't supported); pass it as a parameter");
-                captureReported_ = true;
-                return nullptr;
+            if (f->second->kind == Symbol::Kind::Local) {
+                // Used inside lambdas nested deeper than its scope: each of them captures it.
+                for (auto& [boundary, fn] : lambdaStack_)
+                    if (i - 1 < boundary &&
+                        std::find(fn->captures.begin(), fn->captures.end(), f->second) == fn->captures.end())
+                        fn->captures.push_back(f->second);
             }
             return f->second;
         }
@@ -579,7 +581,9 @@ private:
             auto& fn = *static_cast<LambdaExpr&>(e).fn;
             size_t savedBoundary = captureBoundary_;
             captureBoundary_ = scopes_.size();
+            lambdaStack_.push_back({scopes_.size(), &fn});
             resolveFunction(fn, false);
+            lambdaStack_.pop_back();
             captureBoundary_ = savedBoundary;
             return;
         }

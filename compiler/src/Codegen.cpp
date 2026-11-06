@@ -410,8 +410,8 @@ private:
         case K::Error: return "void";
         case K::IntLit: return "i64";
         case K::FloatLit: return "double";
-        case K::Ptr:
-        case K::Function: return "ptr";
+        case K::Ptr: return "ptr";
+        case K::Function: return "{ ptr, ptr }"; // code, captured environment (or null)
         case K::Dyn: return "{ ptr, ptr }"; // data, vtable
         case K::Array: return "[" + std::to_string(t->size) + " x " + lty(t->elem()) + "]";
         case K::Slice: return "{ ptr, i64 }";
@@ -510,7 +510,8 @@ private:
 
     uint64_t sizeOf(const Type* t) {
         switch (t->kind) {
-        case K::Dyn: return 16;
+        case K::Dyn:
+        case K::Function: return 16;
         case K::Ptr: return 8;
         case K::Slice: return 16;
         case K::Array: return sizeOf(t->elem()) * t->size;
@@ -948,6 +949,21 @@ private:
             ctx.selfPtr = "%self";
         }
         ctx.scopes.emplace_back();
+        if (lambdaIds_.count(fn)) {
+            // Lambdas receive their captured variables through %env (an array of pointers).
+            sig += "ptr %env";
+            auto types = captureTypes_[inst.name];
+            for (size_t i = 0; i < fn->captures.size() && i < types.size(); ++i) {
+                std::string slot = "%env." + std::to_string(i), p = "%cap." + std::to_string(i);
+                ctx.allocas << "  " << slot << " = getelementptr inbounds ptr, ptr %env, i64 " << i << "\n";
+                ctx.allocas << "  " << p << " = load ptr, ptr " << slot << "\n";
+                Local cap;
+                cap.ptr = p;
+                cap.type = types[i];
+                cap.varParam = true; // the variable lives in the enclosing function
+                ctx.locals[fn->captures[i]] = cap;
+            }
+        }
         for (size_t i = 0; i < fn->params.size(); ++i) {
             const Param& p = fn->params[i];
             const Type* pt = paramType(fn, i, inst.subst, inst.owner);
@@ -1456,7 +1472,7 @@ private:
             if (id.sym && id.sym->kind == Symbol::Kind::Variant) return makeVariant(typeOf(e), id.sym, {});
             if (id.sym && id.sym->kind == Symbol::Kind::Const) return constValue(id.sym, typeOf(e));
             if (id.sym && id.sym->kind == Symbol::Kind::Function)
-                return {"ptr", "@" + llvmQuote(requestFn(static_cast<const FunctionDecl*>(id.sym->decl), {}, nullptr))};
+                return functionValue(static_cast<const FunctionDecl*>(id.sym->decl));
             unsupported(e.loc, "this kind of name");
             return {"i64", "0"};
         }
@@ -1465,7 +1481,7 @@ private:
             if (m.sym && m.sym->kind == Symbol::Kind::Variant) return makeVariant(typeOf(e), m.sym, {});
             if (m.sym && m.sym->kind == Symbol::Kind::Const) return constValue(m.sym, typeOf(e));
             if (m.sym && m.sym->kind == Symbol::Kind::Function)
-                return {"ptr", "@" + llvmQuote(requestFn(static_cast<const FunctionDecl*>(m.sym->decl), {}, nullptr))};
+                return functionValue(static_cast<const FunctionDecl*>(m.sym->decl));
             const Type* ot = typeOf(*m.object);
             if ((ot->kind == K::Array) && m.member == "len") return {"i64", std::to_string(ot->size)};
             if (ot->kind == K::Slice && m.member == "len") {
@@ -1531,7 +1547,20 @@ private:
                 lambdaIds_[fn] = id;
             }
             if (f_->fn) fnFile_[fn] = fnFile_[f_->fn];
-            return {"ptr", "@" + llvmQuote(requestFn(fn, f_->subst, nullptr))};
+            std::string name = requestFn(fn, f_->subst, nullptr);
+            if (fn->captures.empty()) return makeStruct("{ ptr, ptr }", {{"ptr", "@" + llvmQuote(name)}, {"ptr", "null"}});
+            // The environment: pointers to the captured variables, on this function's stack.
+            std::vector<const Type*> types;
+            std::string env = alloca("[" + std::to_string(fn->captures.size()) + " x ptr]");
+            for (size_t i = 0; i < fn->captures.size(); ++i) {
+                const Local& l = f_->locals[fn->captures[i]];
+                types.push_back(l.type);
+                std::string slot = tmp();
+                emit(slot + " = getelementptr inbounds ptr, ptr " + env + ", i64 " + std::to_string(i));
+                emit("store ptr " + l.ptr + ", ptr " + slot);
+            }
+            captureTypes_[name] = types;
+            return makeStruct("{ ptr, ptr }", {{"ptr", "@" + llvmQuote(name)}, {"ptr", env}});
         }
         }
         return {"i64", "0"};
@@ -1913,12 +1942,43 @@ private:
         return callRet(ret, fp, args);
     }
 
-    // Calls through a function pointer. Parameters are borrowed, like any call.
-    Val callIndirect(const Val& fp, const Type* ft, const CallExpr& c) {
-        std::string args;
+    std::map<std::string, std::vector<const Type*>> captureTypes_; // lambda instance -> captured types
+
+    // A named function as a value: a thunk that takes (and ignores) an environment.
+    Val functionValue(const FunctionDecl* fn) {
+        std::string target = requestFn(fn, {}, nullptr);
+        std::string name = "thunk:" + target;
+        if (thunksDone_.insert(name).second) {
+            const Type* ret = retTypeOf(fn, {}, nullptr);
+            std::string params = "ptr %env", args;
+            for (size_t i = 0; i < fn->params.size(); ++i) {
+                const Type* p = paramType(fn, i, {}, nullptr);
+                std::string ty = isAggregate(p) && !fn->isExtern ? "ptr" : lty(p);
+                params += ", " + ty + " %a" + std::to_string(i);
+                args += (i ? ", " : "") + ty + " %a" + std::to_string(i);
+            }
+            std::string rt = lty(ret);
+            funcs_ << "define internal " << rt << " @" << llvmQuote(name) << "(" << params << ") {\nentry:\n";
+            if (rt == "void")
+                funcs_ << "  call void @" << llvmQuote(target) << "(" << args << ")\n  ret void\n}\n\n";
+            else
+                funcs_ << "  %r = call " << rt << " @" << llvmQuote(target) << "(" << args << ")\n  ret " << rt
+                       << " %r\n}\n\n";
+        }
+        return makeStruct("{ ptr, ptr }", {{"ptr", "@" + llvmQuote(name)}, {"ptr", "null"}});
+    }
+    std::set<std::string> thunksDone_;
+
+    // Calls through a function value: code(env, args...). Parameters are borrowed, like any call.
+    Val callIndirect(const Val& fv, const Type* ft, const CallExpr& c) {
+        std::string code = tmp(), env = tmp();
+        emit(code + " = extractvalue { ptr, ptr } " + fv.v + ", 0");
+        emit(env + " = extractvalue { ptr, ptr } " + fv.v + ", 1");
+        Val fp{"ptr", code};
+        std::string args = "ptr " + env;
         for (size_t i = 0; i < c.args.size() && i + 1 < ft->args.size(); ++i) {
             Val v = passArg(*c.args[i], ft->args[i + 1], false);
-            args += (args.empty() ? "" : ", ") + v.ty + " " + v.v;
+            args += ", " + v.ty + " " + v.v;
         }
         return callRet(ft->args[0], fp.v, args);
     }

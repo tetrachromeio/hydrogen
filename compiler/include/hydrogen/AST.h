@@ -276,6 +276,8 @@ struct FunctionDecl : Decl {
     bool isOperator = false;
     bool isExtern = false; // `extern function`: a C function, no body
     bool isMut = false;    // `new mut function`: a method that changes self
+    // Lambdas: variables of enclosing functions used inside (captured by reference).
+    std::vector<const Symbol*> captures;
     std::string name; // function name, or operator symbol ("+", "==", "[]", "unary-")
     std::vector<GenericParam> generics;
     std::vector<Param> params;

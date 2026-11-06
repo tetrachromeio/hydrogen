@@ -333,7 +333,8 @@ private:
                 p.name = expectIdent("a parameter name");
                 expect(Tok::Colon, "':' and a type after parameter name");
                 // `own` is contextual: `item: own T` takes ownership of the argument.
-                if (atIdent("own") && (peek(1).kind == Tok::Ident || peek(1).kind == Tok::LBracket)) {
+                if (atIdent("own") && (peek(1).kind == Tok::Ident || peek(1).kind == Tok::LBracket ||
+                                       peek(1).kind == Tok::KwFunction)) {
                     advance();
                     p.isOwn = true;
                 } else if (accept(Tok::KwVar)) {

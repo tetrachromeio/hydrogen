@@ -363,11 +363,22 @@ generic methods or `Self`, because those can't be dispatched at run time.
 - A function type is written `function(T1, T2) -> R` (`-> R` omitted for no result).
 - A non-generic function's name used as a value is a function value: `let f = double`.
   Generic functions must be wrapped in a lambda with concrete types.
-- `function(a: int) -> int { ... }` is a lambda expression. Lambdas can't use the
-  enclosing function's local variables yet (that would need captures).
+- `function(a: int) -> int { ... }` is a lambda expression. It may use the
+  enclosing functions' local variables and parameters: they are captured **by
+  reference** (changes are visible both ways), and are borrowed inside the
+  lambda (not movable).
+- **Escaping rule.** A capturing lambda, a function-typed parameter not
+  marked `own`, and a local initialized from either, are *non-escaping*: they may
+  be called, passed to a (non-`own`) function parameter, or used to initialize a
+  local, but not returned, assigned, stored in fields, variants or arrays, or
+  passed to an `own` parameter. This keeps captured variables alive for as long
+  as the lambda can run, with no heap allocation and no reference counting.
+  `f: own function(...)` accepts only non-capturing functions and may be stored.
 - Calls through a function value pass arguments borrowed, like other calls.
   Functions with `own` or `var` parameters can't be used as values yet.
-- Function values are plain code pointers: copied freely, never dropped.
+- A function value is a code pointer plus a pointer to the captured variables
+  (null when nothing is captured). The environment lives on the creating
+  function's stack. Function values are copied freely and never dropped.
 
 ## In-place parameters: `var`
 `new function bump(n: var int) { n += 1 }` borrows the caller's variable and

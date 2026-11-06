@@ -136,3 +136,23 @@ new function sequence_errors() {
     let copy = words[0].copy()         // fine
     for w in 5 { }                     // not a sequence
 }
+
+new class Holder {
+    f: function(int) -> int
+    new function init(f: own function(int) -> int) { self.f = f }
+}
+new function keeps(f: own function(int) -> int) {}
+new function store_param(f: function(int) -> int) -> function(int) -> int {
+    return f                                                  // a parameter can't escape
+}
+new function make_adder(k: int) -> function(int) -> int {
+    return function(n: int) -> int { return n + k }          // a capturing lambda can't be returned
+}
+new function escape_errors() {
+    let k = 5
+    let add_k = function(n: int) -> int { return n + k }     // fine: a local
+    keeps(add_k)                                              // own parameter: would store it
+    let h = Holder(function(n: int) -> int { return n * k }) // stored in a field
+    var saved = function(n: int) -> int { return n }          // non-capturing: fine
+    saved = add_k                                             // can't store a capturing one in a var
+}

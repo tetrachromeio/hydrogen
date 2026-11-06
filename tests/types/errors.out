@@ -39,6 +39,10 @@ tests/types/errors.h2:132:5: fixed: List<int>
 tests/types/errors.h2:134:5: words: List<string>
 tests/types/errors.h2:135:5: first: string
 tests/types/errors.h2:136:5: copy: string
+tests/types/errors.h2:152:5: k: int
+tests/types/errors.h2:153:5: add_k: function(int) -> int
+tests/types/errors.h2:155:5: h: Holder
+tests/types/errors.h2:156:5: saved: function(int) -> int
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -79,7 +83,6 @@ tests/types/errors.h2:78:10: error: 'bump' changes the value, but 'param' can't 
 tests/types/errors.h2:90:9: error: 'n' is a var parameter, but 'fixed' can't be changed (it's a let or a parameter). Declare it with var
 tests/types/errors.h2:91:9: error: 'n' is a var parameter, but 'param' can't be changed (it's a let or a parameter). Declare it with var
 tests/types/errors.h2:92:9: error: 'n' is a var parameter: pass a variable that can be changed, not a value
-tests/types/errors.h2:100:54: error: a lambda can't use 'k' from the function around it yet (captures aren't supported); pass it as a parameter
 tests/types/errors.h2:101:13: error: 'twice' is generic, so it can't be used as a value directly; wrap it in a lambda with concrete types
 tests/types/errors.h2:102:35: error: value of 'h': expected function(int) -> int, found function(str) -> int
 tests/types/errors.h2:104:8: error: this function takes 1 argument, but 2 were given
@@ -94,3 +97,8 @@ tests/types/errors.h2:128:5: error: cannot assign to constant 'TOO_BIG'
 tests/types/errors.h2:133:10: error: cannot change 'fixed': it is immutable. Declare it with 'var' to allow changes
 tests/types/errors.h2:135:22: error: cannot move an element out of words. Use words[...].copy() to make a copy
 tests/types/errors.h2:137:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays, strings, and classes with len() and at(i) methods
+tests/types/errors.h2:146:12: error: 'f' is a function parameter, which may use its caller's local variables, so it can only be called or passed on. To store it, declare 'f: own function(...)' (callers then can't pass lambdas that capture)
+tests/types/errors.h2:149:12: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:154:11: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:155:20: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:157:13: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter

@@ -2071,6 +2071,31 @@ private:
     std::set<std::string> reportedMoves_;
     std::map<const Type*, bool> resourceCache_;
 
+    // Function values that may point at local variables (capturing lambdas,
+    // function parameters, locals holding those): call or pass them, never store them.
+    std::set<const Symbol*> nonEscaping_;
+
+    bool isNonEscaping(const Expr& e) {
+        if (e.kind == ExprKind::Lambda) return !static_cast<const LambdaExpr&>(e).fn->captures.empty();
+        if (e.kind == ExprKind::Ident) return nonEscaping_.count(static_cast<const IdentExpr&>(e).sym) > 0;
+        return false;
+    }
+
+    void escapeError(const Expr& e) {
+        if (e.kind == ExprKind::Ident && moveFn_ &&
+            std::any_of(moveFn_->params.begin(), moveFn_->params.end(),
+                        [&](const Param& p) { return p.sym == static_cast<const IdentExpr&>(e).sym; })) {
+            const std::string& n = static_cast<const IdentExpr&>(e).name;
+            moveError(e.loc, q(n) + " is a function parameter, which may use its caller's local variables, so it "
+                                    "can only be called or passed on. To store it, declare '" + n +
+                                    ": own function(...)' (callers then can't pass lambdas that capture)");
+            return;
+        }
+        moveError(e.loc, "this function value uses local variables from the code around it, so it can only be called "
+                         "or passed to a function parameter: it can't be stored, returned, or given to an 'own' "
+                         "parameter");
+    }
+
     // Move-check state for the function being walked.
     Subst moveSubst_;
     std::string moveContext_;
@@ -2179,10 +2204,18 @@ private:
         moveContext_ = origin;
         moveFn_ = &fn;
         vars_.clear();
+        nonEscaping_.clear();
         moveLoop_ = 0;
         breakStates_.clear();
-        for (const auto& p : fn.params)
-            if (p.sym) vars_[p.sym] = VarInfo{VarState::Live, {}, !p.isOwn, 0};
+        // A lambda's captured variables belong to the enclosing function: borrowed here.
+        for (const Symbol* c : fn.captures) vars_[c] = VarInfo{VarState::Live, {}, true, 0};
+        for (const auto& p : fn.params) {
+            if (!p.sym) continue;
+            vars_[p.sym] = VarInfo{VarState::Live, {}, !p.isOwn, 0};
+            // A function parameter may capture its caller's variables: it must not escape.
+            auto t = localTypes_.find(p.sym);
+            if (!p.isOwn && t != localTypes_.end() && t->second->kind == K::Function) nonEscaping_.insert(p.sym);
+        }
         moveBlock(*fn.body);
     }
 
@@ -2260,6 +2293,10 @@ private:
     // Visits an expression. `consume`: the value is moved out of this position.
     void moveExpr(const Expr& e, bool consume) {
         if (consume && viewCoerced_.count(&e)) consume = false; // used as a str view: borrowed
+        if (consume && isNonEscaping(e)) {
+            escapeError(e);
+            consume = false;
+        }
         switch (e.kind) {
         case ExprKind::Ident: {
             const auto& id = static_cast<const IdentExpr&>(e);
@@ -2408,6 +2445,13 @@ private:
         case StmtKind::Block: return moveBlock(static_cast<const Block&>(s));
         case StmtKind::Let: {
             const auto& l = static_cast<const LetStmt&>(s);
+            if (l.init && isNonEscaping(*l.init)) {
+                // A local may hold it (it can't outlive this function); it stays non-escaping.
+                if (l.sym) nonEscaping_.insert(l.sym);
+                moveExpr(*l.init, false);
+                if (l.sym) vars_[l.sym] = VarInfo{VarState::Live, {}, false, moveLoop_};
+                return true;
+            }
             if (l.init) moveExpr(*l.init, true);
             if (l.sym) vars_[l.sym] = VarInfo{VarState::Live, {}, false, moveLoop_};
             return true;
