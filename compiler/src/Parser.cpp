@@ -237,7 +237,7 @@ private:
             expectTerminator("'include'");
             return d;
         }
-        if (!at(Tok::KwNew)) failExpected("'new', 'use', 'include' or 'pub' at top level");
+        if (!at(Tok::KwNew)) failExpected("'new', 'use', 'include', 'extern' or 'pub' at top level");
         switch (peek(1).kind) {
         case Tok::KwFunction:
         case Tok::KwOperator: return parseFunction(/*bodyOptional=*/false);
