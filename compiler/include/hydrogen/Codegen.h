@@ -9,6 +9,8 @@ namespace h2 {
 
 // Lowers a checked program to textual LLVM IR. The program's `main` becomes
 // the C entry point. Returns false (after reporting) on unsupported features.
-bool emitLLVM(Program& program, TypeContext& types, const SemaInfo& info, Diagnostics& diags, std::ostream& out);
+// `checks`: stop the program on integer overflow and division by zero (debug builds).
+bool emitLLVM(Program& program, TypeContext& types, const SemaInfo& info, Diagnostics& diags, std::ostream& out,
+              bool checks = true);
 
 } // namespace h2

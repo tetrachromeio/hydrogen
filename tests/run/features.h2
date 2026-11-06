@@ -22,7 +22,7 @@ new class Named {
         self.name = name
         self.count = 0
     }
-    new function bump() { self.count += 1 }
+    new mut function bump() { self.count += 1 }
 }
 
 new enum Shape {
@@ -107,7 +107,7 @@ new function main() -> int {
     print(describe(parse("")))
     print(describe(parse("1x3")))
     let owned = string("moved")
-    let n = Named(owned)
+    var n = Named(owned)
     n.bump()
     print(n.count)
     print(n.name)

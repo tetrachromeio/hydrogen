@@ -2,7 +2,7 @@ use Elemental
 use Bank
 
 new function main() -> int {
-    let acct = open_account(100)
+    var acct = open_account(100)
     let shown = acct.owner_id     // pub field: fine
     let secret = acct.balance     // private field
     acct.deposit(5)               // pub method: fine

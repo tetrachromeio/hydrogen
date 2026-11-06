@@ -327,6 +327,7 @@ private:
         if (f.isPub && !f.isOperator) os_ << "(pub ";
         else os_ << '(';
         if (f.isExtern) os_ << "extern ";
+        if (f.isMut) os_ << "mut ";
         os_ << (f.isOperator ? "operator " : "function ") << f.name << genericsStr(f.generics) << " (";
         for (size_t i = 0; i < f.params.size(); ++i) {
             if (i) os_ << ' ';

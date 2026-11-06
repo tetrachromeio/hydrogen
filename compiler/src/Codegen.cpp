@@ -121,8 +121,8 @@ uint32_t decodeChar(const std::string& s) {
 
 class Codegen {
 public:
-    Codegen(Program& p, TypeContext& tc, const SemaInfo& info, Diagnostics& d)
-        : prog_(p), tc_(tc), info_(info), diags_(d) {}
+    Codegen(Program& p, TypeContext& tc, const SemaInfo& info, Diagnostics& d, bool checks)
+        : prog_(p), tc_(tc), info_(info), diags_(d), checks_(checks) {}
 
     bool run(std::ostream& out) {
         for (auto& m : prog_.modules) {
@@ -166,7 +166,9 @@ private:
     TypeContext& tc_;
     const SemaInfo& info_;
     Diagnostics& diags_;
+    bool checks_;
     bool failed_ = false;
+    std::set<std::string> rawDecls_; // extra declarations (overflow intrinsics, trap)
 
     std::ostringstream types_, globals_, funcs_;
     std::set<std::string> structsDone_;
@@ -671,6 +673,7 @@ private:
         };
         std::string out;
         std::set<std::string> externNames;
+        for (const auto& d : rawDecls_) out += d + "\n";
         for (const auto& d : externDecls_) {
             out += d + "\n";
             size_t at = d.find('@'), paren = d.find('(', at);
@@ -1763,6 +1766,24 @@ private:
         static const std::map<std::string, std::string> cmps = {
             {"eq", "icmp eq"}, {"slt", "icmp slt"}, {"ult", "icmp ult"}, {"sle", "icmp sle"}, {"sgt", "icmp sgt"},
             {"ugt", "icmp ugt"}, {"sge", "icmp sge"}, {"feq", "fcmp oeq"}, {"flt", "fcmp olt"}};
+        if (checks_ && (name == "add" || name == "sub" || name == "mul") && a[0].ty != "i1") {
+            // Debug builds stop the program on overflow instead of wrapping.
+            bool isSigned = scalarOf(ts[0]).isSigned;
+            std::string fn = std::string("llvm.") + (isSigned ? "s" : "u") + name + ".with.overflow." + a[0].ty;
+            std::string pair = "{ " + a[0].ty + ", i1 }";
+            rawDecls_.insert("declare " + pair + " @" + fn + "(" + a[0].ty + ", " + a[0].ty + ")");
+            std::string r = tmp(), v = tmp(), o = tmp();
+            emit(r + " = call " + pair + " @" + fn + "(" + a[0].ty + " " + a[0].v + ", " + a[0].ty + " " + a[1].v + ")");
+            emit(v + " = extractvalue " + pair + " " + r + ", 0");
+            emit(o + " = extractvalue " + pair + " " + r + ", 1");
+            trapIf(o);
+            return {a[0].ty, v};
+        }
+        if (checks_ && (name == "sdiv" || name == "udiv" || name == "srem" || name == "urem")) {
+            std::string z = tmp();
+            emit(z + " = icmp eq " + a[1].ty + " " + a[1].v + ", 0");
+            trapIf(z);
+        }
         if (auto it = arith.find(name); it != arith.end()) return bin(it->second);
         if (auto it = cmps.find(name); it != cmps.end()) return cmp(it->second);
         if (name == "neg") {
@@ -1847,6 +1868,17 @@ private:
         }
         unsupported(c.loc, "intrinsic." + name);
         return {"i64", "0"};
+    }
+
+    // Stops the program (llvm.trap) when `cond` is true. Works without any OS.
+    void trapIf(const std::string& cond) {
+        rawDecls_.insert("declare void @llvm.trap() cold noreturn nounwind");
+        std::string bad = newLabel("trap"), ok = newLabel("checked");
+        terminate("br i1 " + cond + ", label %" + bad + ", label %" + ok);
+        startBlock(bad);
+        emit("call void @llvm.trap()");
+        terminate("unreachable");
+        startBlock(ok);
     }
 
     // ------------------------------------------------------------ match and ?
@@ -2001,8 +2033,9 @@ private:
 
 } // namespace
 
-bool emitLLVM(Program& program, TypeContext& types, const SemaInfo& info, Diagnostics& diags, std::ostream& out) {
-    return Codegen(program, types, info, diags).run(out);
+bool emitLLVM(Program& program, TypeContext& types, const SemaInfo& info, Diagnostics& diags, std::ostream& out,
+              bool checks) {
+    return Codegen(program, types, info, diags, checks).run(out);
 }
 
 } // namespace h2

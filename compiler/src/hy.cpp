@@ -132,7 +132,7 @@ std::optional<Loaded> loadProject() {
 
 // Runs the front end over the project. Returns the number of modules, or -1 on errors.
 // If `llPath` is given, also writes the program's LLVM IR there.
-int checkProject(const Loaded& p, const fs::path* llPath = nullptr) {
+int checkProject(const Loaded& p, const fs::path* llPath = nullptr, bool release = false) {
     std::error_code ec;
     if (!fs::is_regular_file(p.manifest.entry, ec)) {
         fail("entry file " + p.manifest.entry.generic_string() + " does not exist");
@@ -160,7 +160,7 @@ int checkProject(const Loaded& p, const fs::path* llPath = nullptr) {
             fail("cannot write " + llPath->generic_string());
             return -1;
         }
-        h2::emitLLVM(*program, types, info, diags, out);
+        h2::emitLLVM(*program, types, info, diags, out, /*checks=*/!release);
     }
     diags.print(std::cerr);
     if (diags.hasErrors()) {
@@ -209,7 +209,7 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
     fs::create_directories(buildDir, ec);
     fs::path ll = buildDir / (p->manifest.name + ".ll");
     fs::path exe = buildDir / p->manifest.name;
-    if (checkProject(*p, &ll) < 0) return 1;
+    if (checkProject(*p, &ll, release) < 0) return 1;
 
     const char* cc = std::getenv("H2_CC");
     std::string runtime = std::string(H2_STDLIB_DIR) + "/runtime/h2rt.c";
@@ -227,7 +227,12 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
     std::vector<std::string> argv = {exe.string()};
     argv.insert(argv.end(), runArgs.begin(), runArgs.end());
     std::cout.flush();
-    return runProcess(argv);
+    int status = runProcess(argv);
+    if (status == 128 + 4 || status == 128 + 5) // SIGILL / SIGTRAP from a runtime check
+        std::cerr << "\nerror: " << p->manifest.name
+                  << " stopped at a runtime check: integer overflow or division by zero.\n"
+                     "(Release builds, hy run --release, skip these checks and wrap around instead.)\n";
+    return status;
 }
 
 int cmdDeps() {

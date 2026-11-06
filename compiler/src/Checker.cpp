@@ -108,6 +108,8 @@ private:
     const Type* selfType_ = nullptr;  // type of `self` / `Self`
     int loopDepth_ = 0;
     int aliasDepth_ = 0;
+    bool selfMutable_ = false;              // inside init, drop or a `mut` method
+    const FunctionDecl* currentFn_ = nullptr;
 
     void error(SourceLoc loc, const std::string& msg) { diags_.error(file_->displayFile, loc, msg); }
     static std::string str(const Type* t) { return TypeContext::str(t); }
@@ -1012,6 +1014,13 @@ private:
                 for (const auto& fn : declAs<ClassDecl>(base->sym)->methods) {
                     if (fn->isOperator || fn->name != m.member) continue;
                     checkMemberAccess(base->sym, fn->isPub, "method", fn->name, m.loc);
+                    if (fn->isMut && obj->kind != K::Ptr && isPlace(*m.object)) {
+                        if (const Symbol* root = immutableRoot(*m.object))
+                            error(m.loc, q(fn->name) + " changes the value, but " + q(root->name) +
+                                             " can't be changed (it's a let or a parameter). Declare it with var");
+                        else if (selfRooted(*m.object) && !selfMutable_)
+                            error(m.loc, q(fn->name) + " changes self, but this method can't" + mutHint());
+                    }
                     const Sig& sig = sigOf(*fn, selfTypeOf(base->sym));
                     Subst s = substFor(base);
                     std::set<const Symbol*> vars;
@@ -1420,6 +1429,8 @@ private:
                 } else if (const Symbol* root = immutableRoot(*a.target)) {
                     error(a.target->loc, "cannot change " + q(root->name) +
                                              ": it is immutable. Declare it with 'var' to allow changes");
+                } else if (selfRooted(*a.target) && !selfMutable_) {
+                    error(a.target->loc, "this method can't change self" + mutHint());
                 }
                 if (bad) target = tc_.error();
             }
@@ -1577,8 +1588,12 @@ private:
         const Sig& sig = sigOf(f, ownerSelf);
         const Type* savedRet = retType_;
         const Type* savedSelf = selfType_;
+        bool savedMut = selfMutable_;
+        const FunctionDecl* savedFn = currentFn_;
         retType_ = sig.ret;
         selfType_ = ownerSelf;
+        currentFn_ = &f;
+        selfMutable_ = f.isMut || f.name == "init" || f.name == "drop";
         for (size_t i = 0; i < f.params.size(); ++i)
             if (f.params[i].sym) localTypes_[f.params[i].sym] = sig.params[i];
         checkBlock(*f.body);
@@ -1587,6 +1602,31 @@ private:
                                    " on every path; add a return at the end");
         retType_ = savedRet;
         selfType_ = savedSelf;
+        selfMutable_ = savedMut;
+        currentFn_ = savedFn;
+    }
+
+    // Is this place part of `self` (not reached through a pointer)?
+    bool selfRooted(const Expr& e) {
+        switch (e.kind) {
+        case ExprKind::Self: return true;
+        case ExprKind::Member: {
+            const auto& m = static_cast<const MemberExpr&>(e);
+            if (m.sym || (m.object->type && m.object->type->kind == K::Ptr)) return false;
+            return selfRooted(*m.object);
+        }
+        case ExprKind::Index: {
+            const auto& i = static_cast<const IndexExpr&>(e);
+            if (i.object->type && (i.object->type->kind == K::Ptr || i.object->type->kind == K::Slice)) return false;
+            return selfRooted(*i.object);
+        }
+        default: return false;
+        }
+    }
+
+    std::string mutHint() {
+        std::string n = currentFn_ ? currentFn_->name : "this method";
+        return "; mark the method 'new mut function " + n + "' to allow it";
     }
 
     void checkDecl(Decl& d) {

@@ -294,6 +294,10 @@ private:
 
     std::unique_ptr<FunctionDecl> parseFunction(bool bodyOptional) {
         auto f = std::make_unique<FunctionDecl>(expect(Tok::KwNew).loc);
+        if (atIdent("mut") && peek(1).kind == Tok::KwFunction) {
+            advance();
+            f->isMut = true;
+        }
         if (accept(Tok::KwOperator)) {
             f->isOperator = true;
             f->name = parseOperatorSymbol();
@@ -427,6 +431,8 @@ private:
             bool isPub = accept(Tok::KwPub);
             if (at(Tok::KwNew)) {
                 Tok k = peek(1).kind;
+                if (peek(1).kind == Tok::Ident && peek(1).text == "mut" && peek(2).kind == Tok::KwFunction)
+                    k = Tok::KwFunction;
                 if (k != Tok::KwFunction && k != Tok::KwOperator)
                     fail(peek(1).loc, "only 'new function' and 'new operator' are allowed inside a class");
                 auto m = parseFunction(false);

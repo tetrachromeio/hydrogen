@@ -18,7 +18,7 @@ new class Stack<T> {
     items: ptr<T>
     count: uint
 
-    new function push(item: T) {
+    new mut function push(item: T) {
         self.items[self.count] = item
         self.count += 1
     }
@@ -65,7 +65,7 @@ new function main() -> int {
     let farther = biggest(Meters(1.0), d)
     let bigger = biggest(3, 7)
     let explicit = biggest<u8>(1, 2)
-    let s = Stack<int>(alloc [int; 16], 0)
+    var s = Stack<int>(alloc [int; 16], 0)
     s.push(42)
     let t = s.top()
     let p = &count

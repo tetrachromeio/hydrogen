@@ -63,3 +63,23 @@ new class BadConv {
     n: int
     new operator string (b: BadConv) -> int { return 1 }
 }
+
+new class Counter {
+    count: int
+    new function peek() -> int { return self.count }
+    new function sneaky() { self.count = 9 }          // not mut: can't change self
+    new mut function bump() { self.count += 1 }
+    new function calls_mut() { self.bump() }          // not mut: can't call a mut method on self
+}
+
+new function use_counter(param: Counter) {
+    let fixed = Counter(0)
+    fixed.bump()                                       // let: can't call mut
+    param.bump()                                       // parameter: can't call mut
+    var changing = Counter(0)
+    changing.bump()                                    // fine
+    Counter(1).bump()                                  // fine: a temporary
+    let p = alloc Counter(2)
+    p.bump()                                           // fine: through a pointer
+    free p
+}

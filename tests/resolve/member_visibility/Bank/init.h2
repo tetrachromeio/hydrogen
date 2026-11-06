@@ -2,7 +2,7 @@ pub new class Account {
     pub owner_id: int
     balance: int
 
-    pub new function deposit(amount: int) { self.balance += amount }
+    pub new mut function deposit(amount: int) { self.balance += amount }
     new function audit() {}
 }
 

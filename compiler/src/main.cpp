@@ -53,12 +53,15 @@ void dumpTokens(const std::vector<h2::Token>& toks) {
 
 int main(int argc, char** argv) {
     std::string mode, file;
+    bool release = false;
     std::vector<std::filesystem::path> libs;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--tokens" || a == "--ast" || a == "--check" || a == "--types" || a == "--emit-llvm") {
             if (!mode.empty()) return usage();
             mode = a;
+        } else if (a == "--release") {
+            release = true; // no overflow / division-by-zero checks
         } else if (a == "-L") {
             if (++i >= argc) return usage();
             libs.emplace_back(argv[i]);
@@ -88,7 +91,8 @@ int main(int argc, char** argv) {
             h2::resolveProgram(*program, diags);
             h2::typecheckProgram(*program, types, diags, mode == "--types" ? &notes : nullptr, &info);
         }
-        if (mode == "--emit-llvm" && !diags.hasErrors()) h2::emitLLVM(*program, types, info, diags, std::cout);
+        if (mode == "--emit-llvm" && !diags.hasErrors())
+            h2::emitLLVM(*program, types, info, diags, std::cout, /*checks=*/!release);
         for (const auto& n : notes)
             std::cout << n.file << ':' << n.loc.line << ':' << n.loc.col << ": " << n.name << ": " << n.type << '\n';
         diags.print(std::cerr);

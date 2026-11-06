@@ -4,7 +4,7 @@ use Elemental
 new class Stack<T> {
     items: ptr<T>
     count: uint
-    new function push(item: own T) { self.items[self.count] = item }   // own: may store it
+    new mut function push(item: own T) { self.items[self.count] = item }   // own: may store it
 }
 
 new function take(s: own string) -> string { return s }
@@ -20,7 +20,7 @@ new function fine() {
     let c = take(a)               // move into own
     var d = string("d")
     d = string("again")           // replacing the value is fine
-    let s = Stack<string>(alloc [string; 4], 0)
+    var s = Stack<string>(alloc [string; 4], 0)
     s.push(b)                     // moved into the stack
     let n = 1
     let m = n                     // plain values copy

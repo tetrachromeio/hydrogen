@@ -33,7 +33,7 @@ pub new class string {
     // A borrowed view of the text; valid while this string is alive and unchanged.
     pub new function view() -> str { return str(self.buf, self.used) }
 
-    pub new function append(text: str) {
+    pub new mut function append(text: str) {
         let needed = self.used + text.len
         if needed > self.cap {
             var grown = self.cap * 2
