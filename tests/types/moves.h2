@@ -1,0 +1,96 @@
+use Elemental
+
+// ---- things that are fine
+new class Stack<T> {
+    items: ptr<T>
+    count: uint
+    new mut function push(item: own T) { self.items[self.count] = item }   // own: may store it
+}
+
+new function take(s: own string) -> string { return s }
+new function look(s: str) {}
+new function first<T>(a: T, b: T) -> T { return a }
+new function grab<T>(x: own T) -> T { return x }
+
+new function fine() {
+    let a = string("a")
+    look(a)                       // borrow
+    look(a)                       // still usable
+    let b = a.copy()              // explicit copy
+    let c = take(a)               // move into own
+    var d = string("d")
+    d = string("again")           // replacing the value is fine
+    var s = Stack<string>(alloc [string; 4], 0)
+    s.push(b)                     // moved into the stack
+    let n = 1
+    let m = n                     // plain values copy
+    let x = n + m
+    let view: str = c             // string -> str is a borrow, not a move
+    print(c)
+    let picked = first(1, 2)      // first<int> is fine
+    let kept = grab(string("k"))  // grab<string> takes ownership: fine
+    var e = string("e")
+    while x > 0 {
+        let moved = e             // moved inside the loop...
+        e = string("refill")      // ...and replaced before the next iteration: fine
+    }
+    for i in 0..3 {
+        let last = kept           // moved, but the loop always exits right after
+        break
+    }
+}
+
+// ---- errors
+new class Holder { name: string }
+
+new function view_of_local() -> str {
+    let s = string("temp")
+    return s                      // dangling view
+}
+
+new function view_of_temporary() -> str {
+    return "a" + "b"              // the joined string dies here
+}
+
+new function view_of_param(s: string) -> str {
+    return s                      // fine: the caller's string outlives this call
+}
+
+new function errors(flag: bool, param: string) {
+    let a = string("a")
+    let b = a
+    print(a)                      // moved
+    var c = string("c")
+    if flag { take(c) }
+    print(c)                      // maybe moved
+    let d = string("d")
+    for i in 0..3 { take(d) }     // moved in a loop, never replaced
+    var f = string("f")
+    for i in 0..3 {
+        if flag { continue }      // this path loops back with f intact...
+        take(f)                   // ...this one loops back with f moved
+    }
+    let keep = param              // parameters are borrowed
+    let h = Holder(string("h"))
+    let stolen = h.name           // can't move a field out
+    let o = Some(string("o"))
+    match o {
+        Some(inner) => { take(inner) }    // fine: the match owns o, so inner is owned
+        None => {}
+    }
+    match o {                             // o was moved into the match above
+        Some(again) => {}
+        None => {}
+    }
+    let w = first(string("p"), string("q"))   // first<string> moves a borrowed param
+    let e = string("e")
+    let wrapped = Some(e)
+    print(e)                      // moved into Some
+}
+
+new function borrowed_match(opt: Option<string>) {
+    match opt {
+        Some(inner) => { take(inner) }    // opt is borrowed, so its bindings are too
+        None => {}
+    }
+}

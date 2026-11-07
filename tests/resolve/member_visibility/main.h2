@@ -1,0 +1,13 @@
+use Elemental
+use Bank
+
+new function main() -> int {
+    var acct = open_account(100)
+    let shown = acct.owner_id     // pub field: fine
+    let secret = acct.balance     // private field
+    acct.deposit(5)               // pub method: fine
+    acct.audit()                  // private method
+    let direct = Account(1, 2)    // fields are private: can't construct directly
+    let v = Vault(10)             // init is private
+    return 0
+}

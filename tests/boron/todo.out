@@ -1,0 +1,31 @@
+[boron] window "To Do" 420x360
+[boron] css
+.bn-item { display: flex; align-items: center; gap: 8px; min-height: 26px }
+[boron] render
+<h1>To Do</h1><p class="bn-caption">0 of 0 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="" placeholder="What needs doing?"><button data-bn="add" data-bn-click disabled>Add</button></div><div class="bn-card"><p class="bn-caption">Nothing yet.</p></div>
+[boron] event input draft Buy milk
+[boron] render
+<h1>To Do</h1><p class="bn-caption">0 of 0 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="Buy milk" placeholder="What needs doing?"><button data-bn="add" data-bn-click class="bn-accent">Add</button></div><div class="bn-card"><p class="bn-caption">Nothing yet.</p></div>
+[boron] event submit draft Buy milk
+[boron] render
+<h1>To Do</h1><p class="bn-caption">1 of 1 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="" placeholder="What needs doing?"><button data-bn="add" data-bn-click disabled>Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0">Buy milk</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div></div>
+[boron] event input draft  Write <Boron> & docs 
+[boron] render
+<h1>To Do</h1><p class="bn-caption">1 of 1 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value=" Write &lt;Boron&gt; &amp; docs " placeholder="What needs doing?"><button data-bn="add" data-bn-click class="bn-accent">Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0">Buy milk</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div></div>
+[boron] event click add
+[boron] render
+<h1>To Do</h1><p class="bn-caption">2 of 2 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="" placeholder="What needs doing?"><button data-bn="add" data-bn-click disabled>Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0">Buy milk</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:1">Write &lt;Boron&gt; &amp; docs</label><div class="bn-spacer"></div><button data-bn="delete:1" data-bn-click>Delete</button></div></div>
+[boron] event input draft Call mom
+[boron] render
+<h1>To Do</h1><p class="bn-caption">2 of 2 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="Call mom" placeholder="What needs doing?"><button data-bn="add" data-bn-click class="bn-accent">Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0">Buy milk</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:1">Write &lt;Boron&gt; &amp; docs</label><div class="bn-spacer"></div><button data-bn="delete:1" data-bn-click>Delete</button></div></div>
+[boron] event click add
+[boron] render
+<h1>To Do</h1><p class="bn-caption">3 of 3 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="" placeholder="What needs doing?"><button data-bn="add" data-bn-click disabled>Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0">Buy milk</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:1">Write &lt;Boron&gt; &amp; docs</label><div class="bn-spacer"></div><button data-bn="delete:1" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:2">Call mom</label><div class="bn-spacer"></div><button data-bn="delete:2" data-bn-click>Delete</button></div></div>
+[boron] event change done:1 true
+[boron] render
+<h1>To Do</h1><p class="bn-caption">2 of 3 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="" placeholder="What needs doing?"><button data-bn="add" data-bn-click disabled>Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0">Buy milk</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:1" checked>Write &lt;Boron&gt; &amp; docs</label><div class="bn-spacer"></div><button data-bn="delete:1" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:2">Call mom</label><div class="bn-spacer"></div><button data-bn="delete:2" data-bn-click>Delete</button></div></div>
+[boron] event click delete:0
+[boron] render
+<h1>To Do</h1><p class="bn-caption">1 of 2 left</p><div class="bn-row"><input type="text" class="bn-grow" data-bn="draft" value="" placeholder="What needs doing?"><button data-bn="add" data-bn-click disabled>Add</button></div><div class="bn-card"><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:0" checked>Write &lt;Boron&gt; &amp; docs</label><div class="bn-spacer"></div><button data-bn="delete:0" data-bn-click>Delete</button></div><div class="bn-item"><label class="bn-check"><input type="checkbox" data-bn="done:1">Call mom</label><div class="bn-spacer"></div><button data-bn="delete:1" data-bn-click>Delete</button></div></div>
+[boron] closed
+[exit 0]

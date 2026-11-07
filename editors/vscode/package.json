@@ -1,0 +1,42 @@
+{
+  "name": "hydrogen-language",
+  "displayName": "Hydrogen",
+  "description": "Hydrogen (.h2) language support: syntax highlighting, live errors, go to definition and hover, via `hy lsp`.",
+  "version": "0.1.0",
+  "publisher": "tetrachrome",
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "hydrogen",
+        "aliases": ["Hydrogen", "hydrogen"],
+        "extensions": [".h2"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "hydrogen",
+        "scopeName": "source.hydrogen",
+        "path": "./syntaxes/hydrogen.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Hydrogen",
+      "properties": {
+        "hydrogen.hyPath": {
+          "type": "string",
+          "default": "hy",
+          "description": "Path to the `hy` tool (it runs the language server with `hy lsp`)."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

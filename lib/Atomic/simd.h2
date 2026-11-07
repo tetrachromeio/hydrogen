@@ -1,0 +1,336 @@
+// SIMD vectors: several numbers processed by one instruction (SSE/AVX on x86-64,
+// NEON on ARM64). Freestanding: they compile to plain CPU instructions.
+//
+//     let a = ptr<f32x8>(&xs[i])[0]       // load 8 floats from memory (any alignment)
+//     ptr<f32x8>(&out[i])[0] = a * b      // store 8
+//     var acc = f32x8(0.0)                // every lane set to one value
+//     acc = f32x8_fma(a, b, acc)          // a * b + acc, lane by lane
+//     let total = f32x8_sum(acc)          // all lanes added together
+//     let first = a[0]                    // one lane
+//     let wide = i32x16(bytes)            // lane-by-lane conversion (same lane count)
+//
+// Integer vector arithmetic wraps around (no overflow checks), as SIMD hardware does.
+// Shifts take a vector of amounts (u8x16(4): every lane by 4); >> is logical for
+// unsigned lanes and arithmetic for signed ones.
+
+
+pub new type f32x4 : vector(f32, 4) {
+    new operator + (a: f32x4, b: f32x4) -> f32x4 { return intrinsic.fadd(a, b) }
+    new operator - (a: f32x4, b: f32x4) -> f32x4 { return intrinsic.fsub(a, b) }
+    new operator * (a: f32x4, b: f32x4) -> f32x4 { return intrinsic.fmul(a, b) }
+    new operator / (a: f32x4, b: f32x4) -> f32x4 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f32x4) -> f32x4 { return intrinsic.fneg(a) }
+    new operator [] (v: f32x4, i: int) -> f32 { return intrinsic.lane(v, i) }
+}
+pub new function f32x4_sum(v: f32x4) -> f32 { return intrinsic.vsum(v) }
+pub new function f32x4_with(v: f32x4, i: int, x: f32) -> f32x4 { return intrinsic.with_lane(v, i, x) }
+pub new function f32x4_fma(a: f32x4, b: f32x4, c: f32x4) -> f32x4 { return intrinsic.fma(a, b, c) }
+pub new function f32x4_max(a: f32x4, b: f32x4) -> f32x4 { return intrinsic.fmax(a, b) }
+pub new function f32x4_min(a: f32x4, b: f32x4) -> f32x4 { return intrinsic.fmin(a, b) }
+
+pub new type f32x8 : vector(f32, 8) {
+    new operator + (a: f32x8, b: f32x8) -> f32x8 { return intrinsic.fadd(a, b) }
+    new operator - (a: f32x8, b: f32x8) -> f32x8 { return intrinsic.fsub(a, b) }
+    new operator * (a: f32x8, b: f32x8) -> f32x8 { return intrinsic.fmul(a, b) }
+    new operator / (a: f32x8, b: f32x8) -> f32x8 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f32x8) -> f32x8 { return intrinsic.fneg(a) }
+    new operator [] (v: f32x8, i: int) -> f32 { return intrinsic.lane(v, i) }
+}
+pub new function f32x8_sum(v: f32x8) -> f32 { return intrinsic.vsum(v) }
+pub new function f32x8_with(v: f32x8, i: int, x: f32) -> f32x8 { return intrinsic.with_lane(v, i, x) }
+pub new function f32x8_fma(a: f32x8, b: f32x8, c: f32x8) -> f32x8 { return intrinsic.fma(a, b, c) }
+pub new function f32x8_max(a: f32x8, b: f32x8) -> f32x8 { return intrinsic.fmax(a, b) }
+pub new function f32x8_min(a: f32x8, b: f32x8) -> f32x8 { return intrinsic.fmin(a, b) }
+
+pub new type f32x16 : vector(f32, 16) {
+    new operator + (a: f32x16, b: f32x16) -> f32x16 { return intrinsic.fadd(a, b) }
+    new operator - (a: f32x16, b: f32x16) -> f32x16 { return intrinsic.fsub(a, b) }
+    new operator * (a: f32x16, b: f32x16) -> f32x16 { return intrinsic.fmul(a, b) }
+    new operator / (a: f32x16, b: f32x16) -> f32x16 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f32x16) -> f32x16 { return intrinsic.fneg(a) }
+    new operator [] (v: f32x16, i: int) -> f32 { return intrinsic.lane(v, i) }
+}
+pub new function f32x16_sum(v: f32x16) -> f32 { return intrinsic.vsum(v) }
+pub new function f32x16_with(v: f32x16, i: int, x: f32) -> f32x16 { return intrinsic.with_lane(v, i, x) }
+pub new function f32x16_fma(a: f32x16, b: f32x16, c: f32x16) -> f32x16 { return intrinsic.fma(a, b, c) }
+pub new function f32x16_max(a: f32x16, b: f32x16) -> f32x16 { return intrinsic.fmax(a, b) }
+pub new function f32x16_min(a: f32x16, b: f32x16) -> f32x16 { return intrinsic.fmin(a, b) }
+
+pub new type f64x2 : vector(f64, 2) {
+    new operator + (a: f64x2, b: f64x2) -> f64x2 { return intrinsic.fadd(a, b) }
+    new operator - (a: f64x2, b: f64x2) -> f64x2 { return intrinsic.fsub(a, b) }
+    new operator * (a: f64x2, b: f64x2) -> f64x2 { return intrinsic.fmul(a, b) }
+    new operator / (a: f64x2, b: f64x2) -> f64x2 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f64x2) -> f64x2 { return intrinsic.fneg(a) }
+    new operator [] (v: f64x2, i: int) -> f64 { return intrinsic.lane(v, i) }
+}
+pub new function f64x2_sum(v: f64x2) -> f64 { return intrinsic.vsum(v) }
+pub new function f64x2_with(v: f64x2, i: int, x: f64) -> f64x2 { return intrinsic.with_lane(v, i, x) }
+pub new function f64x2_fma(a: f64x2, b: f64x2, c: f64x2) -> f64x2 { return intrinsic.fma(a, b, c) }
+pub new function f64x2_max(a: f64x2, b: f64x2) -> f64x2 { return intrinsic.fmax(a, b) }
+pub new function f64x2_min(a: f64x2, b: f64x2) -> f64x2 { return intrinsic.fmin(a, b) }
+
+pub new type f64x4 : vector(f64, 4) {
+    new operator + (a: f64x4, b: f64x4) -> f64x4 { return intrinsic.fadd(a, b) }
+    new operator - (a: f64x4, b: f64x4) -> f64x4 { return intrinsic.fsub(a, b) }
+    new operator * (a: f64x4, b: f64x4) -> f64x4 { return intrinsic.fmul(a, b) }
+    new operator / (a: f64x4, b: f64x4) -> f64x4 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f64x4) -> f64x4 { return intrinsic.fneg(a) }
+    new operator [] (v: f64x4, i: int) -> f64 { return intrinsic.lane(v, i) }
+}
+pub new function f64x4_sum(v: f64x4) -> f64 { return intrinsic.vsum(v) }
+pub new function f64x4_with(v: f64x4, i: int, x: f64) -> f64x4 { return intrinsic.with_lane(v, i, x) }
+pub new function f64x4_fma(a: f64x4, b: f64x4, c: f64x4) -> f64x4 { return intrinsic.fma(a, b, c) }
+pub new function f64x4_max(a: f64x4, b: f64x4) -> f64x4 { return intrinsic.fmax(a, b) }
+pub new function f64x4_min(a: f64x4, b: f64x4) -> f64x4 { return intrinsic.fmin(a, b) }
+
+pub new type f64x8 : vector(f64, 8) {
+    new operator + (a: f64x8, b: f64x8) -> f64x8 { return intrinsic.fadd(a, b) }
+    new operator - (a: f64x8, b: f64x8) -> f64x8 { return intrinsic.fsub(a, b) }
+    new operator * (a: f64x8, b: f64x8) -> f64x8 { return intrinsic.fmul(a, b) }
+    new operator / (a: f64x8, b: f64x8) -> f64x8 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f64x8) -> f64x8 { return intrinsic.fneg(a) }
+    new operator [] (v: f64x8, i: int) -> f64 { return intrinsic.lane(v, i) }
+}
+pub new function f64x8_sum(v: f64x8) -> f64 { return intrinsic.vsum(v) }
+pub new function f64x8_with(v: f64x8, i: int, x: f64) -> f64x8 { return intrinsic.with_lane(v, i, x) }
+pub new function f64x8_fma(a: f64x8, b: f64x8, c: f64x8) -> f64x8 { return intrinsic.fma(a, b, c) }
+pub new function f64x8_max(a: f64x8, b: f64x8) -> f64x8 { return intrinsic.fmax(a, b) }
+pub new function f64x8_min(a: f64x8, b: f64x8) -> f64x8 { return intrinsic.fmin(a, b) }
+
+pub new type i32x4 : vector(i32, 4) {
+    new operator + (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.wadd(a, b) }
+    new operator - (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.wsub(a, b) }
+    new operator * (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.wmul(a, b) }
+    new operator & (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.and(a, b) }
+    new operator | (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.or(a, b) }
+    new operator ^ (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.xor(a, b) }
+    new operator << (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.shl(a, b) }
+    new operator >> (a: i32x4, b: i32x4) -> i32x4 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i32x4, i: int) -> i32 { return intrinsic.lane(v, i) }
+}
+pub new function i32x4_sum(v: i32x4) -> i32 { return intrinsic.vsum(v) }
+pub new function i32x4_with(v: i32x4, i: int, x: i32) -> i32x4 { return intrinsic.with_lane(v, i, x) }
+pub new function i32x4_max(a: i32x4, b: i32x4) -> i32x4 { return intrinsic.smax(a, b) }
+pub new function i32x4_min(a: i32x4, b: i32x4) -> i32x4 { return intrinsic.smin(a, b) }
+
+pub new type i32x8 : vector(i32, 8) {
+    new operator + (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.wadd(a, b) }
+    new operator - (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.wsub(a, b) }
+    new operator * (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.wmul(a, b) }
+    new operator & (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.and(a, b) }
+    new operator | (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.or(a, b) }
+    new operator ^ (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.xor(a, b) }
+    new operator << (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.shl(a, b) }
+    new operator >> (a: i32x8, b: i32x8) -> i32x8 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i32x8, i: int) -> i32 { return intrinsic.lane(v, i) }
+}
+pub new function i32x8_sum(v: i32x8) -> i32 { return intrinsic.vsum(v) }
+pub new function i32x8_with(v: i32x8, i: int, x: i32) -> i32x8 { return intrinsic.with_lane(v, i, x) }
+pub new function i32x8_max(a: i32x8, b: i32x8) -> i32x8 { return intrinsic.smax(a, b) }
+pub new function i32x8_min(a: i32x8, b: i32x8) -> i32x8 { return intrinsic.smin(a, b) }
+
+pub new type i32x16 : vector(i32, 16) {
+    new operator + (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.wadd(a, b) }
+    new operator - (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.wsub(a, b) }
+    new operator * (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.wmul(a, b) }
+    new operator & (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.and(a, b) }
+    new operator | (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.or(a, b) }
+    new operator ^ (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.xor(a, b) }
+    new operator << (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.shl(a, b) }
+    new operator >> (a: i32x16, b: i32x16) -> i32x16 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i32x16, i: int) -> i32 { return intrinsic.lane(v, i) }
+}
+pub new function i32x16_sum(v: i32x16) -> i32 { return intrinsic.vsum(v) }
+pub new function i32x16_with(v: i32x16, i: int, x: i32) -> i32x16 { return intrinsic.with_lane(v, i, x) }
+pub new function i32x16_max(a: i32x16, b: i32x16) -> i32x16 { return intrinsic.smax(a, b) }
+pub new function i32x16_min(a: i32x16, b: i32x16) -> i32x16 { return intrinsic.smin(a, b) }
+
+pub new type i16x8 : vector(i16, 8) {
+    new operator + (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.wadd(a, b) }
+    new operator - (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.wsub(a, b) }
+    new operator * (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.wmul(a, b) }
+    new operator & (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.and(a, b) }
+    new operator | (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.or(a, b) }
+    new operator ^ (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.xor(a, b) }
+    new operator << (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.shl(a, b) }
+    new operator >> (a: i16x8, b: i16x8) -> i16x8 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i16x8, i: int) -> i16 { return intrinsic.lane(v, i) }
+}
+pub new function i16x8_sum(v: i16x8) -> i16 { return intrinsic.vsum(v) }
+pub new function i16x8_with(v: i16x8, i: int, x: i16) -> i16x8 { return intrinsic.with_lane(v, i, x) }
+pub new function i16x8_max(a: i16x8, b: i16x8) -> i16x8 { return intrinsic.smax(a, b) }
+pub new function i16x8_min(a: i16x8, b: i16x8) -> i16x8 { return intrinsic.smin(a, b) }
+
+pub new type i16x16 : vector(i16, 16) {
+    new operator + (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.wadd(a, b) }
+    new operator - (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.wsub(a, b) }
+    new operator * (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.wmul(a, b) }
+    new operator & (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.and(a, b) }
+    new operator | (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.or(a, b) }
+    new operator ^ (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.xor(a, b) }
+    new operator << (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.shl(a, b) }
+    new operator >> (a: i16x16, b: i16x16) -> i16x16 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i16x16, i: int) -> i16 { return intrinsic.lane(v, i) }
+}
+pub new function i16x16_sum(v: i16x16) -> i16 { return intrinsic.vsum(v) }
+pub new function i16x16_with(v: i16x16, i: int, x: i16) -> i16x16 { return intrinsic.with_lane(v, i, x) }
+pub new function i16x16_max(a: i16x16, b: i16x16) -> i16x16 { return intrinsic.smax(a, b) }
+pub new function i16x16_min(a: i16x16, b: i16x16) -> i16x16 { return intrinsic.smin(a, b) }
+
+pub new type i16x32 : vector(i16, 32) {
+    new operator + (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.wadd(a, b) }
+    new operator - (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.wsub(a, b) }
+    new operator * (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.wmul(a, b) }
+    new operator & (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.and(a, b) }
+    new operator | (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.or(a, b) }
+    new operator ^ (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.xor(a, b) }
+    new operator << (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.shl(a, b) }
+    new operator >> (a: i16x32, b: i16x32) -> i16x32 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i16x32, i: int) -> i16 { return intrinsic.lane(v, i) }
+}
+pub new function i16x32_sum(v: i16x32) -> i16 { return intrinsic.vsum(v) }
+pub new function i16x32_with(v: i16x32, i: int, x: i16) -> i16x32 { return intrinsic.with_lane(v, i, x) }
+pub new function i16x32_max(a: i16x32, b: i16x32) -> i16x32 { return intrinsic.smax(a, b) }
+pub new function i16x32_min(a: i16x32, b: i16x32) -> i16x32 { return intrinsic.smin(a, b) }
+
+pub new type i8x16 : vector(i8, 16) {
+    new operator + (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.wadd(a, b) }
+    new operator - (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.wsub(a, b) }
+    new operator * (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.wmul(a, b) }
+    new operator & (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.and(a, b) }
+    new operator | (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.or(a, b) }
+    new operator ^ (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.xor(a, b) }
+    new operator << (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.shl(a, b) }
+    new operator >> (a: i8x16, b: i8x16) -> i8x16 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i8x16, i: int) -> i8 { return intrinsic.lane(v, i) }
+}
+pub new function i8x16_sum(v: i8x16) -> i8 { return intrinsic.vsum(v) }
+pub new function i8x16_with(v: i8x16, i: int, x: i8) -> i8x16 { return intrinsic.with_lane(v, i, x) }
+pub new function i8x16_max(a: i8x16, b: i8x16) -> i8x16 { return intrinsic.smax(a, b) }
+pub new function i8x16_min(a: i8x16, b: i8x16) -> i8x16 { return intrinsic.smin(a, b) }
+
+pub new type i8x32 : vector(i8, 32) {
+    new operator + (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.wadd(a, b) }
+    new operator - (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.wsub(a, b) }
+    new operator * (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.wmul(a, b) }
+    new operator & (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.and(a, b) }
+    new operator | (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.or(a, b) }
+    new operator ^ (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.xor(a, b) }
+    new operator << (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.shl(a, b) }
+    new operator >> (a: i8x32, b: i8x32) -> i8x32 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i8x32, i: int) -> i8 { return intrinsic.lane(v, i) }
+}
+pub new function i8x32_sum(v: i8x32) -> i8 { return intrinsic.vsum(v) }
+pub new function i8x32_with(v: i8x32, i: int, x: i8) -> i8x32 { return intrinsic.with_lane(v, i, x) }
+pub new function i8x32_max(a: i8x32, b: i8x32) -> i8x32 { return intrinsic.smax(a, b) }
+pub new function i8x32_min(a: i8x32, b: i8x32) -> i8x32 { return intrinsic.smin(a, b) }
+
+pub new type i8x64 : vector(i8, 64) {
+    new operator + (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.wadd(a, b) }
+    new operator - (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.wsub(a, b) }
+    new operator * (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.wmul(a, b) }
+    new operator & (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.and(a, b) }
+    new operator | (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.or(a, b) }
+    new operator ^ (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.xor(a, b) }
+    new operator << (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.shl(a, b) }
+    new operator >> (a: i8x64, b: i8x64) -> i8x64 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i8x64, i: int) -> i8 { return intrinsic.lane(v, i) }
+}
+pub new function i8x64_sum(v: i8x64) -> i8 { return intrinsic.vsum(v) }
+pub new function i8x64_with(v: i8x64, i: int, x: i8) -> i8x64 { return intrinsic.with_lane(v, i, x) }
+pub new function i8x64_max(a: i8x64, b: i8x64) -> i8x64 { return intrinsic.smax(a, b) }
+pub new function i8x64_min(a: i8x64, b: i8x64) -> i8x64 { return intrinsic.smin(a, b) }
+
+pub new type u8x16 : vector(u8, 16) {
+    new operator + (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.wadd(a, b) }
+    new operator - (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.wsub(a, b) }
+    new operator * (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.wmul(a, b) }
+    new operator & (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.and(a, b) }
+    new operator | (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.or(a, b) }
+    new operator ^ (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.xor(a, b) }
+    new operator << (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.shl(a, b) }
+    new operator >> (a: u8x16, b: u8x16) -> u8x16 { return intrinsic.lshr(a, b) }
+    new operator [] (v: u8x16, i: int) -> u8 { return intrinsic.lane(v, i) }
+}
+pub new function u8x16_sum(v: u8x16) -> u8 { return intrinsic.vsum(v) }
+pub new function u8x16_with(v: u8x16, i: int, x: u8) -> u8x16 { return intrinsic.with_lane(v, i, x) }
+pub new function u8x16_max(a: u8x16, b: u8x16) -> u8x16 { return intrinsic.umax(a, b) }
+pub new function u8x16_min(a: u8x16, b: u8x16) -> u8x16 { return intrinsic.umin(a, b) }
+
+pub new type u8x32 : vector(u8, 32) {
+    new operator + (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.wadd(a, b) }
+    new operator - (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.wsub(a, b) }
+    new operator * (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.wmul(a, b) }
+    new operator & (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.and(a, b) }
+    new operator | (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.or(a, b) }
+    new operator ^ (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.xor(a, b) }
+    new operator << (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.shl(a, b) }
+    new operator >> (a: u8x32, b: u8x32) -> u8x32 { return intrinsic.lshr(a, b) }
+    new operator [] (v: u8x32, i: int) -> u8 { return intrinsic.lane(v, i) }
+}
+pub new function u8x32_sum(v: u8x32) -> u8 { return intrinsic.vsum(v) }
+pub new function u8x32_with(v: u8x32, i: int, x: u8) -> u8x32 { return intrinsic.with_lane(v, i, x) }
+pub new function u8x32_max(a: u8x32, b: u8x32) -> u8x32 { return intrinsic.umax(a, b) }
+pub new function u8x32_min(a: u8x32, b: u8x32) -> u8x32 { return intrinsic.umin(a, b) }
+
+pub new type u8x64 : vector(u8, 64) {
+    new operator + (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.wadd(a, b) }
+    new operator - (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.wsub(a, b) }
+    new operator * (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.wmul(a, b) }
+    new operator & (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.and(a, b) }
+    new operator | (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.or(a, b) }
+    new operator ^ (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.xor(a, b) }
+    new operator << (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.shl(a, b) }
+    new operator >> (a: u8x64, b: u8x64) -> u8x64 { return intrinsic.lshr(a, b) }
+    new operator [] (v: u8x64, i: int) -> u8 { return intrinsic.lane(v, i) }
+}
+pub new function u8x64_sum(v: u8x64) -> u8 { return intrinsic.vsum(v) }
+pub new function u8x64_with(v: u8x64, i: int, x: u8) -> u8x64 { return intrinsic.with_lane(v, i, x) }
+pub new function u8x64_max(a: u8x64, b: u8x64) -> u8x64 { return intrinsic.umax(a, b) }
+pub new function u8x64_min(a: u8x64, b: u8x64) -> u8x64 { return intrinsic.umin(a, b) }
+
+pub new type u32x8 : vector(u32, 8) {
+    new operator + (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.wadd(a, b) }
+    new operator - (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.wsub(a, b) }
+    new operator * (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.wmul(a, b) }
+    new operator & (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.and(a, b) }
+    new operator | (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.or(a, b) }
+    new operator ^ (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.xor(a, b) }
+    new operator << (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.shl(a, b) }
+    new operator >> (a: u32x8, b: u32x8) -> u32x8 { return intrinsic.lshr(a, b) }
+    new operator [] (v: u32x8, i: int) -> u32 { return intrinsic.lane(v, i) }
+}
+pub new function u32x8_sum(v: u32x8) -> u32 { return intrinsic.vsum(v) }
+pub new function u32x8_with(v: u32x8, i: int, x: u32) -> u32x8 { return intrinsic.with_lane(v, i, x) }
+pub new function u32x8_max(a: u32x8, b: u32x8) -> u32x8 { return intrinsic.umax(a, b) }
+pub new function u32x8_min(a: u32x8, b: u32x8) -> u32x8 { return intrinsic.umin(a, b) }
+
+pub new type i64x4 : vector(i64, 4) {
+    new operator + (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.wadd(a, b) }
+    new operator - (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.wsub(a, b) }
+    new operator * (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.wmul(a, b) }
+    new operator & (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.and(a, b) }
+    new operator | (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.or(a, b) }
+    new operator ^ (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.xor(a, b) }
+    new operator << (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.shl(a, b) }
+    new operator >> (a: i64x4, b: i64x4) -> i64x4 { return intrinsic.ashr(a, b) }
+    new operator [] (v: i64x4, i: int) -> i64 { return intrinsic.lane(v, i) }
+}
+pub new function i64x4_sum(v: i64x4) -> i64 { return intrinsic.vsum(v) }
+pub new function i64x4_with(v: i64x4, i: int, x: i64) -> i64x4 { return intrinsic.with_lane(v, i, x) }
+pub new function i64x4_max(a: i64x4, b: i64x4) -> i64x4 { return intrinsic.smax(a, b) }
+pub new function i64x4_min(a: i64x4, b: i64x4) -> i64x4 { return intrinsic.smin(a, b) }
+
+// Integer dot product, 4 at a time: lane i of the result is
+//   acc[i] + a[4i]*b[4i] + a[4i+1]*b[4i+1] + a[4i+2]*b[4i+2] + a[4i+3]*b[4i+3]
+// One SDOT instruction on Apple Silicon; a short exact sequence elsewhere. The
+// building block of int8 (quantized) matrix multiplies.
+pub new function i8x16_dot(acc: i32x4, a: i8x16, b: i8x16) -> i32x4 { return intrinsic.dot4(acc, a, b) }
+// True when i8x16_dot is a single instruction on the CPU being compiled for (a
+// constant, so `if has_fast_i8_dot() { ... } else { ... }` keeps only one branch).
+pub new function has_fast_i8_dot() -> bool { return intrinsic.fast_dot4() }
+
+// Scalar fused multiply-add: a * b + c with one rounding.
+pub new function fma_f32(a: f32, b: f32, c: f32) -> f32 { return intrinsic.fma(a, b, c) }
+pub new function fma_f64(a: f64, b: f64, c: f64) -> f64 { return intrinsic.fma(a, b, c) }

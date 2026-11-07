@@ -1,0 +1,241 @@
+// Boron: native desktop apps in Hydrogen.
+//
+// A Boron app is a normal Hydrogen loop: describe the screen with a Ui, show it,
+// wait for the next event, update your variables, repeat.
+//
+//     var app = App("Counter", 320, 200)
+//     var count = 0
+//     while app.is_open() {
+//         var ui = Ui()
+//         ui.text("Clicked {count} times")
+//         ui.button("inc", "+1")
+//         app.show(ui)
+//         let ev = app.wait()
+//         if ev.clicked("inc") { count += 1 }
+//     }
+//
+// On macOS the window is a real NSWindow with a WKWebView inside: the Ui becomes
+// HTML, styled to look like native controls. Updates patch the page in place, so
+// typing, focus and scroll position survive every re-render.
+use Elemental
+
+extern function bn_open(title: ptr<u8>, title_len: uint, width: int, height: int) -> ptr<u8>
+extern function bn_render(window: ptr<u8>, html: ptr<u8>, len: uint)
+extern function bn_css(window: ptr<u8>, css: ptr<u8>, len: uint)
+extern function bn_title(window: ptr<u8>, title: ptr<u8>, len: uint)
+extern function bn_wait(window: ptr<u8>, kind: ptr<string>, id: ptr<string>, value: ptr<string>) -> bool
+extern function bn_poll(window: ptr<u8>, kind: ptr<string>, id: ptr<string>, value: ptr<string>) -> int
+extern function bn_close(window: ptr<u8>)
+
+// Text made safe to put inside HTML (as content or a quoted attribute).
+pub new function escape_html(text: str) -> string {
+    let a = replace(text, "&", "&amp;")
+    let b = replace(a, "<", "&lt;")
+    let c = replace(b, ">", "&gt;")
+    return replace(c, "\"", "&quot;")
+}
+
+// ---------------------------------------------------------------- events
+
+// Something the user did. `kind` is one of:
+//   "click"   a button was clicked              (id: the button's id)
+//   "input"   a text field or slider changed    (value: its new contents)
+//   "change"  a checkbox was toggled            (value: "true" / "false")
+//   "submit"  Enter was pressed in a text field (value: its contents)
+//   "close"   the window was closed
+pub new class Event {
+    pub kind: string
+    pub id: string
+    pub value: string
+
+    pub new function clicked(id: str) -> bool { return self.kind == "click" && self.id == id }
+    // The text field / slider / checkbox `id` changed (read the new value with text(), number() or checked()).
+    pub new function changed(id: str) -> bool {
+        return (self.kind == "input" || self.kind == "change") && self.id == id
+    }
+    pub new function submitted(id: str) -> bool { return self.kind == "submit" && self.id == id }
+    pub new function is_close() -> bool { return self.kind == "close" }
+
+    pub new function text() -> str { return self.value }
+    pub new function number() -> int { return unwrap_or(parse_int(self.value), 0) }
+    pub new function checked() -> bool { return self.value == "true" }
+
+    // For ids made as "<prefix>:<n>" (e.g. one button per list item: "delete:{i}"),
+    // the n if this event's id has that prefix.
+    pub new function index(prefix: str) -> Option<int> {
+        let id: str = self.id
+        if id.len <= prefix.len + 1 || !starts_with(id, prefix) || id[prefix.len] != u8(':') { return None }
+        return parse_int(slice(id, prefix.len + 1, id.len))
+    }
+
+    new operator string (e: Event) -> string {
+        return "{e.kind} {e.id} {e.value}"
+    }
+}
+
+// ---------------------------------------------------------------- building the screen
+
+// One screen's worth of UI, built top to bottom. Ids name the controls: events
+// carry the id of the control that sent them.
+pub new class Ui {
+    out: string
+    depth: int
+
+    pub new function init() {
+        self.out = string("")
+        self.depth = 0
+    }
+
+    // ---- text
+    pub new mut function heading(text: str) { self.tag("h1", text) }
+    pub new mut function subheading(text: str) { self.tag("h2", text) }
+    pub new mut function text(text: str) { self.tag("p", text) }
+    // Small, dimmed text.
+    pub new mut function caption(text: str) {
+        self.out.append("<p class=\"bn-caption\">")
+        self.out.append(escape_html(text))
+        self.out.append("</p>")
+    }
+    // Text the user can select and copy.
+    pub new mut function selectable(text: str) {
+        self.out.append("<p class=\"bn-selectable\">")
+        self.out.append(escape_html(text))
+        self.out.append("</p>")
+    }
+
+    // ---- controls
+    pub new mut function button(id: str, label: str) { self.button_with("", id, label, false) }
+    // The default / most important action, in the accent color.
+    pub new mut function accent_button(id: str, label: str) { self.button_with("bn-accent", id, label, false) }
+    pub new mut function disabled_button(id: str, label: str) { self.button_with("", id, label, true) }
+
+    // A one-line text field. Sends "input" as the user types and "submit" on Enter.
+    pub new mut function input(id: str, value: str, placeholder: str) {
+        self.out.append("<input type=\"text\" data-bn=\"{escape_html(id)}\" value=\"{escape_html(value)}\"")
+        self.out.append(" placeholder=\"{escape_html(placeholder)}\">")
+    }
+    // Like input, but stretches to fill the rest of a row.
+    pub new mut function wide_input(id: str, value: str, placeholder: str) {
+        self.out.append("<input type=\"text\" class=\"bn-grow\" data-bn=\"{escape_html(id)}\"")
+        self.out.append(" value=\"{escape_html(value)}\" placeholder=\"{escape_html(placeholder)}\">")
+    }
+    pub new mut function password(id: str, value: str, placeholder: str) {
+        self.out.append("<input type=\"password\" data-bn=\"{escape_html(id)}\" value=\"{escape_html(value)}\"")
+        self.out.append(" placeholder=\"{escape_html(placeholder)}\">")
+    }
+    // Sends "change" with value "true" / "false".
+    pub new mut function checkbox(id: str, label: str, checked: bool) {
+        self.out.append("<label class=\"bn-check\"><input type=\"checkbox\" data-bn=\"{escape_html(id)}\"")
+        if checked { self.out.append(" checked") }
+        self.out.append(">{escape_html(label)}</label>")
+    }
+    // Sends "input" with the new value (read it with number()).
+    pub new mut function slider(id: str, value: int, min: int, max: int) {
+        self.out.append("<input type=\"range\" data-bn=\"{escape_html(id)}\" min=\"{min}\" max=\"{max}\"")
+        self.out.append(" value=\"{value}\">")
+    }
+    // A progress bar; `fraction` from 0.0 to 1.0.
+    pub new mut function progress(fraction: float) {
+        self.out.append("<progress max=\"1\" value=\"{fraction}\"></progress>")
+    }
+    pub new mut function divider() { self.out.append("<hr>") }
+    // Pushes what follows to the far end of a row.
+    pub new mut function spacer() { self.out.append("<div class=\"bn-spacer\"></div>") }
+
+    // ---- layout: begin_..., then the contents, then end()
+    pub new mut function begin_row() { self.begin("bn-row") }
+    pub new mut function begin_column() { self.begin("bn-column") }
+    // A rounded, slightly raised group.
+    pub new mut function begin_card() { self.begin("bn-card") }
+    // A group with your own CSS class (see App.style).
+    pub new mut function begin(css_class: str) {
+        self.out.append("<div class=\"{escape_html(css_class)}\">")
+        self.depth += 1
+    }
+    pub new mut function end() {
+        if self.depth == 0 { return }
+        self.out.append("</div>")
+        self.depth -= 1
+    }
+
+    // Raw HTML, for anything the builder doesn't cover. Not escaped: never pass user text here.
+    // Elements with data-bn="id" data-bn-click send "click" events.
+    pub new mut function html(raw: str) { self.out.append(raw) }
+
+    new mut function tag(name: str, text: str) {
+        self.out.append("<{name}>")
+        self.out.append(escape_html(text))
+        self.out.append("</{name}>")
+    }
+
+    new mut function button_with(css_class: str, id: str, label: str, disabled: bool) {
+        self.out.append("<button data-bn=\"{escape_html(id)}\" data-bn-click")
+        if css_class.len > 0 { self.out.append(" class=\"{css_class}\"") }
+        if disabled { self.out.append(" disabled") }
+        self.out.append(">{escape_html(label)}</button>")
+    }
+}
+
+// ---------------------------------------------------------------- the window
+
+// A window. Closing it (or quitting) makes is_open() false; it is closed
+// automatically when the App goes away.
+pub new class App {
+    handle: ptr<u8>
+    open: bool
+
+    pub new function init(title: str, width: int, height: int) {
+        self.handle = bn_open(title.data, title.len, width, height)
+        self.open = true
+    }
+
+    pub new function is_open() -> bool { return self.open }
+
+    // Replaces what the window shows. Unclosed begin_...() groups are closed.
+    pub new mut function show(ui: Ui) {
+        if ui.depth == 0 {
+            bn_render(self.handle, ui.out.view().data, ui.out.len())
+            return
+        }
+        var full = ui.out.copy()
+        for i in 0..ui.depth { full.append("</div>") }
+        bn_render(self.handle, full.view().data, full.len())
+    }
+
+    // Extra CSS for the page (replaces earlier style() calls). Class names you use
+    // with Ui.begin(...) go here, as can overrides like "button { border-radius: 12px }".
+    pub new mut function style(css: str) { bn_css(self.handle, css.data, css.len) }
+
+    pub new mut function set_title(title: str) { bn_title(self.handle, title.data, title.len) }
+
+    // Waits for the user to do something. Returns a "close" event once the window is closed.
+    pub new mut function wait() -> Event {
+        var kind = string("")
+        var id = string("")
+        var value = string("")
+        if !self.open || !bn_wait(self.handle, &kind, &id, &value) {
+            self.open = false
+            return Event(string("close"), string(""), string(""))
+        }
+        return Event(kind, id, value)
+    }
+
+    // For apps that are busy (computing, streaming): lets the window repaint and
+    // handle input, without waiting. Returns the next event if there is one (a
+    // "close" event once the window is closed). Call it often, e.g. after each show().
+    pub new mut function poll() -> Option<Event> {
+        if !self.open { return Some(Event(string("close"), string(""), string(""))) }
+        var kind = string("")
+        var id = string("")
+        var value = string("")
+        let got = bn_poll(self.handle, &kind, &id, &value)
+        if got < 0 {
+            self.open = false
+            return Some(Event(string("close"), string(""), string("")))
+        }
+        if got == 0 { return None }
+        return Some(Event(kind, id, value))
+    }
+
+    new function drop() { bn_close(self.handle) }
+}

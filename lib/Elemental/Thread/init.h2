@@ -1,0 +1,354 @@
+// Threads, Rust-style: a thread gets only what is moved into it, and gives
+// back its result when joined. The compiler checks that everything crossing
+// threads is Sendable, and the work function can't capture variables, so two
+// threads never share memory by accident. Channels pass values while threads run.
+use Atomic.Memory
+use Elemental
+
+extern function h2_thread_spawn(entry: function(ptr<u8>), arg: ptr<u8>) -> ptr<u8>
+extern function h2_thread_join(handle: ptr<u8>)
+extern function h2_fail(msg: ptr<u8>, len: uint)
+extern function malloc(size: uint) -> ptr<u8>
+extern function h2_chan_new(item_size: uint) -> ptr<u8>
+extern function h2_chan_retain(ch: ptr<u8>)
+extern function h2_chan_send(ch: ptr<u8>, item: ptr<u8>)
+extern function h2_chan_recv(ch: ptr<u8>, out: ptr<u8>) -> bool
+extern function h2_chan_try_pop(ch: ptr<u8>, out: ptr<u8>) -> bool
+extern function h2_chan_release(ch: ptr<u8>) -> bool
+extern function h2_chan_free(ch: ptr<u8>)
+
+new function fail(msg: str) { h2_fail(msg.data, msg.len) }
+
+// What a thread runs: its input, its work, and where its result goes.
+// Lives in raw memory shared by the two threads only through spawn/join.
+new class Job<T, R> {
+    input: T
+    work: function(T) -> R
+    result: R
+}
+
+new function run_job<T, R>(raw: ptr<u8>) {
+    let job = ptr<Job<T, R>>(raw)
+    put(&job.result, job.work(job.input))
+    destroy(&job.input)          // done with it: drop it on this thread
+}
+
+// A running thread. join() waits for it and returns its result. If the
+// handle goes away without join(), its drop still waits for the thread.
+pub new class Thread<R> {
+    handle: ptr<u8>
+    job: ptr<u8>
+    result: ptr<R>
+    joined: bool
+
+    pub new mut function join() -> R {
+        if self.joined { fail("join() was called twice on the same thread") }
+        h2_thread_join(self.handle)
+        self.joined = true
+        let out = take(self.result)
+        free self.job
+        return out
+    }
+
+    pub new function drop() {
+        if !self.joined {
+            h2_thread_join(self.handle)
+            destroy(self.result)
+            free self.job
+        }
+    }
+}
+
+// Runs work(input) on a new thread. `input` moves into the thread, and the
+// result comes back from join(). `work` can't capture variables (it's `own`),
+// so the thread sees nothing but its input.
+pub new function spawn<T: Sendable, R: Sendable>(input: own T, work: own function(T) -> R) -> Thread<R> {
+    let none: ptr<Job<T, R>> = null
+    let job = ptr<Job<T, R>>(malloc(size_of(none)))
+    put(&job.input, input)
+    put(&job.work, work)
+    let handle = h2_thread_spawn(function(raw: ptr<u8>) { run_job<T, R>(raw) }, ptr<u8>(job))
+    if handle == null { fail("could not start a thread") }
+    return Thread<R>(handle, ptr<u8>(job), &job.result, false)
+}
+
+// ---------------------------------------------------------------- channels
+
+// A queue between threads. Every handle can send and receive; copy() makes
+// another handle (to move into a thread). receive() waits for a value, and
+// returns None once the queue is empty and no other handle is left.
+pub new class Channel<T> {
+    raw: ptr<u8>
+
+    pub new function copy() -> Channel<T> {
+        h2_chan_retain(self.raw)
+        return Channel<T>(self.raw)
+    }
+
+    pub new function send(item: own T) {
+        let none: ptr<T> = null
+        let box = ptr<T>(malloc(size_of(none)))
+        put(box, item)
+        h2_chan_send(self.raw, ptr<u8>(box))
+        free ptr<u8>(box)
+    }
+
+    pub new function receive() -> Option<T> {
+        let none: ptr<T> = null
+        let box = ptr<T>(malloc(size_of(none)))
+        if h2_chan_recv(self.raw, ptr<u8>(box)) {
+            let item = take(box)
+            free ptr<u8>(box)
+            return Some(item)
+        }
+        free ptr<u8>(box)
+        return None
+    }
+
+    pub new function drop() {
+        if h2_chan_release(self.raw) {
+            // The last handle: drop anything never received.
+            let none: ptr<T> = null
+            let box = ptr<T>(malloc(size_of(none)))
+            while h2_chan_try_pop(self.raw, ptr<u8>(box)) { destroy(box) }
+            free ptr<u8>(box)
+            h2_chan_free(self.raw)
+        }
+    }
+}
+
+pub new function channel<T: Sendable>() -> Channel<T> {
+    let none: ptr<T> = null
+    return Channel<T>(h2_chan_new(size_of(none)))
+}
+
+// ---------------------------------------------------------------- shared state
+
+extern function h2_mutex_new() -> ptr<u8>
+extern function h2_mutex_lock(m: ptr<u8>)
+extern function h2_mutex_unlock(m: ptr<u8>)
+extern function h2_mutex_free(m: ptr<u8>)
+
+new class MutexBox<T> {
+    lock: ptr<u8>
+    handles: int
+    value: T
+}
+
+// A value shared between threads, reachable only while locked. copy() makes
+// another handle to the same value (to move into a thread); the value is
+// dropped with the last handle.
+pub new class Mutex<T> {
+    box: ptr<MutexBox<T>>
+
+    pub new function copy() -> Mutex<T> {
+        atomic_add(&self.box.handles, 1)
+        return Mutex<T>(self.box)
+    }
+
+    // Waits until no other thread holds the lock, then holds it until the
+    // returned Guard goes away.
+    pub new function lock() -> Guard<T> {
+        h2_mutex_lock(self.box.lock)
+        return Guard<T>(self.box, NotSendable())
+    }
+
+    pub new function drop() {
+        if atomic_add(&self.box.handles, -1) == 1 {
+            destroy(&self.box.value)
+            h2_mutex_free(self.box.lock)
+            free ptr<u8>(self.box)
+        }
+    }
+}
+
+// Access to a Mutex's value while it's locked. value() points at it; the lock
+// is released when the guard goes away. Guards stay on their thread.
+pub new class Guard<T> {
+    box: ptr<MutexBox<T>>
+    pin: NotSendable
+
+    pub new function value() -> ptr<T> { return &self.box.value }
+    pub new function drop() { h2_mutex_unlock(self.box.lock) }
+}
+
+pub new function mutex<T: Sendable>(value: own T) -> Mutex<T> {
+    let none: ptr<MutexBox<T>> = null
+    let box = ptr<MutexBox<T>>(malloc(size_of(none)))
+    box.lock = h2_mutex_new()
+    box.handles = 1
+    put(&box.value, value)
+    return Mutex<T>(box)
+}
+
+new class Counter {
+    value: int
+    handles: int
+}
+
+// A shared int that threads change without a lock (atomic operations).
+pub new class AtomicInt {
+    cell: ptr<Counter>
+
+    pub new function copy() -> AtomicInt {
+        atomic_add(&self.cell.handles, 1)
+        return AtomicInt(self.cell)
+    }
+    pub new function load() -> int { return atomic_load(&self.cell.value) }
+    pub new function store(value: int) { atomic_store(&self.cell.value, value) }
+    // Adds and returns the new value.
+    pub new function add(amount: int) -> int { return atomic_add(&self.cell.value, amount) + amount }
+    pub new function swap(value: int) -> int { return atomic_swap(&self.cell.value, value) }
+    pub new function compare_swap(expected: int, desired: int) -> bool {
+        return atomic_compare_swap(&self.cell.value, expected, desired)
+    }
+    pub new function drop() {
+        if atomic_add(&self.cell.handles, -1) == 1 { free ptr<u8>(self.cell) }
+    }
+}
+
+pub new function atomic_int(value: int) -> AtomicInt {
+    let none: ptr<Counter> = null
+    let cell = ptr<Counter>(malloc(size_of(none)))
+    cell.value = value
+    cell.handles = 1
+    return AtomicInt(cell)
+}
+
+// ---------------------------------------------------------------- worker pools
+
+extern function h2_cpu_count() -> int
+extern function h2_cpu_relax()
+extern function sched_yield() -> i32
+extern function h2_sleep_seconds(s: float)
+
+// How many CPU cores this machine has (at least 1).
+pub new function cpu_count() -> int { return h2_cpu_count() }
+
+new type PoolState {
+    generation: int   // bumped to start a round of work
+    pending: int      // workers still busy in this round
+    quit: int
+    count: int
+    chunk: int        // items per claim
+    next: int         // the first item nobody has claimed yet
+    context: ptr<u8>
+    work: function(ptr<u8>, int, int)
+}
+
+// Claims chunks of the current round until none are left. Faster threads (or
+// cores: performance vs efficiency) simply claim more chunks.
+new function claim_and_work(st: ptr<PoolState>) {
+    let count = st.count
+    let chunk = st.chunk
+    while true {
+        let first = atomic_add(&st.next, chunk)
+        if first >= count { return }
+        var last = first + chunk
+        if last > count { last = count }
+        st.work(st.context, first, last)
+    }
+}
+
+new type WorkerArgs {
+    state: Shared<PoolState>
+    index: int        // 1..workers (the caller of run() is part 0)
+    parts: int
+}
+
+new function pool_noop(context: ptr<u8>, first: int, last: int) {}
+
+
+// Waits until *p differs from `old`: spins briefly (fast hand-off), then yields
+// the CPU, then sleeps, so idle workers cost almost nothing.
+new function wait_change(p: ptr<int>, old: int) -> int {
+    var tries = 0
+    while true {
+        let now = atomic_load(p)
+        if now != old { return now }
+        tries += 1
+        if tries < 2000 { h2_cpu_relax() }
+        else if tries < 20000 { sched_yield() }
+        else { h2_sleep_seconds(0.0002) }
+    }
+    return old
+}
+
+new function pool_worker(args: WorkerArgs) -> int {
+    let st = args.state.ptr
+    var seen = 0
+    while true {
+        seen = wait_change(&st.generation, seen)
+        if atomic_load(&st.quit) != 0 { return 0 }
+        claim_and_work(st)
+        atomic_add(&st.pending, -1)
+    }
+    return 0
+}
+
+// Threads that stay alive and split work between them: run(count, context, work)
+// calls work(context, first, last) on ranges covering 0..count exactly once, and
+// returns when all are done. Threads (the caller too) claim small ranges until
+// none are left, so faster cores do more of the work. A round costs a few
+// microseconds, unlike spawning threads.
+//
+// `context` is shared by every thread, so run() is where you make Shared's
+// promise: during the call, threads only read what it points to, or write
+// separate parts (their own ranges).
+pub new class Pool {
+    state: ptr<PoolState>
+    threads: List<Thread<int>>
+    parts: int
+
+    // A pool using `threads` threads in total, counting the caller (so Pool(1) runs everything inline).
+    pub new function init(threads: int) {
+        var n = threads
+        if n < 1 { n = 1 }
+        self.state = alloc PoolState(0, 0, 0, 0, 1, 0, null, pool_noop)
+        self.threads = List<Thread<int>>()
+        self.parts = n
+        for k in 1..n {
+            self.threads.push(spawn(WorkerArgs(Shared<PoolState>(self.state), k, n), pool_worker))
+        }
+    }
+
+    pub new function size() -> int { return self.parts }
+
+    pub new function run(count: int, context: ptr<u8>, work: own function(ptr<u8>, int, int)) {
+        if self.parts == 1 || count < self.parts {
+            work(context, 0, count)
+            return
+        }
+        let st = self.state
+        st.count = count
+        // About 8 chunks per thread: small enough to balance unequal cores, big
+        // enough that claiming (one atomic add) costs nothing next to the work.
+        var chunk = count / (self.parts * 8)
+        if chunk < 1 { chunk = 1 }
+        st.chunk = chunk
+        st.context = context
+        st.work = work
+        atomic_store(&st.next, 0)
+        atomic_store(&st.pending, self.parts - 1)
+        atomic_add(&st.generation, 1) // go
+        claim_and_work(st)
+        var left = atomic_load(&st.pending)
+        while left != 0 { left = wait_change(&st.pending, left) }
+    }
+
+    new function drop() {
+        if self.state == null { return } // a zero-filled Pool (assigned over in some init): nothing to stop
+        atomic_store(&self.state.quit, 1)
+        atomic_add(&self.state.generation, 1)
+        while true {
+            match self.threads.pop() {
+                Some(t) => {
+                    var thread = t
+                    thread.join()
+                }
+                None => { break }
+            }
+        }
+        free self.state
+    }
+}

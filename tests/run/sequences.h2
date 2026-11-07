@@ -1,0 +1,48 @@
+use Elemental
+
+// Any class with len() and at(i) works with `for` and `[]`.
+new class Countdown {
+    values: [int; 3]
+    new function len() -> uint { return 3 }
+    new function at(i: uint) -> ptr<int> { return &self.values[2 - i] }
+}
+
+new class Noisy {
+    name: string
+    new function init(name: str) { self.name = string(name) }
+    new function drop() { print("drop " + self.name) }
+}
+
+new function main() -> int {
+    var nums = List<int>()
+    for x in [3, 1, 4, 1, 5] { nums.push(x) }
+    var total = 0
+    for n in nums { total += n }
+    print(total)
+    nums[0] = 30
+    print(nums[0] + nums[2])
+
+    var names = List<string>()
+    names.push(string("ada"))
+    names.push(string("grace"))
+    for name in names { print("hi " + name) }
+    names[1] = string("linus")        // the old "grace" is dropped
+    print(names[1])
+    print(names[0].len())
+
+    var grid = List<List<int>>()
+    grid.push(List<int>())
+    grid.push(List<int>())
+    grid[1].push(7)
+    print(grid[1][0])
+
+    let c = Countdown([1, 2, 3])
+    for v in c { print(v) }
+
+    var tags = List<Noisy>()
+    tags.push(Noisy("a"))
+    tags.push(Noisy("b"))
+    tags[0] = Noisy("c")              // drops "a"
+    print("end")
+    return 0
+}

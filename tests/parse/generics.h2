@@ -1,0 +1,36 @@
+use Elemental
+use Atomic.Memory as mem
+
+new interface Comparable {
+    new operator < (a: Self, b: Self) -> bool
+}
+
+new interface Container<T> {
+    new function get(i: usize) -> T
+    new function len() -> usize
+}
+
+new function max<T: Comparable + Copy>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+new class List<T> {
+    data: ptr<T>
+    len: usize
+}
+
+new function main() -> int {
+    let nested: List<List<int>> = List<List<int>>()
+    let m = max<int>(3, 7)
+    let n = max(1.5, 2.5)
+    let cmp = a < b
+    let gt = a > b
+    let shifted = x >> 2 << 1
+    let arr: [u8; 16] = [0, 1, 2]
+    let slice: [int] = arr
+    let buf = alloc [u8; 4096]
+    let p: ptr<int> = &n
+    let v = *p
+    return 0
+}

@@ -1,0 +1,61 @@
+// requires: x86_64 (the instructions below are x86-64, Intel syntax)
+use Elemental
+
+new function main() -> int {
+    // inout: read a variable, write it back
+    var total = 10
+    asm {
+        "add {t}, {s}"
+        inout t = total
+        in s = 5
+    }
+    print(total)
+
+    // out: a result from the instructions
+    var answer = 0
+    asm {
+        "mov {r}, 42"
+        out r -> answer
+    }
+    print(answer)
+
+    // several instructions and inputs
+    var result = 0
+    let a = 6
+    let b = 7
+    asm {
+        "mov {r}, {x}"
+        "imul {r}, {y}"
+        out r -> result
+        in x = a
+        in y = b
+    }
+    print(result)
+
+    // specific registers: a raw write(1, text, len) system call, no C library involved
+    let text: str = "hello from a syscall\n"
+    var written = 0
+    asm {
+        "syscall"
+        in "rax" = 1
+        in "rdi" = 1
+        in "rsi" = text.data
+        in "rdx" = text.len
+        out "rax" -> written
+        clobber "rcx"
+        clobber "r11"
+        clobber "memory"
+    }
+    print(written)
+
+    // the CPU's cycle counter
+    var low: u32 = 0
+    var high: u32 = 0
+    asm {
+        "rdtsc"
+        out "eax" -> low
+        out "edx" -> high
+    }
+    print((uint(high) << 32 | uint(low)) > 0)
+    return 0
+}

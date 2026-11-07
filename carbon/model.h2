@@ -1,0 +1,343 @@
+// A Llama-architecture transformer, in either of llama2.c's file formats:
+//
+// f32 ("version 0", e.g. stories15M.bin): 7 x i32 header (dim, hidden_dim,
+//   n_layers, n_heads, n_kv_heads, vocab_size, seq_len; a negative vocab_size
+//   means the output classifier is stored separately), then every weight as
+//   f32, layer by layer for each kind.
+//
+// Q8_0 ("version 2", written by `quantize_model` or llama2.c's export.py
+//   --version 2): a 256-byte header (magic "ak42", version 2, the 7 sizes, a
+//   shared-classifier byte, the group size), the norm weights as f32, then
+//   each matrix as int8 values followed by its group scales, per layer.
+
+pub new type Config {
+    pub dim: int          // width of the hidden state
+    pub hidden_dim: int   // width of the feed-forward layers
+    pub n_layers: int
+    pub n_heads: int      // query heads
+    pub n_kv_heads: int   // key/value heads (fewer than n_heads: grouped-query attention)
+    pub vocab_size: int
+    pub seq_len: int      // longest context the model was trained for
+}
+
+// One transformer block's weights.
+pub new type Layer {
+    rms_att: ptr<f32>     // dim
+    wq: Weights           // dim x dim
+    wk: Weights           // kv_dim x dim
+    wv: Weights           // kv_dim x dim
+    wo: Weights           // dim x dim
+    rms_ffn: ptr<f32>     // dim
+    w1: Weights           // hidden_dim x dim (gate)
+    w2: Weights           // dim x hidden_dim (down)
+    w3: Weights           // hidden_dim x dim (up)
+}
+
+pub new class Model {
+    pub config: Config
+    file: MappedFile      // every view below points into this mapping
+    group: int            // Q8_0 group size, 0 for f32
+    embed: Weights        // vocab_size x dim
+    layers: List<Layer>
+    rms_final: ptr<f32>   // dim
+    wcls: Weights         // vocab_size x dim (the embedding, when shared)
+    rope_theta: f32       // RoPE base frequency (10000 for Llama 1/2)
+    eps: f32              // RMSNorm epsilon
+    pub bos: int          // begin / end of text token ids
+    pub eos: int
+    vocab: GgufVocab      // where a GGUF file keeps its tokenizer (count 0 otherwise)
+
+    pub new function is_quantized() -> bool { return is_quantized(self.embed) }
+    pub new function group_size() -> int { return self.group }
+    pub new function kv_dim() -> int { return self.config.dim * self.config.n_kv_heads / self.config.n_heads }
+    pub new function head_size() -> int { return self.config.dim / self.config.n_heads }
+    pub new function file_bytes() -> uint { return self.file.len }
+
+    // Runs one token through the network at position `pos`, filling the state's
+    // key/value cache for that position. Returns the logits (vocab_size values,
+    // inside `s`): a score for every possible next token.
+    pub new function forward(s: State, token: int, pos: int) -> ptr<f32> {
+        let c = self.config
+        let dim = c.dim
+        let kv_dim = self.kv_dim()
+        let kv_mul = c.n_heads / c.n_kv_heads
+        let hidden = c.hidden_dim
+        let head_size = self.head_size()
+        let x = s.x
+
+        let xq = QVec(s.xq, s.xs)
+        weights_row(x, self.embed, token)
+
+        for l in 0..c.n_layers {
+            let w = self.layers[uint(l)]
+            rmsnorm(s.xb, x, w.rms_att, dim, self.eps)
+
+            // This position's key and value go straight into the cache.
+            let loff = l * c.seq_len * kv_dim
+            let k = offset(s.key_cache, loff + pos * kv_dim)
+            let v = offset(s.value_cache, loff + pos * kv_dim)
+            matmul(s.pool, s.q, w.wq, s.xb, xq)
+            matmul(s.pool, k, w.wk, s.xb, xq)
+            matmul(s.pool, v, w.wv, s.xb, xq)
+
+            // RoPE: rotate each pair of q and k by an angle that depends on the position.
+            var i = 0
+            while i < dim {
+                let head_dim = i % head_size
+                let freq = 1.0 / powf(self.rope_theta, f32(head_dim) / f32(head_size))
+                let val = f32(pos) * freq
+                let fcr = cosf(val)
+                let fci = sinf(val)
+                var rotn = 1
+                if i < kv_dim { rotn = 2 }
+                for which in 0..rotn {
+                    var vec = s.q
+                    if which == 1 { vec = k }
+                    let v0 = vec[i]
+                    let v1 = vec[i + 1]
+                    vec[i] = v0 * fcr - v1 * fci
+                    vec[i + 1] = v0 * fci + v1 * fcr
+                }
+                i += 2
+            }
+
+            // Attention, one head at a time, over every position so far.
+            for h in 0..c.n_heads {
+                let q = offset(s.q, h * head_size)
+                let att = offset(s.att, h * c.seq_len)
+                let kv_off = (h / kv_mul) * head_size
+                let scale = sqrtf(f32(head_size))
+                for t in 0..pos + 1 {
+                    att[t] = dot(q, offset(s.key_cache, loff + t * kv_dim + kv_off), head_size) / scale
+                }
+                softmax(att, pos + 1)
+                let xb = offset(s.xb, h * head_size)
+                for e in 0..head_size { xb[e] = 0.0 }
+                for t in 0..pos + 1 {
+                    axpy(xb, att[t], offset(s.value_cache, loff + t * kv_dim + kv_off), head_size)
+                }
+            }
+            matmul(s.pool, s.xb2, w.wo, s.xb, xq)
+            add_into(x, s.xb2, dim)
+
+            // Feed-forward: w2(silu(w1(x)) * w3(x))
+            rmsnorm(s.xb, x, w.rms_ffn, dim, self.eps)
+            matmul(s.pool, s.hb, w.w1, s.xb, xq)
+            matmul(s.pool, s.hb2, w.w3, s.xb, xq)
+            for j in 0..hidden {
+                var val = s.hb[j]
+                val *= 1.0 / (1.0 + expf(-val))
+                val *= s.hb2[j]
+                s.hb[j] = val
+            }
+            matmul(s.pool, s.xb, w.w2, s.hb, xq)
+            add_into(x, s.xb, dim)
+
+            // Probe mode (diagnostics): what would the model predict if it stopped here?
+            // The hidden state goes through the final norm and the output layer; the
+            // full pass then continues unchanged.
+            if s.probe {
+                rmsnorm(s.probe_x, x, self.rms_final, dim, self.eps)
+                matmul(s.pool, s.probe_logits, self.wcls, s.probe_x, xq)
+                let best = argmax(s.probe_logits, c.vocab_size)
+                s.probe_token[l] = i32(best)
+                s.probe_confidence[l] = top_probability(s.probe_logits, c.vocab_size, best)
+            }
+        }
+
+        rmsnorm(x, x, self.rms_final, dim, self.eps)
+        matmul(s.pool, s.logits, self.wcls, x, xq)
+        return s.logits
+    }
+}
+
+// Layer l's matrix of a kind: layers are stored back to back.
+new function layer(w: Weights, l: int) -> Weights {
+    let n = w.rows * w.cols
+    if w.group == 0 { return Weights(offset(w.f, l * n), null, null, w.rows, w.cols, 0, FORMAT_F32) }
+    let stride = n + n / w.group * 4 // int8 values, then f32 scales
+    let base = ptr<u8>(w.q)
+    let q = ptr<u8>(&base[l * stride])
+    return Weights(null, ptr<i8>(q), ptr<f32>(&q[n]), w.rows, w.cols, w.group, FORMAT_Q8)
+}
+
+// llama2.c files store each kind of matrix for all layers back to back.
+new function strided_layers(L: int, rms_att: ptr<f32>, wq: Weights, wk: Weights, wv: Weights, wo: Weights,
+                            rms_ffn: ptr<f32>, w1: Weights, w2: Weights, w3: Weights, dim: int) -> List<Layer> {
+    var layers = List<Layer>()
+    for l in 0..L {
+        layers.push(Layer(offset(rms_att, l * dim), layer(wq, l), layer(wk, l), layer(wv, l), layer(wo, l),
+                          offset(rms_ffn, l * dim), layer(w1, l), layer(w2, l), layer(w3, l)))
+    }
+    return layers
+}
+
+pub new function load_model(path: str) -> Result<Model, string> {
+    match map_file(path) {
+        Err(e) => { return Err("cannot open {path}: {e}") }
+        Ok(file) => {
+            if file.len < 28 { return Err("{path} is too small to be a model") }
+            let h = ptr<i32>(file.data)
+            if u32(h[0]) == 0x616b3432 { return load_q8(path, file) }
+            if u32(h[0]) == 0x46554747 { return load_gguf(path, file) } // "GGUF"
+            var vocab = int(h[5])
+            let shared = vocab > 0
+            if !shared { vocab = -vocab }
+            let c = Config(int(h[0]), int(h[1]), int(h[2]), int(h[3]), int(h[4]), vocab, int(h[6]))
+            if !valid(c) { return Err("{path} doesn't look like a llama2.c model (bad header)") }
+            let head_size = c.dim / c.n_heads
+            let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+            let L = c.n_layers
+            // Where each weight starts, counted in f32s after the header.
+            var at = 7
+            let embed = at;      at += vocab * c.dim
+            let rms_att = at;    at += L * c.dim
+            let wq = at;         at += L * c.dim * c.dim
+            let wk = at;         at += L * c.dim * kv_dim
+            let wv = at;         at += L * c.dim * kv_dim
+            let wo = at;         at += L * c.dim * c.dim
+            let rms_ffn = at;    at += L * c.dim
+            let w1 = at;         at += L * c.dim * c.hidden_dim
+            let w2 = at;         at += L * c.hidden_dim * c.dim
+            let w3 = at;         at += L * c.dim * c.hidden_dim
+            let rms_final = at;  at += c.dim
+            at += c.seq_len * head_size  // unused: precomputed RoPE tables (cos, sin)
+            var wcls = embed
+            if !shared {
+                wcls = at
+                at += vocab * c.dim
+            }
+            if uint(at * 4) > file.len {
+                return Err("{path} is truncated: the header promises {at * 4} bytes, the file has {file.len}")
+            }
+            let b = ptr<f32>(file.data)
+            let D = c.dim
+            let H = c.hidden_dim
+            let layers = strided_layers(L, offset(b, rms_att), f32w(b, wq, D, D), f32w(b, wk, kv_dim, D),
+                                        f32w(b, wv, kv_dim, D), f32w(b, wo, D, D), offset(b, rms_ffn),
+                                        f32w(b, w1, H, D), f32w(b, w2, D, H), f32w(b, w3, H, D), D)
+            return Ok(Model(c, file, 0, f32w(b, embed, vocab, D), layers, offset(b, rms_final),
+                            f32w(b, wcls, vocab, D), 10000.0, 0.00001, 1, 2, GgufVocab(0, 0, 0)))
+        }
+    }
+}
+
+new function f32w(base: ptr<f32>, at: int, rows: int, cols: int) -> Weights {
+    return Weights(offset(base, at), null, null, rows, cols, 0, FORMAT_F32)
+}
+
+new function valid(c: Config) -> bool {
+    return c.dim > 0 && c.hidden_dim > 0 && c.n_layers > 0 && c.n_heads > 0 && c.n_kv_heads > 0 &&
+           c.vocab_size > 0 && c.seq_len > 0 && c.dim % c.n_heads == 0 && c.n_heads % c.n_kv_heads == 0
+}
+
+// The Q8_0 format (llama2.c "version 2").
+new function load_q8(path: str, file: own MappedFile) -> Result<Model, string> {
+    let h = ptr<i32>(file.data)
+    if file.len < 256 || h[1] != 2 { return Err("{path}: unsupported llama2.c format version {h[1]} (Carbon reads 0 and 2)") }
+    let c = Config(int(h[2]), int(h[3]), int(h[4]), int(h[5]), int(h[6]), int(h[7]), int(h[8]))
+    if !valid(c) { return Err("{path} doesn't look like a llama2.c model (bad header)") }
+    let shared = file.data[36] != 0
+    let gs = int(ptr<i32>(&file.data[37])[0])
+    let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+    if gs <= 0 || c.dim % gs != 0 || c.hidden_dim % gs != 0 || kv_dim % gs != 0 {
+        return Err("{path}: group size {gs} doesn't divide the model's dimensions")
+    }
+    let L = c.n_layers
+    let D = c.dim
+    let H = c.hidden_dim
+    // Byte offsets: f32 norms first, then the quantized matrices.
+    var at = 256
+    let rms_att = at;   at += L * D * 4
+    let rms_ffn = at;   at += L * D * 4
+    let rms_final = at; at += D * 4
+    let embed = at;     at += qbytes(c.vocab_size, D, gs, 1)
+    let wq = at;        at += qbytes(D, D, gs, L)
+    let wk = at;        at += qbytes(kv_dim, D, gs, L)
+    let wv = at;        at += qbytes(kv_dim, D, gs, L)
+    let wo = at;        at += qbytes(D, D, gs, L)
+    let w1 = at;        at += qbytes(H, D, gs, L)
+    let w2 = at;        at += qbytes(D, H, gs, L)
+    let w3 = at;        at += qbytes(H, D, gs, L)
+    var wcls = embed
+    if !shared {
+        wcls = at
+        at += qbytes(c.vocab_size, D, gs, 1)
+    }
+    if uint(at) > file.len { return Err("{path} is truncated: the header promises {at} bytes, the file has {file.len}") }
+    let b = file.data
+    let layers = strided_layers(L, ptr<f32>(&b[rms_att]), q8w(b, wq, D, D, gs), q8w(b, wk, kv_dim, D, gs),
+                                q8w(b, wv, kv_dim, D, gs), q8w(b, wo, D, D, gs), ptr<f32>(&b[rms_ffn]),
+                                q8w(b, w1, H, D, gs), q8w(b, w2, D, H, gs), q8w(b, w3, H, D, gs), D)
+    return Ok(Model(c, file, gs, q8w(b, embed, c.vocab_size, D, gs), layers, ptr<f32>(&b[rms_final]),
+                    q8w(b, wcls, c.vocab_size, D, gs), 10000.0, 0.00001, 1, 2, GgufVocab(0, 0, 0)))
+}
+
+// Bytes taken by `layers` quantized rows x cols matrices.
+new function qbytes(rows: int, cols: int, gs: int, layers: int) -> int {
+    return layers * (rows * cols + rows * cols / gs * 4)
+}
+
+new function q8w(base: ptr<u8>, at: int, rows: int, cols: int, gs: int) -> Weights {
+    let q = ptr<u8>(&base[at])
+    return Weights(null, ptr<i8>(q), ptr<f32>(&q[rows * cols]), rows, cols, gs, FORMAT_Q8)
+}
+
+// Everything a forward pass writes: activations and the key/value cache. One
+// arena allocation for all of it, sized from the config, made once.
+pub new class State {
+    arena: Arena
+    pool: Pool
+    pub x: ptr<f32>
+    xb: ptr<f32>
+    xb2: ptr<f32>
+    hb: ptr<f32>
+    hb2: ptr<f32>
+    q: ptr<f32>
+    att: ptr<f32>
+    pub logits: ptr<f32>
+    // Probe mode: set probe = true, and each forward pass records, per layer, the
+    // token an early exit there would pick and its probability.
+    pub probe: bool
+    pub probe_token: ptr<i32>      // n_layers
+    pub probe_confidence: ptr<f32> // n_layers
+    probe_x: ptr<f32>
+    probe_logits: ptr<f32>
+    xq: ptr<i8>           // the current input, quantized (Q8_0 models)
+    xs: ptr<f32>          // its group scales
+    key_cache: ptr<f32>
+    value_cache: ptr<f32>
+
+    // `threads`: how many threads matrix multiplies use (cpu_count() for all cores).
+    pub new function init(c: Config, threads: int) {
+        self.pool = Pool(threads)
+        let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+        let cache = c.n_layers * c.seq_len * kv_dim
+        let floats = 3 * c.dim + 2 * c.hidden_dim + c.dim + c.n_heads * c.seq_len + c.vocab_size + 2 * cache
+        let probes = c.dim + c.vocab_size + 2 * c.n_layers
+        let bytes = (floats + probes) * 4 + 2 * (c.dim + c.hidden_dim) * 4 + 2048 // + probes, quantized input, padding
+        self.arena = Arena(uint(bytes))
+        self.x = self.arena.f32s(uint(c.dim))
+        self.xb = self.arena.f32s(uint(c.dim))
+        self.xb2 = self.arena.f32s(uint(c.dim))
+        self.hb = self.arena.f32s(uint(c.hidden_dim))
+        self.hb2 = self.arena.f32s(uint(c.hidden_dim))
+        self.q = self.arena.f32s(uint(c.dim))
+        self.att = self.arena.f32s(uint(c.n_heads * c.seq_len))
+        self.logits = self.arena.f32s(uint(c.vocab_size))
+        self.probe = false
+        self.probe_token = ptr<i32>(self.arena.bytes(uint(c.n_layers * 4)))
+        self.probe_confidence = self.arena.f32s(uint(c.n_layers))
+        self.probe_x = self.arena.f32s(uint(c.dim))
+        self.probe_logits = self.arena.f32s(uint(c.vocab_size))
+        var widest = c.dim
+        if c.hidden_dim > widest { widest = c.hidden_dim }
+        self.xq = ptr<i8>(self.arena.bytes(uint(widest)))
+        self.xs = self.arena.f32s(uint(widest))
+        self.key_cache = self.arena.f32s(uint(cache))
+        self.value_cache = self.arena.f32s(uint(cache))
+    }
+
+    pub new function bytes() -> uint { return self.arena.used_bytes() }
+    pub new function threads() -> int { return self.pool.size() }
+}

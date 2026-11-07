@@ -1,0 +1,23 @@
+1:1 string literal `tab	here
+` [nl]
+1:15 char literal `a`
+1:19 char literal `A`
+1:26 char literal `'`
+1:31 integer literal `0xFFFF`
+1:39 integer literal `1`
+1:40 '..' [joint]
+1:42 integer literal `5` [joint]
+1:44 float literal `3.0`
+1:48 identifier `a`
+1:49 '>' [joint]
+1:50 '>=' [joint]
+1:52 identifier `b` [joint]
+1:54 identifier `List`
+1:58 '<' [joint]
+1:59 identifier `List` [joint]
+1:63 '<' [joint]
+1:64 identifier `int` [joint]
+1:67 '>' [joint]
+1:68 '>' [joint]
+2:34 identifier `x` [nl]
+3:1 end of file [nl]

@@ -1,0 +1,27 @@
+// Raw memory operations. Freestanding: no allocation here (see Elemental.Memory).
+
+pub new function copy(dst: ptr<u8>, src: ptr<u8>, len: usize) {
+    intrinsic.memcpy(dst, src, len)
+}
+
+pub new function fill(dst: ptr<u8>, value: u8, len: usize) {
+    intrinsic.memset(dst, value, len)
+}
+
+// ---- raw ownership tools, for building containers (like Rust's ptr::read)
+
+// Moves the value at `p` out and returns it. The memory at `p` must not be
+// used as a live value afterwards (it is not dropped there).
+pub new function take<T>(p: ptr<T>) -> T { return intrinsic.load(p) }
+
+// Runs cleanup (drop) for the value at `p`, in place, without freeing memory.
+pub new function destroy<T>(p: ptr<T>) {
+    let gone = take(p)
+}
+
+// The size in bytes of one T (pass any ptr<T>, even null).
+pub new function size_of<T>(p: ptr<T>) -> uint { return intrinsic.size_of(p) }
+
+// Moves `value` into the raw memory at `p` without dropping what was there
+// (the memory may be uninitialized).
+pub new function put<T>(p: ptr<T>, value: own T) { p[0] = value }

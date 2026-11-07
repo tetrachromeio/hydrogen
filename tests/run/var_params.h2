@@ -1,0 +1,50 @@
+use Elemental
+
+new function bump(n: var int) { n += 1 }
+
+new function swap(a: var int, b: var int) {
+    let t = a
+    a = b
+    b = t
+}
+
+new function shout(text: var string) { text.append("!") }
+
+new function replace(text: var string) {
+    text = string("replaced")         // the old value is dropped first
+}
+
+new function fill(items: var List<int>, n: int) {
+    for i in 0..n { items.push(i * 10) }
+}
+
+new class Point { x: int, y: int }
+new function move_right(p: var Point) { p.x += 5 }
+
+new function main() -> int {
+    var count = 1
+    bump(count)
+    bump(count)
+    print(count)
+
+    var a = 1
+    var b = 2
+    swap(a, b)
+    print(string(a) + " " + string(b))
+
+    var greeting = string("hello")
+    shout(greeting)
+    print(greeting)
+    replace(greeting)
+    print(greeting)
+
+    var nums = List<int>()
+    fill(nums, 3)
+    print(nums.len())
+    print(*nums.at(2))
+
+    var p = Point(1, 2)
+    move_right(p)
+    print(p.x)
+    return 0
+}

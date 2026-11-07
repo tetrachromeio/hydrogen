@@ -1,0 +1,7 @@
+pub new class Circle { pub radius: f64 }
+
+// Private, but visible to the other files of Shapes.
+new function area_of_circle(c: Circle) -> f64 {
+    print("circle")
+    return c.radius * c.radius * 3.14159
+}

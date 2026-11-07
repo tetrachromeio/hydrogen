@@ -1,0 +1,64 @@
+use Elemental
+
+new interface Shape {
+    new function area() -> float
+    new function name() -> string
+}
+
+new class Circle {
+    radius: float
+    new function area() -> float { return 3.0 * self.radius * self.radius }
+    new function name() -> string { return "circle r=" + string(self.radius) }
+}
+
+new class Rect {
+    w: float
+    h: float
+    new function area() -> float { return self.w * self.h }
+    new function name() -> string { return string("rect") }
+    new function extra() -> int { return 1 }    // extra methods are fine
+}
+
+new interface Counter {
+    new mut function bump()
+    new function value() -> int
+}
+
+new class Clicks {
+    n: int
+    new mut function bump() { self.n += 1 }
+    new function value() -> int { return self.n }
+}
+
+new function describe(s: any Shape) {
+    print(s.name() + ": " + string(s.area()))
+}
+
+new function bump_twice(c: any Counter) {
+    c.bump()
+    c.bump()
+}
+
+new function main() -> int {
+    let c = Circle(1.0)
+    let r = Rect(2.0, 3.0)
+    describe(&c)
+    describe(&r)
+
+    var shapes = List<any Shape>()
+    shapes.push(&c)
+    shapes.push(&r)
+    shapes.push(&c)
+    var total = 0.0
+    for i in 0..shapes.len() { total += shapes.at(i).area() }
+    print(total)
+
+    var clicks = Clicks(0)
+    bump_twice(&clicks)
+    print(clicks.value())
+
+    let heap = alloc Rect(1.0, 1.0)
+    describe(heap)
+    free heap
+    return 0
+}

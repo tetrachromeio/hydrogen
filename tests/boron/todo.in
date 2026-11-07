@@ -1,0 +1,10 @@
+input draft Buy milk
+submit draft Buy milk
+input draft  Write <Boron> & docs 
+click add
+input draft Call mom
+click add
+change done:1 true
+click delete:0
+close
+click add

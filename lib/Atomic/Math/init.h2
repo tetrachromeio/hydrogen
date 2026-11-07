@@ -1,0 +1,3 @@
+pub new function sqrt(x: f64) -> f64 { return intrinsic.sqrt(x) }
+pub new function floor(x: f64) -> f64 { return intrinsic.floor(x) }
+pub new function ceil(x: f64) -> f64 { return intrinsic.ceil(x) }

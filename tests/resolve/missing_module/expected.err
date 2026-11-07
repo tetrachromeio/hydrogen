@@ -1,0 +1,3 @@
+tests/resolve/missing_module/main.h2:2:1: error: module 'Nowhere.ToBeFound' not found. Looked for:
+    tests/resolve/missing_module/Nowhere/ToBeFound/init.h2
+    lib/Nowhere/ToBeFound/init.h2

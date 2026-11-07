@@ -1,0 +1,77 @@
+use Elemental
+
+new function main() -> int {
+    // command-line arguments: the program name is always there
+    let a = args()
+    print(a.len())
+
+    // text tools
+    let line: str = "  name = Ada Lovelace  "
+    let t = trim(line)
+    print("[" + t + "]")
+    print(starts_with(t, "name"))
+    print(ends_with(t, "Lovelace"))
+    print(contains(t, "Ada"))
+    match find(t, "=") {
+        Some(i) => print("found = at " + string(i))
+        None => print("no =")
+    }
+    let pieces = split("a,b,,c", ",")
+    print(pieces.len())
+    for p in pieces { print("<" + p + ">") }
+    print(slice("hydrogen", 0, 5))
+
+    // numbers from text
+    match parse_int("-42") {
+        Some(n) => print(n + 2)
+        None => print("not a number")
+    }
+    match parse_int("12x") {
+        Some(n) => print(n)
+        None => print("12x is not a number")
+    }
+    match parse_float("2.5") {
+        Some(f) => print(f * 2.0)
+        None => print("bad float")
+    }
+
+    // reading input until it ends: sum the numbers, one per line
+    var total = 0
+    var lines = 0
+    while true {
+        match read_line() {
+            Some(l) => {
+                lines += 1
+                match parse_int(trim(l)) {
+                    Some(n) => { total += n }
+                    None => { print("skipping: " + l) }
+                }
+            }
+            None => { break }
+        }
+    }
+    print(string(lines) + " lines, total " + string(total))
+
+    // files
+    let path = "h2_io_test.txt"
+    match write_file(path, "first line\n") {
+        Ok(n) => print("wrote " + string(n) + " bytes")
+        Err(e) => print(e)
+    }
+    match append_file(path, "second line\n") {
+        Ok(n) => {}
+        Err(e) => print(e)
+    }
+    match read_file(path) {
+        Ok(text) => {
+            for l in split(trim(text), "\n") { print("file: " + l) }
+        }
+        Err(e) => print(e)
+    }
+    print(remove_file(path))
+    match read_file(path) {
+        Ok(text) => print("still there?")
+        Err(e) => print(e)
+    }
+    return 0
+}

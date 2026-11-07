@@ -1,0 +1,76 @@
+use Elemental
+use Atomic.Memory
+
+new union FloatBits {
+    as_uint: uint
+    as_float: float
+}
+
+new union Word {
+    value: u32
+    bytes: [u8; 4]
+}
+
+new type Packet {
+    kind: u8
+    payload: Word          // a union inside a type
+}
+
+// A packed header: 4 + 3 + 1 bits share one word, then a normal field.
+new type Header {
+    version: bits(4)
+    flags: bits(3)
+    urgent: bits(1)
+    length: u16
+    checksum: bits(64)
+}
+
+new function bump_version(h: ptr<Header>) { h.version += 1 }
+
+new function main() -> int {
+    // unions: the same bytes, seen two ways
+    var fb = FloatBits()
+    fb.as_float = 1.5
+    print(fb.as_uint == 4609434218613702656)     // 0x3FF8000000000000
+    fb.as_uint = 4611686018427387904               // 0x4000000000000000
+    print(fb.as_float)
+
+    var w = Word()
+    w.value = 0x04030201
+    print(w.bytes[0])                               // little-endian: lowest byte first
+    print(w.bytes[3])
+
+    var p = Packet(7, Word())
+    p.payload.value = 258
+    print(p.payload.bytes[1])
+
+    // bitfields
+    var h = Header(3, 5, 1, 1500, 0)
+    print(h.version)
+    print(h.flags)
+    print(h.urgent)
+    print(h.length)
+    h.flags = 2
+    h.version |= 8
+    print(h.version)                                // 3 | 8 = 11
+    print(h.flags)
+    h.urgent = 3                                    // too wide: cut to 1 bit
+    print(h.urgent)
+    h.checksum = 18446744073709551615               // all 64 bits
+    print(h.checksum == 18446744073709551615)
+    print(h.version)                                // untouched by its neighbours
+
+    let hp = alloc Header(1, 0, 0, 0, 0)
+    bump_version(hp)
+    print(hp.version)
+    free hp
+
+    // sizes: bitfields pack into 64-bit words (Hydrogen's own layout); unions match C
+    let none_h: ptr<Header> = null
+    let none_w: ptr<Word> = null
+    let none_f: ptr<FloatBits> = null
+    print(size_of(none_h))                          // a word of bits, u16 (padded), a word: 24
+    print(size_of(none_w))                          // 4, as in C
+    print(size_of(none_f))
+    return 0
+}

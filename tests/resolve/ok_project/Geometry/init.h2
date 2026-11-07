@@ -1,0 +1,15 @@
+use Elemental
+
+pub new class Point {
+    pub x: f64
+    pub y: f64
+}
+
+pub new function distance(a: Point, b: Point) -> f64 {
+    let dx = a.x - b.x
+    let dy = a.y - b.y
+    return sqrt(square(dx) + square(dy))
+}
+
+// Private helper: not visible to users of Geometry.
+new function square(v: f64) -> f64 { return v * v }

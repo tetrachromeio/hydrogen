@@ -1,0 +1,20 @@
+[project]
+name = "Boron"
+version = "0.1.0"
+type = "lib"
+
+# The headless backend (prints HTML, reads events from stdin) is built everywhere;
+# on macOS it is used when BORON_HEADLESS=1 is set, elsewhere it is the only backend.
+[native]
+sources = ["native/boron_headless.c"]
+
+[native.macos]
+sources = ["native/boron_macos.m"]
+frameworks = ["Cocoa", "WebKit"]
+flags = ["-fobjc-arc"]
+
+[native.linux]
+sources = ["native/boron_stub.c"]
+
+[native.windows]
+sources = ["native/boron_stub.c"]

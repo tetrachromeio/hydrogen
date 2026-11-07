@@ -1,0 +1,197 @@
+use Elemental
+
+new type Meters : float
+new class Point { x: float, y: float }
+new interface Ordered { new operator < (a: Self, b: Self) -> bool }
+new function biggest<T: Ordered>(a: T, b: T) -> T { return a }
+new enum Color { Red, Green, Blue }
+new enum E { Bad }
+
+new function no_return(x: int) -> int {
+    if x > 0 { return 1 }
+}
+
+new function wrong_try() -> int {
+    let r: Result<int, E> = Ok(1)
+    return r?
+}
+
+new function main() -> int {
+    let a: u8 = 256
+    let b: i8 = -129
+    let c: int = 1.5
+    let d = 1 + "two"
+    let e = Meters(1.0) + Meters(2.0)
+    let f: float = Meters(1.0)
+    let g = Point(1.0)
+    let h = Point(1.0, 2.0, 3.0)
+    let i = biggest(Point(1.0, 2.0), Point(3.0, 4.0))
+    let j = biggest(1, 2.5)
+    let k = true + 1
+    if 1 { }
+    while "yes" { }
+    let p = Point(1.0, 2.0)
+    p.x = 3.0
+    p.z = 1.0
+    let q = p.nope()
+    let m = *p
+    free p
+    let arr = []
+    for x in 5 { }
+    break
+    match Color.Red {
+        Red => print("r")
+        Green => print("g")
+    }
+    match 3 {
+        1 => print("one")
+    }
+    let s: string = 'c'
+    let v = no_return(1, 2)
+    let w = int("12")
+    print("x") = 1
+    return
+}
+
+new class Opaque { n: int }
+new function strings() {
+    print(Opaque(1))
+    let s = string(Opaque(1))
+    let t: string = "literal"
+}
+new class BadConv {
+    n: int
+    new operator string (b: BadConv) -> int { return 1 }
+}
+
+new class Counter {
+    count: int
+    new function peek() -> int { return self.count }
+    new function sneaky() { self.count = 9 }          // not mut: can't change self
+    new mut function bump() { self.count += 1 }
+    new function calls_mut() { self.bump() }          // not mut: can't call a mut method on self
+}
+
+new function use_counter(param: Counter) {
+    let fixed = Counter(0)
+    fixed.bump()                                       // let: can't call mut
+    param.bump()                                       // parameter: can't call mut
+    var changing = Counter(0)
+    changing.bump()                                    // fine
+    Counter(1).bump()                                  // fine: a temporary
+    let p = alloc Counter(2)
+    p.bump()                                           // fine: through a pointer
+    free p
+}
+
+new function inc(n: var int) { n += 1 }
+new function var_errors(param: int) {
+    let fixed = 1
+    inc(fixed)          // let can't be changed
+    inc(param)          // parameter can't be changed
+    inc(5)              // not a variable
+    var ok = 1
+    inc(ok)             // fine
+}
+
+new function twice<T>(x: T) -> T { return x }
+new function lambda_errors() {
+    let k = 10
+    let add_k = function(n: int) -> int { return n + k }      // captures aren't supported yet
+    let g = twice                                               // generic: can't be a value directly
+    let h: function(int) -> int = function(s: str) -> int { return 1 }   // wrong type
+    let one = function(n: int) -> int { return n }
+    one(1, 2)                                                   // wrong number of arguments
+}
+
+new interface Named { new function name() -> str }
+new class Robot { id: int }
+new class Person {
+    first: str
+    new function name() -> str { return self.first }
+}
+new function dyn_errors() {
+    let r = Robot(1)
+    let n: any Named = &r                  // Robot has no name()
+    let ada = Person("ada")
+    let ok: any Named = &ada               // fine
+    let o: any Ordered = &r                // Ordered has an operator: can't be dynamic
+    let p: any Robot = &r                  // not an interface
+}
+
+const LOOP_A = LOOP_B + 1
+const LOOP_B = LOOP_A + 1
+const FROM_CALL = no_return(1)
+const TOO_BIG: u8 = 300
+const NOT_PLAIN = Point(1.0, 2.0)
+new function const_errors() {
+    TOO_BIG = 1
+}
+
+new function sequence_errors() {
+    let fixed = List<int>()
+    fixed[0] = 1                       // a let list can't be changed
+    var words = List<string>()
+    let first = words[0]               // can't move an owned element out
+    let copy = words[0].copy()         // fine
+    for w in 5 { }                     // not a sequence
+}
+
+new class Holder {
+    f: function(int) -> int
+    new function init(f: own function(int) -> int) { self.f = f }
+}
+new function keeps(f: own function(int) -> int) {}
+new function store_param(f: function(int) -> int) -> function(int) -> int {
+    return f                                                  // a parameter can't escape
+}
+new function make_adder(k: int) -> function(int) -> int {
+    return function(n: int) -> int { return n + k }          // a capturing lambda can't be returned
+}
+new function escape_errors() {
+    let k = 5
+    let add_k = function(n: int) -> int { return n + k }     // fine: a local
+    keeps(add_k)                                              // own parameter: would store it
+    let h = Holder(function(n: int) -> int { return n * k }) // stored in a field
+    var saved = function(n: int) -> int { return n }          // non-capturing: fine
+    saved = add_k                                             // can't store a capturing one in a var
+}
+
+new function work_ptr(p: ptr<int>) -> int { return 0 }
+new function work_str(s: str) -> int { return 0 }
+new function work_int(n: int) -> int { return n }
+new function thread_errors() {
+    var x = 5
+    let a = spawn(&x, work_ptr)                                   // a raw pointer would be shared
+    let b = spawn("text", work_str)                               // a str view would be shared
+    let c = spawn(1, function(n: int) -> int { return n + x })    // captures x
+    let d = spawn(1, work_int)                                    // fine
+    let e = spawn(string("ok"), function(s: string) -> uint { return s.len() })   // fine
+}
+
+new function asm_errors() {
+    let fixed = 1
+    asm {
+        "mov {r}, {missing}"
+        out r -> fixed                       // fixed is a let
+    }
+    asm {
+        "nop"
+        in p = Point(1.0, 2.0)               // not a number or pointer
+    }
+}
+
+new union Bad { s: string, n: int }
+new class Flags { mode: bits(3) }
+new type Packed { a: bits(4), b: bits(4) }
+new function bit_errors() {
+    var p = Packed(1, 2)
+    let addr = &p.a
+    var u = Bad(1)
+}
+
+new function guard_errors() {
+    let m = mutex(0)
+    let g = spawn(m.lock(), function(g: Guard<int>) -> int { return 0 })   // a lock must stay on its thread
+    let ok = spawn(m.copy(), function(m: Mutex<int>) -> int { return 0 })  // fine
+}

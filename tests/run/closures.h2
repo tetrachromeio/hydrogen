@@ -1,0 +1,72 @@
+use Elemental
+
+new function each(items: List<int>, f: function(int)) {
+    for x in items { f(x) }
+}
+
+new function filter(items: List<int>, keep: function(int) -> bool) -> List<int> {
+    var out = List<int>()
+    for x in items { if keep(x) { out.push(x) } }
+    return out
+}
+
+new function twice(f: function()) {
+    f()
+    f()
+}
+
+// Stores its callback: `own` means callers can't pass a capturing lambda.
+new class Button {
+    label: str
+    on_click: function(str) -> string
+    new function init(label: str, on_click: own function(str) -> string) {
+        self.label = label
+        self.on_click = on_click
+    }
+    new function click() { print(self.on_click(self.label)) }
+}
+
+new function shout(s: str) -> string { return s + "!" }
+
+new function main() -> int {
+    var nums = List<int>()
+    for x in [4, 8, 15, 16, 23, 42] { nums.push(x) }
+
+    // capture by reference: the lambda changes `total`
+    var total = 0
+    each(nums, function(n: int) { total += n })
+    print(total)
+
+    // capture a let
+    let limit = 16
+    let small = filter(nums, function(n: int) -> bool { return n < limit })
+    print(small.len())
+
+    // capture an owned string (borrowed inside the lambda)
+    let prefix = string("item ")
+    var count = 0
+    each(small, function(n: int) {
+        count += 1
+        print(prefix + string(n))
+    })
+    print(count)
+
+    // a local holding a capturing lambda, called several times
+    var calls = 0
+    let bump = function() { calls += 1 }
+    twice(bump)
+    bump()
+    print(calls)
+
+    // nested lambdas: the inner one captures through the outer one
+    var hits = 0
+    each(nums, function(n: int) {
+        twice(function() { hits += n })
+    })
+    print(hits)
+
+    // non-capturing functions can still be stored
+    let b = Button("save", shout)
+    b.click()
+    return 0
+}

@@ -1,0 +1,10 @@
+use Elemental
+use Geometry
+use Geometry.Shapes
+
+new function main() -> int {
+    let c = Circle(2.0)
+    let a = area(c)
+    print("hi")
+    return 0
+}

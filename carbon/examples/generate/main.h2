@@ -1,0 +1,89 @@
+// Text generation from the command line, with llama2.c's options:
+//
+//   hy run --release -- <model.bin> [-z tokenizer.bin] [-i "prompt"] [-n steps]
+//                       [-t temperature] [-p topp] [-s seed] [-T threads] [-c]
+//
+// <model> is a llama2.c .bin (f32 or Q8_0, needs -z) or a GGUF file (has its own tokenizer).
+// -c: chat: wrap the prompt in the chat template (TinyLlama-Chat style)
+use Elemental
+use Elemental.System
+use Elemental.Thread
+use Carbon
+
+new function usage() -> int {
+    eprint("usage: generate <model.bin> [-z tokenizer.bin] [-i prompt] [-n steps] [-t temperature] [-p topp] [-s seed] [-T threads] [-c]")
+    return 2
+}
+
+new function to_f32(text: str, fallback: f64) -> f32 {
+    let x: f64 = unwrap_or(parse_float(text), fallback)
+    return f32(x)
+}
+
+new function main() -> int {
+    let argv = args()
+    if argv.len() < 2 { return usage() }
+    let model_path: str = argv[1]
+    var tokenizer_path = string("tokenizer.bin")
+    var prompt = string("")
+    var steps = 256
+    var temperature: f32 = 1.0
+    var topp: f32 = 0.9
+    var seed: u64 = 0
+    var threads = cpu_count()
+    var chat = false
+    var i: uint = 2
+    while i < argv.len() {
+        let flag: str = argv[i]
+        if flag == "-c" {
+            chat = true
+            i += 1
+            continue
+        }
+        if i + 1 >= argv.len() { return usage() }
+        let value: str = argv[i + 1]
+        if flag == "-z" { tokenizer_path = string(value) }
+        else if flag == "-i" { prompt = string(value) }
+        else if flag == "-n" { steps = unwrap_or(parse_int(value), 256) }
+        else if flag == "-t" { temperature = to_f32(value, 1.0) }
+        else if flag == "-p" { topp = to_f32(value, 0.9) }
+        else if flag == "-T" { threads = unwrap_or(parse_int(value), threads) }
+        else if flag == "-s" {
+            let n: int = unwrap_or(parse_int(value), 0)
+            seed = u64(n)
+        }
+        else { return usage() }
+        i += 2
+    }
+    if i != argv.len() { return usage() }
+    if seed == 0 { seed = u64(unix_time()) }
+
+    match load_model(model_path) {
+        Err(e) => {
+            eprint("error: " + e)
+            return 1
+        }
+        Ok(model) => {
+            var loaded = model_tokenizer(model)
+            if ends_with(model_path, ".bin") { loaded = load_tokenizer(tokenizer_path, model.config.vocab_size) }
+            match loaded {
+                Err(e) => {
+                    eprint("error: " + e)
+                    return 1
+                }
+                Ok(tok) => {
+                    var sampler = Sampler(model.config.vocab_size, temperature, topp, seed)
+                    let stats = generate(model, tok, sampler, prompt_tokens(model, tok, prompt, chat), steps, threads, !chat,
+                                          function(piece: str) {
+                        write_bytes(1, piece.data, piece.len)
+                    })
+                    write_bytes(1, "\n".data, 1)
+                    if stats.tokens > 1 && stats.seconds > 0.0 {
+                        eprint("achieved tok/s: " + fixed(f64(stats.tokens - 1) / stats.seconds, 6))
+                    }
+                }
+            }
+        }
+    }
+    return 0
+}

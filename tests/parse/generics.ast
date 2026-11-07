@@ -1,0 +1,31 @@
+(module
+  (use Elemental)
+  (use Atomic.Memory as mem)
+  (interface Comparable
+    (operator < ((a : Self) (b : Self)) -> bool))
+  (interface Container <T>
+    (function get ((i : usize)) -> T)
+    (function len () -> usize))
+  (function max <T: Comparable + Copy> ((a : T) (b : T)) -> T
+    (block
+      (if (< a b)
+        (block
+          (return b)))
+      (return a)))
+  (class List <T>
+    (field data : ptr<T>)
+    (field len : usize))
+  (function main () -> int
+    (block
+      (let nested : List<List<int>> = (call List<List<int>>))
+      (let m = (call max<int> 3 7))
+      (let n = (call max 1.5 2.5))
+      (let cmp = (< a b))
+      (let gt = (> a b))
+      (let shifted = (<< (>> x 2) 1))
+      (let arr : [u8; 16] = (array 0 1 2))
+      (let slice : [int] = arr)
+      (let buf = (alloc [u8; 4096]))
+      (let p : ptr<int> = (& n))
+      (let v = (* p))
+      (return 0))))

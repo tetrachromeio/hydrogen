@@ -1,0 +1,73 @@
+// A to-do list: a text field, checkboxes, and one delete button per item.
+use Elemental
+use Boron
+
+new type Item {
+    title: string
+    done: bool
+}
+
+new function main() -> int {
+    var app = App("To Do", 420, 360)
+    app.style(".bn-item {{ display: flex; align-items: center; gap: 8px; min-height: 26px }}")
+    var items = List<Item>()
+    var draft = string("")
+
+    while app.is_open() {
+        var left = 0
+        for item in items { if !item.done { left += 1 } }
+
+        var ui = Ui()
+        ui.heading("To Do")
+        ui.caption("{left} of {items.len()} left")
+        ui.begin_row()
+        ui.wide_input("draft", draft, "What needs doing?")
+        if draft.len() == 0 { ui.disabled_button("add", "Add") } else { ui.accent_button("add", "Add") }
+        ui.end()
+        ui.begin_card()
+        if items.is_empty() { ui.caption("Nothing yet.") }
+        for i in 0..items.len() {
+            let item = items.at(i)
+            ui.begin("bn-item")
+            ui.checkbox("done:{i}", item.title, item.done)
+            ui.spacer()
+            ui.button("delete:{i}", "Delete")
+            ui.end()
+        }
+        ui.end()
+        app.show(ui)
+
+        let ev = app.wait()
+        if ev.changed("draft") { draft = string(ev.text()) }
+        if (ev.clicked("add") || ev.submitted("draft")) && trim(draft).len > 0 {
+            items.push(Item(string(trim(draft)), false))
+            draft = string("")
+        }
+        match ev.index("done") {
+            Some(i) => { if i >= 0 && i < int(items.len()) { items.at(uint(i)).done = ev.checked() } }
+            None => {}
+        }
+        match ev.index("delete") {
+            Some(i) => { if i >= 0 && i < int(items.len()) { remove_at(items, uint(i)) } }
+            None => {}
+        }
+    }
+    return 0
+}
+
+// Removes items[index], keeping the order.
+new function remove_at(list: var List<Item>, index: uint) {
+    var kept = List<Item>()
+    while true {
+        match list.pop() {
+            Some(item) => { if list.len() != index { kept.push(item) } }
+            None => { break }
+        }
+    }
+    while true {
+        match kept.pop() {
+            Some(item) => { list.push(item) }
+            None => { break }
+        }
+    }
+}

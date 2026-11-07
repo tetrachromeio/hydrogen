@@ -1,0 +1,71 @@
+// requires: linux (the sockaddr_in layout below is Linux's)
+// TCP over localhost, written entirely in Hydrogen on top of the C socket API.
+// (sockaddr_in below is the Linux layout.)
+use Elemental
+
+extern function socket(domain: i32, kind: i32, protocol: i32) -> i32
+extern function bind(fd: i32, addr: ptr<u8>, len: u32) -> i32
+extern function listen(fd: i32, backlog: i32) -> i32
+extern function accept(fd: i32, addr: ptr<u8>, len: ptr<u32>) -> i32
+extern function connect(fd: i32, addr: ptr<u8>, len: u32) -> i32
+extern function getsockname(fd: i32, addr: ptr<u8>, len: ptr<u32>) -> i32
+extern function read(fd: i32, buf: ptr<u8>, n: uint) -> int
+extern function write(fd: i32, buf: ptr<u8>, n: uint) -> int
+extern function close(fd: i32) -> i32
+
+new type SockAddrIn {
+    family: u16
+    port: u16        // network byte order
+    addr: u32        // network byte order
+    zero: u64
+}
+
+new enum NetError { Failed(str) }
+
+// A socket that closes itself.
+new class Socket {
+    fd: i32
+    new function drop() { close(self.fd) }
+}
+
+new function tcp_socket() -> Result<Socket, NetError> {
+    let fd = socket(2, 1, 0)                     // AF_INET, SOCK_STREAM
+    if fd < 0 { return Err(Failed("socket")) }
+    return Ok(Socket(fd))
+}
+
+new function localhost(port: u16) -> SockAddrIn {
+    return SockAddrIn(2, port, 0x0100007F, 0)    // 127.0.0.1
+}
+
+new function serve() -> Result<int, NetError> {
+    let server = tcp_socket()?
+    var addr = localhost(0)                      // port 0: let the OS pick
+    if bind(server.fd, ptr<u8>(&addr), 16) != 0 { return Err(Failed("bind")) }
+    if listen(server.fd, 1) != 0 { return Err(Failed("listen")) }
+    var len: u32 = 16
+    getsockname(server.fd, ptr<u8>(&addr), &len)
+
+    let client = tcp_socket()?
+    if connect(client.fd, ptr<u8>(&addr), 16) != 0 { return Err(Failed("connect")) }
+    let conn = Socket(accept(server.fd, null, null))
+    if conn.fd < 0 { return Err(Failed("accept")) }
+
+    let message: str = "hello over tcp"
+    write(client.fd, message.data, message.len)
+    let buf = alloc [u8; 64]
+    let n = read(conn.fd, buf, 64)
+    print(str(buf, uint(n)))
+    free buf
+    return Ok(int(n))
+}
+
+new function main() -> int {
+    match serve() {
+        Ok(n) => print(string(n) + " bytes received")
+        Err(Failed(what)) => print("failed: " + what)
+    }
+    let none: ptr<u8> = null
+    print(none == null)
+    return 0
+}

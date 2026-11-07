@@ -1,0 +1,3 @@
+pub new class Square { pub side: f64 }
+
+new function side_squared(s: Square) -> f64 { return s.side * s.side }

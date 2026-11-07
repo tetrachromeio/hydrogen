@@ -1,0 +1,21 @@
+kept 1
+drop ignored
+found one, not keeping it
+looking at scoped
+drop scoped
+after scoped
+drop body
+message from from
+drop from
+after message
+kept 2
+got fallback
+true
+drop x
+true
+one two
+end
+drop fallback
+drop first
+drop local
+[exit 0]

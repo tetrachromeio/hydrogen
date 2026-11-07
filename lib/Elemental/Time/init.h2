@@ -1,0 +1,68 @@
+// Clocks, waiting, and calendar dates.
+use Elemental
+
+extern function h2_now_seconds() -> float
+extern function h2_unix_time() -> int
+extern function h2_sleep_seconds(s: float)
+extern function h2_datetime(unix_seconds: int, local: bool, out: ptr<int>)
+
+// Seconds on a steady clock that never goes backwards. Subtract two readings
+// to measure how long something took.
+pub new function now() -> float { return h2_now_seconds() }
+
+// Seconds since 1970-01-01 UTC (the wall clock; it can jump).
+pub new function unix_time() -> int { return h2_unix_time() }
+
+// Pauses the program for `seconds` (fractions allowed: sleep(0.25)).
+pub new function sleep(seconds: float) { h2_sleep_seconds(seconds) }
+
+// ---------------------------------------------------------------- dates
+
+// A calendar date and time of day. weekday: 0 = Sunday ... 6 = Saturday.
+pub new type DateTime {
+    pub year: int
+    pub month: int       // 1-12
+    pub day: int         // 1-31
+    pub hour: int        // 0-23
+    pub minute: int
+    pub second: int
+    pub weekday: int
+}
+
+new function to_date(unix_seconds: int, local: bool) -> DateTime {
+    var parts: [int; 7] = [0, 0, 0, 0, 0, 0, 0]
+    h2_datetime(unix_seconds, local, &parts[0])
+    return DateTime(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6])
+}
+
+// The current date and time in UTC.
+pub new function utc_now() -> DateTime { return to_date(unix_time(), false) }
+
+// The current date and time in the computer's time zone.
+pub new function local_now() -> DateTime { return to_date(unix_time(), true) }
+
+// The UTC date and time of a Unix timestamp.
+pub new function utc_from_unix(unix_seconds: int) -> DateTime { return to_date(unix_seconds, false) }
+
+new function two_digits(n: int) -> string {
+    if n < 10 { return "0" + string(n) }
+    return string(n)
+}
+
+// "2026-11-07 14:03:22"
+pub new operator string (d: DateTime) -> string {
+    return string(d.year) + "-" + two_digits(d.month) + "-" + two_digits(d.day) + " " +
+           two_digits(d.hour) + ":" + two_digits(d.minute) + ":" + two_digits(d.second)
+}
+
+pub new function weekday_name(d: DateTime) -> str {
+    match d.weekday {
+        0 => { return "Sunday" }
+        1 => { return "Monday" }
+        2 => { return "Tuesday" }
+        3 => { return "Wednesday" }
+        4 => { return "Thursday" }
+        5 => { return "Friday" }
+        _ => { return "Saturday" }
+    }
+}

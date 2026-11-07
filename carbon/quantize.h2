@@ -1,0 +1,93 @@
+// Converting an f32 model to Q8_0 (llama2.c's "version 2" file format).
+
+// Writes `output`, a Q8_0 copy of the f32 model at `input`. `group`: values per
+// scale (0 picks the largest of 64, 32, 16 that divides the model's sizes).
+// Returns a one-line summary.
+pub new function quantize_model(input: str, output: str, group: int) -> Result<string, string> {
+    match load_model(input) {
+        Err(e) => { return Err(e) }
+        Ok(model) => {
+            if model.is_quantized() { return Err("{input} is already quantized") }
+            if model.vocab.count > 0 { return Err("{input}: converting GGUF files isn't supported; use an f32 llama2.c model") }
+            let c = model.config
+            let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+            var gs = group
+            if gs <= 0 {
+                gs = 64
+                while gs > 1 && (c.dim % gs != 0 || c.hidden_dim % gs != 0 || kv_dim % gs != 0) { gs = gs / 2 }
+            }
+            if c.dim % gs != 0 || c.hidden_dim % gs != 0 || kv_dim % gs != 0 {
+                return Err("group size {gs} doesn't divide the model's sizes ({c.dim}, {c.hidden_dim}, {kv_dim})")
+            }
+            match open_write(output) {
+                Err(e) => { return Err("cannot write {output}: {e}") }
+                Ok(f) => {
+                    var file = f
+                    // Scratch for the largest matrix: int8 values + scales.
+                    var largest = c.vocab_size * c.dim
+                    if c.hidden_dim * c.dim > largest { largest = c.hidden_dim * c.dim }
+                    var arena = Arena(uint(largest + largest / gs * 4 + 512))
+
+                    let header = arena.bytes(256)
+                    ptr<u32>(header)[0] = 0x616b3432 // "ak42"
+                    let h = ptr<i32>(header)
+                    h[1] = 2
+                    h[2] = i32(c.dim)
+                    h[3] = i32(c.hidden_dim)
+                    h[4] = i32(c.n_layers)
+                    h[5] = i32(c.n_heads)
+                    h[6] = i32(c.n_kv_heads)
+                    h[7] = i32(c.vocab_size)
+                    h[8] = i32(c.seq_len)
+                    let shared = model.wcls.f == model.embed.f
+                    if shared { header[36] = 1 }
+                    ptr<i32>(&header[37])[0] = i32(gs)
+                    var ok = put(file, header, 256)
+                    arena.reset()
+
+                    let L = c.n_layers
+                    for l in 0..L { ok = ok && put(file, ptr<u8>(model.layers[uint(l)].rms_att), c.dim * 4) }
+                    for l in 0..L { ok = ok && put(file, ptr<u8>(model.layers[uint(l)].rms_ffn), c.dim * 4) }
+                    ok = ok && put(file, ptr<u8>(model.rms_final), c.dim * 4)
+                    ok = ok && put_quantized(file, arena, model.embed, gs)
+                    for kind in 0..7 {
+                        for l in 0..L { ok = ok && put_quantized(file, arena, matrix(model.layers[uint(l)], kind), gs) }
+                    }
+                    if !shared { ok = ok && put_quantized(file, arena, model.wcls, gs) }
+                    if !ok { return Err("writing {output} failed") }
+                    let before = model.file_bytes()
+                    return Ok("quantized {input} ({before / 1048576} MB) to {output}, Q8_0 with group size {gs}")
+                }
+            }
+        }
+    }
+}
+
+new function put(file: var File, data: ptr<u8>, n: int) -> bool {
+    match file.write(str(data, uint(n))) {
+        Ok(_) => { return true }
+        Err(_) => { return false }
+    }
+}
+
+// The file's order of matrix kinds: wq wk wv wo w1 w2 w3.
+new function matrix(l: Layer, kind: int) -> Weights {
+    if kind == 0 { return l.wq }
+    if kind == 1 { return l.wk }
+    if kind == 2 { return l.wv }
+    if kind == 3 { return l.wo }
+    if kind == 4 { return l.w1 }
+    if kind == 5 { return l.w2 }
+    return l.w3
+}
+
+// A matrix: its int8 values, then its scales.
+new function put_quantized(file: var File, arena: var Arena, w: Weights, gs: int) -> bool {
+    let n = w.rows * w.cols
+    let q = arena.bytes(uint(n))
+    let s = arena.f32s(uint(n / gs))
+    quantize(ptr<i8>(q), s, w.f, n, gs)
+    let ok = put(file, q, n) && put(file, ptr<u8>(s), n / gs * 4)
+    arena.reset()
+    return ok
+}

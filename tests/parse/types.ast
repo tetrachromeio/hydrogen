@@ -1,0 +1,38 @@
+(module
+  (type bool (bits 1))
+  (type u8 (bits 8))
+  (type i64 (bits 64 signed)
+    (operator + ((a : i64) (b : i64)) -> i64
+      (block
+        (return (call (. intrinsic add) a b))))
+    (operator - ((a : i64)) -> i64
+      (block
+        (return (call (. intrinsic neg) a))))
+    (operator >> ((a : i64) (n : i64)) -> i64
+      (block
+        (return (call (. intrinsic ashr) a n))))
+    (operator == ((a : i64) (b : i64)) -> bool
+      (block
+        (return (call (. intrinsic eq) a b)))))
+  (type f64 (float 64))
+  (type Meters (on f64))
+  (type Handle (on ptr<u8>))
+  (type string
+    (field data : ptr<u8>)
+    (field len : usize)
+    (operator [] ((s : string) (i : usize)) -> u8
+      (block
+        (return (index (. s data) i)))))
+  (type Pair <A, B>
+    (field first : A)
+    (field second : B))
+  (class Buffer
+    (field data : ptr<u8>)
+    (field size : usize)
+    (function init ((size : usize))
+      (block
+        (= (. self data) (call (. mem alloc_bytes) size))
+        (= (. self size) size)))
+    (function drop ()
+      (block
+        (call (. mem free_bytes) (. self data))))))

@@ -1,0 +1,128 @@
+tests/types/errors.h2:15:5: r: Result<int, E>
+tests/types/errors.h2:20:5: a: u8
+tests/types/errors.h2:21:5: b: i8
+tests/types/errors.h2:22:5: c: int
+tests/types/errors.h2:23:5: d: <error>
+tests/types/errors.h2:24:5: e: <error>
+tests/types/errors.h2:25:5: f: float
+tests/types/errors.h2:26:5: g: Point
+tests/types/errors.h2:27:5: h: Point
+tests/types/errors.h2:28:5: i: Point
+tests/types/errors.h2:29:5: j: float
+tests/types/errors.h2:30:5: k: <error>
+tests/types/errors.h2:33:5: p: Point
+tests/types/errors.h2:36:5: q: <error>
+tests/types/errors.h2:37:5: m: <error>
+tests/types/errors.h2:39:5: arr: <error>
+tests/types/errors.h2:49:5: s: string
+tests/types/errors.h2:50:5: v: int
+tests/types/errors.h2:51:5: w: <error>
+tests/types/errors.h2:59:5: s: string
+tests/types/errors.h2:60:5: t: string
+tests/types/errors.h2:76:5: fixed: Counter
+tests/types/errors.h2:79:5: changing: Counter
+tests/types/errors.h2:82:5: p: ptr<Counter>
+tests/types/errors.h2:89:5: fixed: int
+tests/types/errors.h2:93:5: ok: int
+tests/types/errors.h2:99:5: k: int
+tests/types/errors.h2:100:5: add_k: function(int) -> int
+tests/types/errors.h2:101:5: g: <error>
+tests/types/errors.h2:102:5: h: function(int) -> int
+tests/types/errors.h2:103:5: one: function(int) -> int
+tests/types/errors.h2:114:5: r: Robot
+tests/types/errors.h2:115:5: n: any Named
+tests/types/errors.h2:116:5: ada: Person
+tests/types/errors.h2:117:5: ok: any Named
+tests/types/errors.h2:118:5: o: <error>
+tests/types/errors.h2:119:5: p: <error>
+tests/types/errors.h2:132:5: fixed: List<int>
+tests/types/errors.h2:134:5: words: List<string>
+tests/types/errors.h2:135:5: first: string
+tests/types/errors.h2:136:5: copy: string
+tests/types/errors.h2:152:5: k: int
+tests/types/errors.h2:153:5: add_k: function(int) -> int
+tests/types/errors.h2:155:5: h: Holder
+tests/types/errors.h2:156:5: saved: function(int) -> int
+tests/types/errors.h2:164:5: x: int
+tests/types/errors.h2:165:5: a: Thread<int>
+tests/types/errors.h2:166:5: b: Thread<int>
+tests/types/errors.h2:167:5: c: Thread<int>
+tests/types/errors.h2:168:5: d: Thread<int>
+tests/types/errors.h2:169:5: e: Thread<uint>
+tests/types/errors.h2:173:5: fixed: int
+tests/types/errors.h2:188:5: p: Packed
+tests/types/errors.h2:189:5: addr: <error>
+tests/types/errors.h2:190:5: u: Bad
+tests/types/errors.h2:194:5: m: Mutex<int>
+tests/types/errors.h2:195:5: g: Thread<int>
+tests/types/errors.h2:196:5: ok: Thread<int>
+tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
+tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
+tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
+tests/types/errors.h2:21:18: error: -129 does not fit in i8 (signed 8-bit)
+tests/types/errors.h2:22:18: error: value of 'c': expected int, found float literal. Convert explicitly with int(...)
+tests/types/errors.h2:23:15: error: no operator '+' for integer literal and str
+tests/types/errors.h2:24:25: error: Meters has no operator '+'. Define it inside the type: new operator + (...)
+tests/types/errors.h2:25:26: error: value of 'f': expected float, found Meters. Convert explicitly with float(...)
+tests/types/errors.h2:26:18: error: Point (fields in order) takes 2 arguments, but 1 was given
+tests/types/errors.h2:27:18: error: Point (fields in order) takes 2 arguments, but 3 were given
+tests/types/errors.h2:28:20: error: Point does not satisfy Ordered: it needs new operator < (a: Point, b: Point) -> bool
+tests/types/errors.h2:30:18: error: bool has no operator '+'
+tests/types/errors.h2:31:8: error: condition of 'if': expected bool, found integer literal. Convert explicitly with bool(...)
+tests/types/errors.h2:32:11: error: condition of 'while': expected bool, found str
+tests/types/errors.h2:34:6: error: cannot change 'p': it is immutable. Declare it with 'var' to allow changes
+tests/types/errors.h2:35:6: error: Point has no field 'z'
+tests/types/errors.h2:36:14: error: Point has no method 'nope'
+tests/types/errors.h2:37:13: error: '*' needs a pointer, found Point
+tests/types/errors.h2:38:10: error: 'free' needs a pointer from 'alloc', found Point
+tests/types/errors.h2:39:15: error: cannot tell the element type of an empty array; add a type annotation
+tests/types/errors.h2:40:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays, strings, and classes with len() and at(i) methods
+tests/types/errors.h2:41:5: error: 'break' outside of a loop
+tests/types/errors.h2:42:5: error: match does not cover every case of Color: missing Blue. Add those arms or a '_' arm
+tests/types/errors.h2:46:5: error: match on int needs a '_' arm to cover the remaining values
+tests/types/errors.h2:49:21: error: value of 's': expected string, found char
+tests/types/errors.h2:50:22: error: no_return takes 1 argument, but 2 were given
+tests/types/errors.h2:51:16: error: cannot convert str to int: conversions work between number, bool and char types
+tests/types/errors.h2:52:10: error: cannot assign to this expression
+tests/types/errors.h2:53:5: error: missing return value of type int
+tests/types/errors.h2:58:10: error: Opaque does not satisfy Printable: it needs new operator string (v: Opaque) -> string
+tests/types/errors.h2:59:19: error: Opaque can't be converted to string. Give it a conversion: new operator string (v: Opaque) -> string
+tests/types/errors.h2:60:21: error: value of 't': expected string, found str. Make an owned copy with string(...)
+tests/types/errors.h2:64:5: error: operator string must return string
+tests/types/errors.h2:70:33: error: this method can't change self; mark the method 'new mut function sneaky' to allow it
+tests/types/errors.h2:72:36: error: 'bump' changes self, but this method can't; mark the method 'new mut function calls_mut' to allow it
+tests/types/errors.h2:77:10: error: 'bump' changes the value, but 'fixed' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:78:10: error: 'bump' changes the value, but 'param' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:90:9: error: 'n' is a var parameter, but 'fixed' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:91:9: error: 'n' is a var parameter, but 'param' can't be changed (it's a let or a parameter). Declare it with var
+tests/types/errors.h2:92:9: error: 'n' is a var parameter: pass a variable that can be changed, not a value
+tests/types/errors.h2:101:13: error: 'twice' is generic, so it can't be used as a value directly; wrap it in a lambda with concrete types
+tests/types/errors.h2:102:35: error: value of 'h': expected function(int) -> int, found function(str) -> int
+tests/types/errors.h2:104:8: error: this function takes 1 argument, but 2 were given
+tests/types/errors.h2:115:24: error: value of 'n': expected any Named, found ptr<Robot>. Robot doesn't implement Named (missing name())
+tests/types/errors.h2:118:12: error: 'any Ordered' isn't possible: operator '<' needs both values to have the same type, which can't be dispatched at run time
+tests/types/errors.h2:119:12: error: 'any' needs an interface, but 'Robot' is a class
+tests/types/errors.h2:122:1: error: constant 'LOOP_A' is defined in terms of itself
+tests/types/errors.h2:124:28: error: a constant's value must be computable at compile time: literals, other constants, and operators or conversions on them
+tests/types/errors.h2:125:21: error: 300 does not fit in u8 (unsigned 8-bit)
+tests/types/errors.h2:126:1: error: constants can be numbers, bool, char or str, not Point
+tests/types/errors.h2:128:5: error: cannot assign to constant 'TOO_BIG'
+tests/types/errors.h2:133:10: error: cannot change 'fixed': it is immutable. Declare it with 'var' to allow changes
+tests/types/errors.h2:135:22: error: cannot move an element out of words. Use words[...].copy() to make a copy
+tests/types/errors.h2:137:14: error: cannot loop over int; 'for' works with ranges (a..b), arrays, strings, and classes with len() and at(i) methods
+tests/types/errors.h2:146:12: error: 'f' is a function parameter, which may use its caller's local variables, so it can only be called or passed on. To store it, declare 'f: own function(...)' (callers then can't pass lambdas that capture)
+tests/types/errors.h2:149:12: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:154:11: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:155:20: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:157:13: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:165:18: error: ptr<int> can't be sent to another thread: it contains a raw pointer (ptr<int>)
+tests/types/errors.h2:166:18: error: str can't be sent to another thread: str is a borrowed view; send an owned string instead (string(text))
+tests/types/errors.h2:167:22: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:174:5: error: asm uses {missing}, but no operand has that name
+tests/types/errors.h2:176:18: error: asm writes to 'fixed', which is immutable. Declare it with var
+tests/types/errors.h2:180:21: error: asm operands are numbers, bools, chars or pointers, not Point
+tests/types/errors.h2:184:17: error: union fields must be plain values (numbers, pointers, arrays, plain types), not string: the union can't know which field to clean up
+tests/types/errors.h2:185:19: error: bitfields are only allowed in 'new type' layouts, not classes
+tests/types/errors.h2:189:16: error: a bitfield has no address of its own; copy it into a variable first
+tests/types/errors.h2:190:16: error: a union starts zeroed: write Bad() and then set one of its fields
+tests/types/errors.h2:195:18: error: Guard<int> can't be sent to another thread: field 'pin' of Guard: it is marked NotSendable

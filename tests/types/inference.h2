@@ -1,0 +1,111 @@
+use Elemental
+
+new type Meters : float {
+    new operator + (a: Meters, b: Meters) -> Meters { return Meters(float(a) + float(b)) }
+    new operator < (a: Meters, b: Meters) -> bool { return float(a) < float(b) }
+}
+
+new interface Ordered {
+    new operator < (a: Self, b: Self) -> bool
+}
+
+new function biggest<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+new class Stack<T> {
+    items: ptr<T>
+    count: uint
+
+    new mut function push(item: T) {
+        self.items[self.count] = item
+        self.count += 1
+    }
+    new function top() -> T { return self.items[self.count - 1] }
+}
+
+new enum Shape {
+    Circle(float)
+    Rect(float, float)
+    Empty
+}
+
+new enum ParseError { NoDigits, BadChar(char) }
+
+new function digit(c: char) -> Result<int, ParseError> {
+    if c < '0' || c > '9' { return Err(BadChar(c)) }
+    return Ok(int(c) - int('0'))
+}
+
+new function parse(s: str) -> Result<int, ParseError> {
+    if s.len == 0 { return Err(NoDigits) }
+    var n = 0
+    for c in s { n = n * 10 + digit(c)? }
+    return Ok(n)
+}
+
+new function area(s: Shape) -> float {
+    match s {
+        Circle(r) => { return 3.14159 * r * r }
+        Rect(w, h) => { return w * h }
+        Empty => { return 0.0 }
+    }
+}
+
+new function main() -> int {
+    let count = 10
+    let ratio = 0.5
+    let small: u8 = 255
+    let neg: i8 = -128
+    let mask = 0xFF & count
+    let flag = count > 3 && ratio < 1.0
+    let total = 1 + 2 * 3
+    let d = Meters(1.5) + Meters(2.0)
+    let farther = biggest(Meters(1.0), d)
+    let bigger = biggest(3, 7)
+    let explicit = biggest<u8>(1, 2)
+    var s = Stack<int>(alloc [int; 16], 0)
+    s.push(42)
+    let t = s.top()
+    let p = &count
+    let back = *p
+    let arr = [1, 2, 3]
+    let bytes: [u8; 4] = [1, 2]
+    let view: [u8] = bytes
+    let n = arr.len
+    let parsed = parse("123")
+    let shape = Rect(2.0, 3.0)
+    let a = area(shape)
+    let none: Option<int> = None
+    let r = 0..10
+    let c = 'x'
+    let text = "hi"
+    let first = text[0]
+    var acc = 0
+    for i in 0..count { acc += i }
+    print(count)
+    print(ratio)
+    print("literal")
+    let owned = string(count)
+    let sentence = "count = " + string(count)
+    let borrowed: str = owned
+    let size = owned.len()
+    let parsed_again = parse(owned)
+    let label = match parsed {
+        Ok(v) => "number"
+        Err(NoDigits) => "empty"
+        Err(BadChar(ch)) => "bad"
+    }
+    return 0
+}
+
+// Printing user types: give them `operator string`.
+new class Temperature {
+    degrees: float
+    new operator string (t: Temperature) -> string { return string(t.degrees) + " C" }
+}
+
+new function show_temperature() {
+    print(Temperature(21.5))
+}

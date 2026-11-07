@@ -1,0 +1,54 @@
+use Elemental
+
+new class Tag {
+    name: string
+    new function init(name: str) { self.name = string(name) }
+    new function drop() { print("drop " + self.name) }
+}
+
+new function main() -> int {
+    // plain values
+    var nums = List<int>()
+    for i in 0..10 { nums.push(i * i) }
+    print(nums.len())
+    print(*nums.at(3))
+    var total = 0
+    for i in 0..nums.len() { total += *nums.at(i) }
+    print(total)
+    match nums.pop() {
+        Some(last) => print("popped " + string(last))
+        None => print("empty")
+    }
+    print(nums.len())
+
+    // owned values: the list owns its strings
+    var words = List<string>()
+    words.push(string("alpha"))
+    words.push("beta" + "!")
+    words.push(string("gamma"))
+    print(words.at(1).len())
+    print(*words.at(0) == "alpha")
+    match words.pop() {
+        Some(w) => print("popped " + w)
+        None => {}
+    }
+    print(words.len())
+
+    // drop order: items are dropped when the list is cleared or dropped
+    var tags = List<Tag>()
+    tags.push(Tag("one"))
+    tags.push(Tag("two"))
+    tags.push(Tag("three"))
+    print("clearing")
+    tags.clear()
+    print("cleared")
+    tags.push(Tag("four"))
+    var empty = List<int>()
+    print(empty.is_empty())
+    match empty.pop() {
+        Some(x) => print(x)
+        None => print("nothing to pop")
+    }
+    print("end of main")
+    return 0
+}

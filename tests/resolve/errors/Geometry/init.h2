@@ -1,0 +1,2 @@
+new function secret() -> int { return 42 }
+pub new function shared() -> int { return 1 }

@@ -1,0 +1,35 @@
+use Elemental
+
+new enum Result<T, E> { Ok(T), Err(E) }
+
+new enum ParseError {
+    Empty
+    BadDigit(char)
+    Overflow
+}
+
+new function parse_digit(c: char) -> Result<int, ParseError> {
+    if c < '0' || c > '9' { return Err(BadDigit(c)) }
+    return Ok(int(c) - int('0'))
+}
+
+new function parse(s: string) -> Result<int, ParseError> {
+    if s.len == 0 { return Err(Empty) }
+    var n = 0
+    for c in s {
+        n = n * 10 + parse_digit(c)?
+    }
+    return Ok(n)
+}
+
+new function show(s: string) {
+    match parse(s) {
+        Ok(0) => print("zero")
+        Ok(v) => print(v)
+        Err(ParseError.BadDigit(c)) => {
+            print("bad digit")
+            print(c)
+        }
+        Err(_) => print("bad input")
+    }
+}

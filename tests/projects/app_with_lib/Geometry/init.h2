@@ -1,0 +1,3 @@
+use Geometry.Shapes
+
+pub new function area(c: Circle) -> f64 { return c.radius * c.radius * 3.14159 }

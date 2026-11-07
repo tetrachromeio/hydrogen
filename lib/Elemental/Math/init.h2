@@ -1,0 +1,35 @@
+// Re-exports the core math functions. (Ordered lives in Atomic.)
+pub use Atomic.Math
+
+pub new function abs(x: f64) -> f64 {
+    if x < 0.0 { return -x }
+    return x
+}
+
+pub new function max<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return b }
+    return a
+}
+
+pub new function min<T: Ordered>(a: T, b: T) -> T {
+    if a < b { return a }
+    return b
+}
+
+// From the C math library: f64 ...
+pub extern function exp(x: f64) -> f64
+pub extern function log(x: f64) -> f64
+pub extern function pow(x: f64, y: f64) -> f64
+pub extern function sin(x: f64) -> f64
+pub extern function cos(x: f64) -> f64
+pub extern function tan(x: f64) -> f64
+pub extern function tanh(x: f64) -> f64
+pub extern function atan2(y: f64, x: f64) -> f64
+// ... and f32, for code that works in single precision (like ML inference).
+pub extern function expf(x: f32) -> f32
+pub extern function logf(x: f32) -> f32
+pub extern function powf(x: f32, y: f32) -> f32
+pub extern function sinf(x: f32) -> f32
+pub extern function cosf(x: f32) -> f32
+pub extern function tanhf(x: f32) -> f32
+pub extern function sqrtf(x: f32) -> f32

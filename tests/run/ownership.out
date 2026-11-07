@@ -1,0 +1,31 @@
+-- scope
+leaving scope
+drop b
+drop a
+-- move
+looking at c
+took c
+drop c
+after take
+-- maybe moved
+drop early-b
+drop early-a
+took e
+drop e
+after branch
+-- reassign
+drop f1
+-- temporaries
+looking at temp
+drop temp
+after temp
+-- loop
+drop loop
+drop loop
+-- heap
+drop heap
+-- enum
+-- end of main
+drop in-option
+drop f2
+[exit 0]

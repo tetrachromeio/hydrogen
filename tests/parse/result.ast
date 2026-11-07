@@ -1,0 +1,35 @@
+(module
+  (use Elemental)
+  (enum Result <T, E>
+    (Ok T)
+    (Err E))
+  (enum ParseError
+    (Empty)
+    (BadDigit char)
+    (Overflow))
+  (function parse_digit ((c : char)) -> Result<int, ParseError>
+    (block
+      (if (|| (< c '0') (> c '9'))
+        (block
+          (return (call Err (call BadDigit c)))))
+      (return (call Ok (- (call int c) (call int '0'))))))
+  (function parse ((s : string)) -> Result<int, ParseError>
+    (block
+      (if (== (. s len) 0)
+        (block
+          (return (call Err Empty))))
+      (var n = 0)
+      (for c s
+        (block
+          (= n (+ (* n 10) (? (call parse_digit c))))))
+      (return (call Ok n))))
+  (function show ((s : string))
+    (block
+      (match (call parse s)
+        ((variant Ok 0) => (call print "zero"))
+        ((variant Ok v) => (call print v))
+        ((variant Err (variant ParseError.BadDigit c)) =>
+          (block
+            (call print "bad digit")
+            (call print c)))
+        ((variant Err _) => (call print "bad input"))))))

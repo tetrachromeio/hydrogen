@@ -1,0 +1,39 @@
+tests/types/moves.h2:16:5: a: string
+tests/types/moves.h2:19:5: b: string
+tests/types/moves.h2:20:5: c: string
+tests/types/moves.h2:21:5: d: string
+tests/types/moves.h2:23:5: s: Stack<string>
+tests/types/moves.h2:25:5: n: int
+tests/types/moves.h2:26:5: m: int
+tests/types/moves.h2:27:5: x: int
+tests/types/moves.h2:28:5: view: str
+tests/types/moves.h2:30:5: picked: int
+tests/types/moves.h2:31:5: kept: string
+tests/types/moves.h2:32:5: e: string
+tests/types/moves.h2:34:9: moved: string
+tests/types/moves.h2:38:9: last: string
+tests/types/moves.h2:47:5: s: string
+tests/types/moves.h2:60:5: a: string
+tests/types/moves.h2:61:5: b: string
+tests/types/moves.h2:63:5: c: string
+tests/types/moves.h2:66:5: d: string
+tests/types/moves.h2:68:5: f: string
+tests/types/moves.h2:73:5: keep: string
+tests/types/moves.h2:74:5: h: Holder
+tests/types/moves.h2:75:5: stolen: string
+tests/types/moves.h2:76:5: o: Option<string>
+tests/types/moves.h2:85:5: w: string
+tests/types/moves.h2:86:5: e: string
+tests/types/moves.h2:87:5: wrapped: Option<string>
+tests/types/moves.h2:12:49: error: in first<string> (used at tests/types/moves.h2:85): cannot move 'a': parameters are borrowed. Write 'a: own string' to take ownership, or use a.copy()
+tests/types/moves.h2:48:12: error: returns a str view of 's', which is freed when the function ends. Return the string itself (-> string) instead
+tests/types/moves.h2:52:16: error: returns a str view of a temporary string, which is freed when the function ends. Return the string itself (-> string) instead
+tests/types/moves.h2:62:11: error: 'a' was moved at line 61, so it can't be used here
+tests/types/moves.h2:65:11: error: 'c' may have been moved (at line 64) on some paths, so it can't be used here
+tests/types/moves.h2:67:26: error: 'd' is moved inside the loop and not replaced before the next iteration. Use d.copy() to make a copy
+tests/types/moves.h2:71:14: error: 'f' is moved inside the loop and not replaced before the next iteration. Use f.copy() to make a copy
+tests/types/moves.h2:73:16: error: cannot move 'param': parameters are borrowed. Write 'param: own string' to take ownership, or use param.copy()
+tests/types/moves.h2:75:19: error: cannot move h.name out of its owner. Use h.name.copy() to make a copy
+tests/types/moves.h2:81:11: error: 'o' was moved at line 77, so it can't be used here
+tests/types/moves.h2:88:11: error: 'e' was moved at line 87, so it can't be used here
+tests/types/moves.h2:93:31: error: cannot move 'inner': the match only borrows the value it matches (it isn't owned here). Match on a value you own or a temporary to take it. Use inner.copy() to make a copy

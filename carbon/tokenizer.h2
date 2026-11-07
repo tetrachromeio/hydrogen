@@ -1,0 +1,155 @@
+// The Llama 2 tokenizer (SentencePiece pieces with merge scores), in llama2.c's
+// tokenizer.bin format: i32 max_token_length, then per token: f32 score, i32
+// length, bytes.
+
+pub new class Tokenizer {
+    pieces: List<string>
+    scores: List<f32>
+    lookup: Map<string, int>
+    byte_text: ptr<u8>    // 256 one-byte strings, for <0xHH> pieces
+
+    pub new function size() -> int { return int(self.pieces.len()) }
+
+    new function id_of(text: str) -> int {
+        match self.lookup.get(string(text)) {
+            Some(p) => { return *p }
+            None => { return -1 }
+        }
+    }
+
+    // Text -> token ids. Optionally starts with BOS (1) / ends with EOS (2).
+    pub new function encode(text: str, bos: bool, eos: bool) -> List<int> {
+        return self.encode_with(text, bos, eos, true)
+    }
+
+    // encode, choosing whether to add SentencePiece's leading space (the "dummy
+    // prefix"): yes at the start of a text, no for text that continues after a special token.
+    pub new function encode_with(text: str, bos: bool, eos: bool, dummy_prefix: bool) -> List<int> {
+        var tokens = List<int>()
+        if bos { tokens.push(1) }
+        if dummy_prefix && text.len > 0 { tokens.push(self.id_of(" ")) }
+
+        // One token per UTF-8 code point; code points with no token become byte tokens (byte + 3).
+        var start: uint = 0
+        while start < text.len {
+            var end = start + 1
+            while end < text.len && (text[end] & 0xC0) == 0x80 && end - start < 4 { end += 1 }
+            let id = self.id_of(slice(text, start, end))
+            if id >= 0 {
+                tokens.push(id)
+            } else {
+                for b in start..end { tokens.push(int(text[b]) + 3) }
+            }
+            start = end
+        }
+
+        // Repeatedly merge the adjacent pair whose merged piece scores best.
+        while true {
+            var best_score: f32 = -10000000000.0
+            var best_id = -1
+            var best_at: uint = 0
+            var i: uint = 0
+            while i + 1 < tokens.len() {
+                let merged = self.pieces[uint(tokens[i])] + self.pieces[uint(tokens[i + 1])]
+                let id = self.id_of(merged)
+                if id >= 0 && self.scores[uint(id)] > best_score {
+                    best_score = self.scores[uint(id)]
+                    best_id = id
+                    best_at = i
+                }
+                i += 1
+            }
+            if best_id < 0 { break }
+            *tokens.at(best_at) = best_id
+            var j = best_at + 1
+            while j + 1 < tokens.len() {
+                *tokens.at(j) = tokens[j + 1]
+                j += 1
+            }
+            tokens.pop()
+        }
+        if eos { tokens.push(2) }
+        return tokens
+    }
+
+    // The text of `token`, given the token before it.
+    pub new function decode(prev: int, token: int) -> str {
+        var piece: str = self.pieces[uint(token)]
+        // After BOS, SentencePiece drops the leading space.
+        if prev == 1 && piece.len > 0 && piece[0] == u8(' ') { piece = slice(piece, 1, piece.len) }
+        // Raw bytes are written as <0xHH>.
+        if piece.len == 6 && starts_with(piece, "<0x") && piece[5] == u8('>') {
+            let hi = hex_digit(piece[3])
+            let lo = hex_digit(piece[4])
+            if hi >= 0 && lo >= 0 { return str(ptr<u8>(&self.byte_text[hi * 16 + lo]), 1) }
+        }
+        return piece
+    }
+
+    new function drop() { free self.byte_text }
+}
+
+new function hex_digit(c: u8) -> int {
+    if c >= u8('0') && c <= u8('9') { return int(c) - 48 }
+    if c >= u8('A') && c <= u8('F') { return int(c) - 55 }
+    if c >= u8('a') && c <= u8('f') { return int(c) - 87 }
+    return -1
+}
+
+// True for text worth printing: not a lone control byte.
+pub new function printable(piece: str) -> bool {
+    if piece.len != 1 { return true }
+    let b = piece[0]
+    return (b >= 32 && b < 127) || b == 9 || b == 10 || b == 11 || b == 12 || b == 13
+}
+
+pub new function load_tokenizer(path: str, vocab_size: int) -> Result<Tokenizer, string> {
+    match map_file(path) {
+        Err(e) => { return Err("cannot open {path}: {e}") }
+        Ok(file) => {
+            var pieces = List<string>()
+            var scores = List<f32>()
+            var lookup = Map<string, int>()
+            var at: uint = 4 // after max_token_length
+            for i in 0..vocab_size {
+                if at + 8 > file.len { return Err("{path} is truncated (token {i} of {vocab_size})") }
+                let score = ptr<f32>(&file.data[at])[0]
+                let len = uint(ptr<i32>(&file.data[at + 4])[0])
+                at += 8
+                if at + len > file.len { return Err("{path} is truncated (token {i} of {vocab_size})") }
+                let piece = string(str(ptr<u8>(&file.data[at]), len))
+                at += len
+                if !lookup.has(piece) { lookup.set(piece.copy(), i) }
+                pieces.push(piece)
+                scores.push(score)
+            }
+            return Ok(make_tokenizer(pieces, scores, lookup))
+        }
+    }
+}
+
+new function make_tokenizer(pieces: own List<string>, scores: own List<f32>, lookup: own Map<string, int>) -> Tokenizer {
+    let bytes = alloc [u8; 256]
+    for b in 0..256 { bytes[b] = u8(b) }
+    return Tokenizer(pieces, scores, lookup, ptr<u8>(bytes))
+}
+
+// The tokenizer stored inside a GGUF model file. SentencePiece marks spaces as
+// U+2581 ("▁") there; llama2.c's tokenizer.bin, and Carbon, use plain spaces.
+pub new function model_tokenizer(model: Model) -> Result<Tokenizer, string> {
+    let v = model.vocab
+    if v.count == 0 { return Err(string("this model file has no tokenizer inside; pass a tokenizer.bin")) }
+    var c = Cursor(model.file.data, model.file.len, v.tokens_at, false)
+    var pieces = List<string>()
+    var scores = List<f32>()
+    var lookup = Map<string, int>()
+    let s = ptr<f32>(&model.file.data[v.scores_at])
+    for i in 0..v.count {
+        let piece = replace(c.read_text(), "\xE2\x96\x81", " ")
+        if !lookup.has(piece) { lookup.set(piece.copy(), i) }
+        pieces.push(piece)
+        scores.push(s[i])
+    }
+    if c.failed { return Err(string("the model's vocabulary is cut off")) }
+    return Ok(make_tokenizer(pieces, scores, lookup))
+}

@@ -1,0 +1,57 @@
+use Elemental
+
+// A class whose drop prints, so the order of cleanup is visible.
+new class Noisy {
+    name: string
+    new function init(name: str) { self.name = string(name) }
+    new function drop() { print("drop " + self.name) }
+}
+
+new function make(name: str) -> Noisy { return Noisy(name) }
+new function take(n: own Noisy) { print("took " + n.name) }      // dropped at the end of take
+new function look(n: Noisy) { print("looking at " + n.name) }    // borrowed: not dropped here
+
+new function early(flag: bool) -> int {
+    let a = Noisy("early-a")
+    if flag {
+        let b = Noisy("early-b")
+        return 1                     // drops b, then a
+    }
+    return 2                         // drops a
+}
+
+new function main() -> int {
+    print("-- scope")
+    {
+        let a = Noisy("a")
+        let b = Noisy("b")
+        print("leaving scope")
+    }                                // drops b, then a (reverse order)
+    print("-- move")
+    let c = Noisy("c")
+    let d = c                        // moved: dropped once, as d
+    look(d)
+    take(d)                          // moved into take
+    print("after take")
+    print("-- maybe moved")
+    let e = Noisy("e")
+    if early(true) == 1 { take(e) }  // e moved on this path only
+    print("after branch")
+    print("-- reassign")
+    var f = Noisy("f1")
+    f = Noisy("f2")                  // f1 dropped when replaced
+    print("-- temporaries")
+    look(make("temp"))               // temporary dropped at end of statement
+    print("after temp")
+    print("-- loop")
+    for i in 0..2 {
+        let g = Noisy("loop")
+    }
+    print("-- heap")
+    let h = alloc Noisy("heap")
+    free h                           // drop runs before the memory is released
+    print("-- enum")
+    let o = Some(Noisy("in-option"))
+    print("-- end of main")
+    return 0
+}

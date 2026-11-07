@@ -1,0 +1,5 @@
+error: hy.toml:4: unknown key 'colour' in [project] (expected name, version, type or entry)
+error: hy.toml:1: project name 'my-app' must be an identifier (letters, digits, '_'), because it is also a module name
+error: hy.toml:1: type must be "app" or "lib", not "binary"
+error: hy.toml:8: dependency 'Remote': only path dependencies are supported so far
+[exit 1]

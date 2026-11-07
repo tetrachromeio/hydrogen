@@ -1,0 +1,32 @@
+use Elemental
+
+new function words(text: str) -> List<string> {
+    var out = List<string>()
+    for w in split(text, " ") { out.push(string(w)) }
+    return out
+}
+
+new function main() -> int {
+    // continue / break inside a loop over a temporary list
+    var kept = 0
+    for w in words("keep skip keep skip keep") {
+        if w == "skip" { continue }
+        kept += 1
+        if kept == 3 { break }
+    }
+    print(kept)
+
+    // a temporary match subject used across several statements in an arm
+    var i = 0
+    while i < 3 {
+        match parse_int(trim(string(i) + "  ")) {
+            Some(n) => {
+                let doubled = n * 2
+                print(string(n) + " -> " + string(doubled))
+            }
+            None => { print("?") }
+        }
+        i += 1
+    }
+    return 0
+}
