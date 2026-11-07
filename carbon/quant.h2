@@ -1,0 +1,126 @@
+// Q8_0 quantization: numbers stored as int8 in groups (usually 32 or 64), each
+// group with one f32 scale: value = q * scale. A quarter of f32's size, and the
+// dot products run on integers. Same scheme and file layout as llama2.c's runq.c.
+
+// A weight matrix (rows x cols), either f32 or Q8_0. Views into the model file.
+pub new type Weights {
+    f: ptr<f32>    // f32 values, or null when quantized
+    q: ptr<i8>     // Q8_0: rows * cols int8 values ...
+    s: ptr<f32>    // ... and one scale per `group` values
+    rows: int
+    cols: int
+    group: int     // 0 for f32
+}
+
+// An activation vector quantized on the fly (scratch space in State).
+new type QVec {
+    q: ptr<i8>
+    s: ptr<f32>
+}
+
+pub new function is_quantized(w: Weights) -> bool { return w.group > 0 }
+
+// x rounded half away from zero, like C's roundf
+new function round_away(x: f32) -> f32 {
+    let r = floor(abs(f64(x)) + 0.5)
+    if x < 0.0 { return f32(-r) }
+    return f32(r)
+}
+
+// Quantizes n values (n a multiple of group): each group's largest magnitude maps to 127.
+pub new function quantize(q: ptr<i8>, s: ptr<f32>, x: ptr<f32>, n: int, group: int) {
+    for g in 0..n / group {
+        let base = g * group
+        var wmax: f32 = 0.0
+        for i in 0..group {
+            var v = x[base + i]
+            if v < 0.0 { v = -v }
+            if v > wmax { wmax = v }
+        }
+        let scale = wmax / 127.0
+        s[g] = scale
+        for i in 0..group {
+            if scale == 0.0 { q[base + i] = 0 }
+            else { q[base + i] = i8(round_away(x[base + i] / scale)) }
+        }
+    }
+}
+
+// Row `r` of the weights, as f32 (for the token embedding).
+pub new function weights_row(out: ptr<f32>, w: Weights, r: int) {
+    let n = w.cols
+    if !is_quantized(w) {
+        for j in 0..n { out[j] = w.f[r * n + j] }
+        return
+    }
+    let base = r * n
+    for j in 0..n { out[j] = f32(w.q[base + j]) * w.s[(base + j) / w.group] }
+}
+
+// 16 int8 at p[i], widened to i32
+new function load16(p: ptr<i8>, i: int) -> i32x16 { return i32x16(ptr<i8x16>(&p[i])[0]) }
+
+// One output of a Q8_0 matrix-vector product. Within a group, an exact integer
+// dot product (16 lanes at a time); each group's lane sums are then scaled by
+// both groups' scales into a float accumulator, reduced once at the end.
+new function qdot_row(w: Weights, x: QVec, row: int) -> f32 {
+    let n = w.cols
+    let gs = w.group
+    let wq = ptr<i8>(&w.q[row * n])
+    let ws = ptr<f32>(&w.s[row * n / gs])
+    if gs % 16 == 0 {
+        var accf = f32x16(0.0)
+        var g = 0
+        while g < n / gs {
+            let base = g * gs
+            var acc = load16(wq, base) * load16(x.q, base)
+            var j = 16
+            while j < gs {
+                acc = acc + load16(wq, base + j) * load16(x.q, base + j)
+                j += 16
+            }
+            accf = accf + f32x16(acc) * f32x16(ws[g] * x.s[g])
+            g += 1
+        }
+        return f32x16_sum(accf)
+    }
+    var val: f32 = 0.0
+    for g in 0..n / gs {
+        let base = g * gs
+        var ival: i32 = 0
+        for j in 0..gs { ival = ival + i32(wq[base + j]) * i32(x.q[base + j]) }
+        val += f32(ival) * ws[g] * x.s[g]
+    }
+    return val
+}
+
+new function qmatvec_rows(out: ptr<f32>, w: Weights, x: QVec, first: int, last: int) {
+    for i in first..last { out[i] = qdot_row(w, x, i) }
+}
+
+new type QJob {
+    out: ptr<f32>
+    w: Weights
+    x: QVec
+}
+
+new function qmatvec_part(context: ptr<u8>, first: int, last: int) {
+    let job = ptr<QJob>(context)
+    qmatvec_rows(job.out, job.w, job.x, first, last)
+}
+
+// out = w * x, for either kind of weights. Quantized weights first quantize x
+// into the scratch `xq` (with the same group size).
+pub new function matmul(pool: Pool, out: ptr<f32>, w: Weights, x: ptr<f32>, xq: QVec) {
+    if !is_quantized(w) {
+        matvec_pool(pool, out, Matrix(w.f, w.rows, w.cols), x)
+        return
+    }
+    quantize(xq.q, xq.s, x, w.cols, w.group)
+    if w.rows * w.cols < 65536 || pool.size() == 1 {
+        qmatvec_rows(out, w, xq, 0, w.rows)
+        return
+    }
+    var job = QJob(out, w, xq)
+    pool.run(w.rows, ptr<u8>(&job), qmatvec_part)
+}

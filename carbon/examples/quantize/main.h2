@@ -1,0 +1,23 @@
+// Converts an f32 llama2.c model to Q8_0 (a quarter of the size):
+//
+//   build/quantize stories15M.bin stories15M_q8.bin [group size]
+use Elemental
+use Carbon
+
+new function main() -> int {
+    let argv = args()
+    if argv.len() < 3 || argv.len() > 4 {
+        eprint("usage: quantize <input.bin> <output.bin> [group size]")
+        return 2
+    }
+    var group = 0
+    if argv.len() == 4 { group = unwrap_or(parse_int(argv[3]), 0) }
+    match quantize_model(argv[1], argv[2], group) {
+        Ok(summary) => { print(summary) }
+        Err(e) => {
+            eprint("error: " + e)
+            return 1
+        }
+    }
+    return 0
+}

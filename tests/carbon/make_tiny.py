@@ -27,7 +27,7 @@ with open(out / "tiny_tok.bin", "wb") as f:
     for p, s in zip(pieces, scores):
         f.write(struct.pack("fi", s, len(p)) + p)
 
-dim, hidden, layers, heads, kv_heads, seq = 16, 40, 2, 4, 2, 48
+dim, hidden, layers, heads, kv_heads, seq = 32, 64, 2, 4, 2, 48
 kv_dim = dim * kv_heads // heads
 head = dim // heads
 shapes = [(vocab, dim), (layers, dim), (layers, dim, dim), (layers, kv_dim, dim), (layers, kv_dim, dim),

@@ -1,7 +1,14 @@
-// A Llama-architecture transformer, in llama2.c's file format:
-//   7 x i32 header (dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len;
-//   a negative vocab_size means the output classifier is stored separately),
-//   then every weight as f32, layer by layer for each kind.
+// A Llama-architecture transformer, in either of llama2.c's file formats:
+//
+// f32 ("version 0", e.g. stories15M.bin): 7 x i32 header (dim, hidden_dim,
+//   n_layers, n_heads, n_kv_heads, vocab_size, seq_len; a negative vocab_size
+//   means the output classifier is stored separately), then every weight as
+//   f32, layer by layer for each kind.
+//
+// Q8_0 ("version 2", written by `quantize_model` or llama2.c's export.py
+//   --version 2): a 256-byte header (magic "ak42", version 2, the 7 sizes, a
+//   shared-classifier byte, the group size), the norm weights as f32, then
+//   each matrix as int8 values followed by its group scales, per layer.
 
 pub new type Config {
     pub dim: int          // width of the hidden state
@@ -15,20 +22,23 @@ pub new type Config {
 
 pub new class Model {
     pub config: Config
-    file: MappedFile      // every pointer below points into this mapping
-    embed: ptr<f32>       // vocab_size x dim
+    file: MappedFile      // every view below points into this mapping
+    group: int            // Q8_0 group size, 0 for f32
+    embed: Weights        // vocab_size x dim
     rms_att: ptr<f32>     // per layer: dim
-    wq: ptr<f32>          // per layer: dim x dim
-    wk: ptr<f32>          // per layer: kv_dim x dim
-    wv: ptr<f32>          // per layer: kv_dim x dim
-    wo: ptr<f32>          // per layer: dim x dim
+    wq: Weights           // layer 0's; the next layer follows at + stride
+    wk: Weights
+    wv: Weights
+    wo: Weights
     rms_ffn: ptr<f32>     // per layer: dim
-    w1: ptr<f32>          // per layer: hidden_dim x dim
-    w2: ptr<f32>          // per layer: dim x hidden_dim
-    w3: ptr<f32>          // per layer: hidden_dim x dim
+    w1: Weights
+    w2: Weights
+    w3: Weights
     rms_final: ptr<f32>   // dim
-    wcls: ptr<f32>        // vocab_size x dim (the embedding, when shared)
+    wcls: Weights         // vocab_size x dim (the embedding, when shared)
 
+    pub new function is_quantized() -> bool { return self.group > 0 }
+    pub new function group_size() -> int { return self.group }
     pub new function kv_dim() -> int { return self.config.dim * self.config.n_kv_heads / self.config.n_heads }
     pub new function head_size() -> int { return self.config.dim / self.config.n_heads }
     pub new function file_bytes() -> uint { return self.file.len }
@@ -45,7 +55,8 @@ pub new class Model {
         let head_size = self.head_size()
         let x = s.x
 
-        copy(ptr<u8>(x), ptr<u8>(offset(self.embed, token * dim)), uint(dim * 4))
+        let xq = QVec(s.xq, s.xs)
+        weights_row(x, self.embed, token)
 
         for l in 0..c.n_layers {
             rmsnorm(s.xb, x, offset(self.rms_att, l * dim), dim)
@@ -54,9 +65,9 @@ pub new class Model {
             let loff = l * c.seq_len * kv_dim
             let k = offset(s.key_cache, loff + pos * kv_dim)
             let v = offset(s.value_cache, loff + pos * kv_dim)
-            matvec_pool(s.pool, s.q, Matrix(offset(self.wq, l * dim * dim), dim, dim), s.xb)
-            matvec_pool(s.pool, k, Matrix(offset(self.wk, l * dim * kv_dim), kv_dim, dim), s.xb)
-            matvec_pool(s.pool, v, Matrix(offset(self.wv, l * dim * kv_dim), kv_dim, dim), s.xb)
+            matmul(s.pool, s.q, layer(self.wq, l), s.xb, xq)
+            matmul(s.pool, k, layer(self.wk, l), s.xb, xq)
+            matmul(s.pool, v, layer(self.wv, l), s.xb, xq)
 
             // RoPE: rotate each pair of q and k by an angle that depends on the position.
             var i = 0
@@ -95,27 +106,37 @@ pub new class Model {
                     axpy(xb, att[t], offset(s.value_cache, loff + t * kv_dim + kv_off), head_size)
                 }
             }
-            matvec_pool(s.pool, s.xb2, Matrix(offset(self.wo, l * dim * dim), dim, dim), s.xb)
+            matmul(s.pool, s.xb2, layer(self.wo, l), s.xb, xq)
             add_into(x, s.xb2, dim)
 
             // Feed-forward: w2(silu(w1(x)) * w3(x))
             rmsnorm(s.xb, x, offset(self.rms_ffn, l * dim), dim)
-            matvec_pool(s.pool, s.hb, Matrix(offset(self.w1, l * dim * hidden), hidden, dim), s.xb)
-            matvec_pool(s.pool, s.hb2, Matrix(offset(self.w3, l * dim * hidden), hidden, dim), s.xb)
+            matmul(s.pool, s.hb, layer(self.w1, l), s.xb, xq)
+            matmul(s.pool, s.hb2, layer(self.w3, l), s.xb, xq)
             for j in 0..hidden {
                 var val = s.hb[j]
                 val *= 1.0 / (1.0 + expf(-val))
                 val *= s.hb2[j]
                 s.hb[j] = val
             }
-            matvec_pool(s.pool, s.xb, Matrix(offset(self.w2, l * dim * hidden), dim, hidden), s.hb)
+            matmul(s.pool, s.xb, layer(self.w2, l), s.hb, xq)
             add_into(x, s.xb, dim)
         }
 
         rmsnorm(x, x, self.rms_final, dim)
-        matvec_pool(s.pool, s.logits, Matrix(self.wcls, c.vocab_size, dim), x)
+        matmul(s.pool, s.logits, self.wcls, x, xq)
         return s.logits
     }
+}
+
+// Layer l's matrix of a kind: layers are stored back to back.
+new function layer(w: Weights, l: int) -> Weights {
+    let n = w.rows * w.cols
+    if w.group == 0 { return Weights(offset(w.f, l * n), null, null, w.rows, w.cols, 0) }
+    let stride = n + n / w.group * 4 // int8 values, then f32 scales
+    let base = ptr<u8>(w.q)
+    let q = ptr<u8>(&base[l * stride])
+    return Weights(null, ptr<i8>(q), ptr<f32>(&q[n]), w.rows, w.cols, w.group)
 }
 
 pub new function load_model(path: str) -> Result<Model, string> {
@@ -124,14 +145,12 @@ pub new function load_model(path: str) -> Result<Model, string> {
         Ok(file) => {
             if file.len < 28 { return Err("{path} is too small to be a model") }
             let h = ptr<i32>(file.data)
+            if u32(h[0]) == 0x616b3432 { return load_q8(path, file) }
             var vocab = int(h[5])
             let shared = vocab > 0
             if !shared { vocab = -vocab }
             let c = Config(int(h[0]), int(h[1]), int(h[2]), int(h[3]), int(h[4]), vocab, int(h[6]))
-            if c.dim <= 0 || c.hidden_dim <= 0 || c.n_layers <= 0 || c.n_heads <= 0 || c.n_kv_heads <= 0 ||
-               c.seq_len <= 0 || c.dim % c.n_heads != 0 || c.n_heads % c.n_kv_heads != 0 {
-                return Err("{path} doesn't look like a llama2.c model (bad header)")
-            }
+            if !valid(c) { return Err("{path} doesn't look like a llama2.c model (bad header)") }
             let head_size = c.dim / c.n_heads
             let kv_dim = c.dim * c.n_kv_heads / c.n_heads
             let L = c.n_layers
@@ -157,13 +176,75 @@ pub new function load_model(path: str) -> Result<Model, string> {
             if uint(at * 4) > file.len {
                 return Err("{path} is truncated: the header promises {at * 4} bytes, the file has {file.len}")
             }
-            let base = ptr<f32>(file.data)
-            return Ok(Model(c, file, offset(base, embed), offset(base, rms_att), offset(base, wq),
-                            offset(base, wk), offset(base, wv), offset(base, wo), offset(base, rms_ffn),
-                            offset(base, w1), offset(base, w2), offset(base, w3), offset(base, rms_final),
-                            offset(base, wcls)))
+            let b = ptr<f32>(file.data)
+            let D = c.dim
+            let H = c.hidden_dim
+            return Ok(Model(c, file, 0, f32w(b, embed, vocab, D), offset(b, rms_att), f32w(b, wq, D, D),
+                            f32w(b, wk, kv_dim, D), f32w(b, wv, kv_dim, D), f32w(b, wo, D, D), offset(b, rms_ffn),
+                            f32w(b, w1, H, D), f32w(b, w2, D, H), f32w(b, w3, H, D), offset(b, rms_final),
+                            f32w(b, wcls, vocab, D)))
         }
     }
+}
+
+new function f32w(base: ptr<f32>, at: int, rows: int, cols: int) -> Weights {
+    return Weights(offset(base, at), null, null, rows, cols, 0)
+}
+
+new function valid(c: Config) -> bool {
+    return c.dim > 0 && c.hidden_dim > 0 && c.n_layers > 0 && c.n_heads > 0 && c.n_kv_heads > 0 &&
+           c.vocab_size > 0 && c.seq_len > 0 && c.dim % c.n_heads == 0 && c.n_heads % c.n_kv_heads == 0
+}
+
+// The Q8_0 format (llama2.c "version 2").
+new function load_q8(path: str, file: own MappedFile) -> Result<Model, string> {
+    let h = ptr<i32>(file.data)
+    if file.len < 256 || h[1] != 2 { return Err("{path}: unsupported llama2.c format version {h[1]} (Carbon reads 0 and 2)") }
+    let c = Config(int(h[2]), int(h[3]), int(h[4]), int(h[5]), int(h[6]), int(h[7]), int(h[8]))
+    if !valid(c) { return Err("{path} doesn't look like a llama2.c model (bad header)") }
+    let shared = file.data[36] != 0
+    let gs = int(ptr<i32>(&file.data[37])[0])
+    let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+    if gs <= 0 || c.dim % gs != 0 || c.hidden_dim % gs != 0 || kv_dim % gs != 0 {
+        return Err("{path}: group size {gs} doesn't divide the model's dimensions")
+    }
+    let L = c.n_layers
+    let D = c.dim
+    let H = c.hidden_dim
+    // Byte offsets: f32 norms first, then the quantized matrices.
+    var at = 256
+    let rms_att = at;   at += L * D * 4
+    let rms_ffn = at;   at += L * D * 4
+    let rms_final = at; at += D * 4
+    let embed = at;     at += qbytes(c.vocab_size, D, gs, 1)
+    let wq = at;        at += qbytes(D, D, gs, L)
+    let wk = at;        at += qbytes(kv_dim, D, gs, L)
+    let wv = at;        at += qbytes(kv_dim, D, gs, L)
+    let wo = at;        at += qbytes(D, D, gs, L)
+    let w1 = at;        at += qbytes(H, D, gs, L)
+    let w2 = at;        at += qbytes(D, H, gs, L)
+    let w3 = at;        at += qbytes(H, D, gs, L)
+    var wcls = embed
+    if !shared {
+        wcls = at
+        at += qbytes(c.vocab_size, D, gs, 1)
+    }
+    if uint(at) > file.len { return Err("{path} is truncated: the header promises {at} bytes, the file has {file.len}") }
+    let b = file.data
+    return Ok(Model(c, file, gs, q8w(b, embed, c.vocab_size, D, gs), ptr<f32>(&b[rms_att]), q8w(b, wq, D, D, gs),
+                    q8w(b, wk, kv_dim, D, gs), q8w(b, wv, kv_dim, D, gs), q8w(b, wo, D, D, gs),
+                    ptr<f32>(&b[rms_ffn]), q8w(b, w1, H, D, gs), q8w(b, w2, D, H, gs), q8w(b, w3, H, D, gs),
+                    ptr<f32>(&b[rms_final]), q8w(b, wcls, c.vocab_size, D, gs)))
+}
+
+// Bytes taken by `layers` quantized rows x cols matrices.
+new function qbytes(rows: int, cols: int, gs: int, layers: int) -> int {
+    return layers * (rows * cols + rows * cols / gs * 4)
+}
+
+new function q8w(base: ptr<u8>, at: int, rows: int, cols: int, gs: int) -> Weights {
+    let q = ptr<u8>(&base[at])
+    return Weights(null, ptr<i8>(q), ptr<f32>(&q[rows * cols]), rows, cols, gs)
 }
 
 // Everything a forward pass writes: activations and the key/value cache. One
@@ -179,6 +260,8 @@ pub new class State {
     q: ptr<f32>
     att: ptr<f32>
     pub logits: ptr<f32>
+    xq: ptr<i8>           // the current input, quantized (Q8_0 models)
+    xs: ptr<f32>          // its group scales
     key_cache: ptr<f32>
     value_cache: ptr<f32>
 
@@ -188,7 +271,7 @@ pub new class State {
         let kv_dim = c.dim * c.n_kv_heads / c.n_heads
         let cache = c.n_layers * c.seq_len * kv_dim
         let floats = 3 * c.dim + 2 * c.hidden_dim + c.dim + c.n_heads * c.seq_len + c.vocab_size + 2 * cache
-        let bytes = floats * 4 + 1024 // + alignment padding
+        let bytes = floats * 4 + 2 * (c.dim + c.hidden_dim) * 4 + 1024 // + quantized input, + padding
         self.arena = Arena(uint(bytes))
         self.x = self.arena.f32s(uint(c.dim))
         self.xb = self.arena.f32s(uint(c.dim))
@@ -198,6 +281,10 @@ pub new class State {
         self.q = self.arena.f32s(uint(c.dim))
         self.att = self.arena.f32s(uint(c.n_heads * c.seq_len))
         self.logits = self.arena.f32s(uint(c.vocab_size))
+        var widest = c.dim
+        if c.hidden_dim > widest { widest = c.hidden_dim }
+        self.xq = ptr<i8>(self.arena.bytes(uint(widest)))
+        self.xs = self.arena.f32s(uint(widest))
         self.key_cache = self.arena.f32s(uint(cache))
         self.value_cache = self.arena.f32s(uint(cache))
     }

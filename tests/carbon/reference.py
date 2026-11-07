@@ -3,10 +3,13 @@
 sampler, to check Carbon against.
 
   reference.py <model.bin> <tokenizer.bin> <prompt> <steps> <temperature> <topp> <seed>
+  reference.py --quantize <f32 model.bin> <out.bin> <group size>
 
-Prints the generated text, like Carbon's generate example. Arithmetic is float32
-throughout, but numpy sums in a different order than Carbon, so logits agree to
-about 1e-5, not bit for bit.
+The first prints the generated text, like Carbon's generate example; the model
+may be f32 (llama2.c version 0) or Q8_0 (version 2). The second writes a Q8_0
+file, to compare byte for byte with Carbon's quantizer. Arithmetic is float32
+throughout; numpy sums f32 dot products in a different order than Carbon, so
+logits agree to about 1e-5, not bit for bit (Q8_0 integer sums are exact).
 """
 import struct
 import sys
@@ -14,8 +17,108 @@ import sys
 import numpy as np
 
 
+def round_away(v):
+    v = v.astype(np.float64)
+    return np.where(v < 0, -np.floor(-v + 0.5), np.floor(v + 0.5))
+
+
+def quantize(x, gs):
+    """x: float32 array (length a multiple of gs) -> (int8 values, float32 scales)."""
+    g = x.reshape(-1, gs)
+    scale = (np.abs(g).max(axis=1) / np.float32(127.0)).astype(np.float32)
+    safe = np.where(scale == 0, np.float32(1), scale)
+    q = np.where(scale[:, None] == 0, 0, round_away((g / safe[:, None]).astype(np.float32))).astype(np.int8)
+    return q.reshape(-1), scale
+
+
+class Q8:
+    """A Q8_0 matrix: q (rows, cols) int8, s (rows, cols / gs) float32."""
+
+    def __init__(self, q, s, gs):
+        self.q, self.s, self.gs = q, s, gs
+
+    def row(self, r):
+        return (self.q[r].astype(np.float32) * np.repeat(self.s[r], self.gs)).astype(np.float32)
+
+    def __matmul__(self, x):
+        xq, xs = quantize(x, self.gs)
+        rows, cols = self.q.shape
+        ival = (self.q.astype(np.int32).reshape(rows, cols // self.gs, self.gs) *
+                xq.astype(np.int32).reshape(1, cols // self.gs, self.gs)).sum(axis=2)
+        val = np.zeros(rows, np.float32)
+        for g in range(cols // self.gs):
+            val = val + (ival[:, g].astype(np.float32) * self.s[:, g]) * xs[g]
+        return val
+
+
+def load_q8(raw):
+    dim, hidden, n_layers, n_heads, n_kv, vocab, seq_len = struct.unpack_from("7i", raw, 8)
+    shared = raw[36] != 0
+    gs = struct.unpack_from("i", raw, 37)[0]
+    head = dim // n_heads
+    kv_dim = dim * n_kv // n_heads
+    at = 256
+
+    def f32(*shape):
+        nonlocal at
+        n = int(np.prod(shape))
+        out = np.frombuffer(raw, np.float32, n, at).reshape(shape)
+        at += n * 4
+        return out
+
+    def q8(layers, rows, cols):
+        nonlocal at
+        out = []
+        for _ in range(layers):
+            n = rows * cols
+            q = np.frombuffer(raw, np.int8, n, at).reshape(rows, cols)
+            s = np.frombuffer(raw, np.float32, n // gs, at + n).reshape(rows, cols // gs)
+            at += n + n // gs * 4
+            out.append(Q8(q, s, gs))
+        return out
+
+    m = dict(dim=dim, hidden=hidden, L=n_layers, H=n_heads, KV=n_kv, vocab=vocab, seq=seq_len,
+             head=head, kv_dim=kv_dim)
+    m["rms_att"] = f32(n_layers, dim)
+    m["rms_ffn"] = f32(n_layers, dim)
+    m["rms_final"] = f32(dim)
+    embed = q8(1, vocab, dim)[0]
+    m["embed_q"] = embed
+    for name, rows, cols in [("wq", dim, dim), ("wk", kv_dim, dim), ("wv", kv_dim, dim), ("wo", dim, dim),
+                             ("w1", hidden, dim), ("w2", dim, hidden), ("w3", hidden, dim)]:
+        m[name] = q8(n_layers, rows, cols)
+    m["wcls"] = embed if shared else q8(1, vocab, dim)[0]
+    m["kcache"] = np.zeros((n_layers, seq_len, kv_dim), np.float32)
+    m["vcache"] = np.zeros((n_layers, seq_len, kv_dim), np.float32)
+    return m
+
+
+def write_q8(src, out, gs):
+    raw = open(src, "rb").read()
+    m = load_model(src)
+    shared = struct.unpack_from("i", raw, 20)[0] > 0
+    header = struct.pack("<Ii7iBi", 0x616B3432, 2, m["dim"], m["hidden"], m["L"], m["H"], m["KV"], m["vocab"],
+                         m["seq"], int(shared), gs)
+    parts = [header + bytes(256 - len(header))]
+    parts += [m["rms_att"].tobytes(), m["rms_ffn"].tobytes(), m["rms_final"].tobytes()]
+
+    def put(t):
+        q, s = quantize(np.ascontiguousarray(t).reshape(-1), gs)
+        parts.extend([q.tobytes(), s.tobytes()])
+
+    put(m["embed"])
+    for name in ["wq", "wk", "wv", "wo", "w1", "w2", "w3"]:
+        for l in range(m["L"]):
+            put(m[name][l])
+    if not shared:
+        put(m["wcls"])
+    open(out, "wb").write(b"".join(parts))
+
+
 def load_model(path):
     raw = open(path, "rb").read()
+    if struct.unpack_from("I", raw, 0)[0] == 0x616B3432:
+        return load_q8(raw)
     dim, hidden, n_layers, n_heads, n_kv, vocab, seq_len = struct.unpack("7i", raw[:28])
     shared = vocab > 0
     vocab = abs(vocab)
@@ -64,7 +167,7 @@ def softmax(x):
 def forward(m, token, pos):
     head, H, kv_dim = m["head"], m["H"], m["kv_dim"]
     kv_mul = H // m["KV"]
-    x = m["embed"][token].copy()
+    x = m["embed_q"].row(token) if "embed_q" in m else m["embed"][token].copy()
     # RoPE angles for this position
     i = np.arange(0, m["dim"], 2)
     freq = (1.0 / np.power(np.float32(10000.0), (i % head).astype(np.float32) / np.float32(head))).astype(np.float32)
@@ -199,6 +302,9 @@ class Sampler:
 
 
 def main():
+    if sys.argv[1] == "--quantize":
+        write_q8(sys.argv[2], sys.argv[3], int(sys.argv[4]))
+        return
     model_path, tok_path, prompt, steps, temperature, topp, seed = sys.argv[1:8]
     m = load_model(model_path)
     tok = load_tokenizer(tok_path, m["vocab"])

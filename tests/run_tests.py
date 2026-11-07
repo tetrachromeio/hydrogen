@@ -215,9 +215,30 @@ def main():
             model, tok = str(Path(tmp) / "tiny.bin"), str(Path(tmp) / "tiny_tok.bin")
             cases = [("the cat", "40", "0", "0.9", "1"), ("café on the", "48", "1.0", "0.9", "5"),
                      ("xyz", "30", "0.7", "0", "9"), ("", "48", "1.0", "0.5", "3")]
-            for prompt, steps, temp, topp, seed in cases:
+            # Q8_0: Carbon's quantizer must write exactly the reference's bytes, for the SIMD
+            # path (group 16) and the scalar one (group 8); then generate from both files.
+            qb = subprocess.run([hy, "build"], cwd=root / "carbon/examples/quantize", capture_output=True, text=True)
+            models = [model]
+            for gs in ("16", "8"):
                 count += 1
-                what = f"carbon: prompt {prompt!r}, -t {temp} -p {topp} -s {seed}"
+                mine, ref_q = str(Path(tmp) / f"q{gs}.bin"), str(Path(tmp) / f"ref_q{gs}.bin")
+                if qb.returncode != 0:
+                    failures.append(f"carbon/examples/quantize: hy build failed\n{qb.stdout}{qb.stderr}")
+                    break
+                q = subprocess.run([str(root / "carbon/examples/quantize/build/quantize"), model, mine, gs],
+                                   capture_output=True, text=True)
+                subprocess.run([sys.executable, "-I", str(root / "tests/carbon/reference.py"), "--quantize", model,
+                                ref_q, gs], check=True)
+                if q.returncode != 0:
+                    failures.append(f"carbon quantize (group {gs}) failed\n{q.stderr}")
+                elif Path(mine).read_bytes() != Path(ref_q).read_bytes():
+                    failures.append(f"carbon quantize (group {gs}): output differs from reference.py --quantize")
+                else:
+                    models.append(mine)
+            cases = [(m, *c) for m in models for c in cases]
+            for model, prompt, steps, temp, topp, seed in cases:
+                count += 1
+                what = f"carbon {Path(model).name}: prompt {prompt!r}, -t {temp} -p {topp} -s {seed}"
                 if b.returncode != 0:
                     failures.append(f"{app}: hy build failed\n{b.stdout}{b.stderr}")
                     break

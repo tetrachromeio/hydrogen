@@ -15,7 +15,9 @@ use Elemental.Time
 use Elemental.Thread
 
 include kernels
+include quant
 include model
 include tokenizer
 include sampler
 include generate
+include quantize
