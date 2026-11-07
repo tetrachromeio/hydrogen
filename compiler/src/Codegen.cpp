@@ -2470,6 +2470,63 @@ private:
             }
             return {lane, t};
         }
+        if (name == "fast_dot4") { // constant: is dot4 a single instruction on this target?
+#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+            return {"i1", "true"};
+#else
+            return {"i1", "false"};
+#endif
+        }
+        if (name == "dot4") {
+            // i8x16_dot(acc, a, b): acc[i] + a[4i]*b[4i] + ... + a[4i+3]*b[4i+3]  (i32x4, i8x16, i8x16)
+            std::string t = tmp();
+#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+            // Every Apple Silicon CPU has the dot product extension: one SDOT instruction.
+            rawDecls_.insert("declare <4 x i32> @llvm.aarch64.neon.sdot.v4i32.v16i8(<4 x i32>, <16 x i8>, <16 x i8>)");
+            emit(t + " = call <4 x i32> @llvm.aarch64.neon.sdot.v4i32.v16i8(<4 x i32> " + a[0].v + ", <16 x i8> " +
+                 a[1].v + ", <16 x i8> " + a[2].v + ")");
+#elif defined(__x86_64__)
+            // x86-64: pmaddwd (baseline SSE2, exact for any int8 input) multiplies 16-bit lanes and
+            // adds neighbouring products; two of them, then neighbouring pairs, give the groups of 4.
+            std::string wa = tmp(), wb = tmp(), alo = tmp(), ahi = tmp(), blo = tmp(), bhi = tmp(), mlo = tmp(),
+                        mhi = tmp(), q0 = tmp(), q1 = tmp(), quad = tmp();
+            rawDecls_.insert("declare <4 x i32> @llvm.x86.sse2.pmadd.wd(<8 x i16>, <8 x i16>)");
+            emit(wa + " = sext <16 x i8> " + a[1].v + " to <16 x i16>");
+            emit(wb + " = sext <16 x i8> " + a[2].v + " to <16 x i16>");
+            const char* lo8 = "<8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>";
+            const char* hi8 = "<8 x i32> <i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>";
+            emit(alo + " = shufflevector <16 x i16> " + wa + ", <16 x i16> poison, " + lo8);
+            emit(ahi + " = shufflevector <16 x i16> " + wa + ", <16 x i16> poison, " + hi8);
+            emit(blo + " = shufflevector <16 x i16> " + wb + ", <16 x i16> poison, " + lo8);
+            emit(bhi + " = shufflevector <16 x i16> " + wb + ", <16 x i16> poison, " + hi8);
+            emit(mlo + " = call <4 x i32> @llvm.x86.sse2.pmadd.wd(<8 x i16> " + alo + ", <8 x i16> " + blo + ")");
+            emit(mhi + " = call <4 x i32> @llvm.x86.sse2.pmadd.wd(<8 x i16> " + ahi + ", <8 x i16> " + bhi + ")");
+            emit(q0 + " = shufflevector <4 x i32> " + mlo + ", <4 x i32> " + mhi + ", <4 x i32> <i32 0, i32 2, i32 4, i32 6>");
+            emit(q1 + " = shufflevector <4 x i32> " + mlo + ", <4 x i32> " + mhi + ", <4 x i32> <i32 1, i32 3, i32 5, i32 7>");
+            emit(quad + " = add <4 x i32> " + q0 + ", " + q1);
+            emit(t + " = add <4 x i32> " + a[0].v + ", " + quad);
+#else
+            // Portable: products in i16 (|i8 * i8| <= 16384 fits), then even + odd lanes widened
+            // to i32 (the shape x86's pmaddwd computes), then pairs of those.
+            std::string wa = tmp(), wb = tmp(), p = tmp(), ev = tmp(), od = tmp(), ev32 = tmp(), od32 = tmp(),
+                        pr = tmp(), q0 = tmp(), q1 = tmp(), quad = tmp();
+            emit(wa + " = sext <16 x i8> " + a[1].v + " to <16 x i16>");
+            emit(wb + " = sext <16 x i8> " + a[2].v + " to <16 x i16>");
+            emit(p + " = mul nsw <16 x i16> " + wa + ", " + wb);
+            emit(ev + " = shufflevector <16 x i16> " + p + ", <16 x i16> poison, <8 x i32> <i32 0, i32 2, i32 4, "
+                 "i32 6, i32 8, i32 10, i32 12, i32 14>");
+            emit(od + " = shufflevector <16 x i16> " + p + ", <16 x i16> poison, <8 x i32> <i32 1, i32 3, i32 5, "
+                 "i32 7, i32 9, i32 11, i32 13, i32 15>");
+            emit(ev32 + " = sext <8 x i16> " + ev + " to <8 x i32>");
+            emit(od32 + " = sext <8 x i16> " + od + " to <8 x i32>");
+            emit(pr + " = add nsw <8 x i32> " + ev32 + ", " + od32);
+            emit(q0 + " = shufflevector <8 x i32> " + pr + ", <8 x i32> poison, <4 x i32> <i32 0, i32 2, i32 4, i32 6>");
+            emit(q1 + " = shufflevector <8 x i32> " + pr + ", <8 x i32> poison, <4 x i32> <i32 1, i32 3, i32 5, i32 7>");
+            emit(quad + " = add <4 x i32> " + q0 + ", " + q1);
+            emit(t + " = add <4 x i32> " + a[0].v + ", " + quad);
+#endif
+            return {"<4 x i32>", t};
+        }
         if (name == "fma" || name == "fmax" || name == "fmin" || name == "smax" || name == "smin" || name == "umax" ||
             name == "umin") {
             std::string op = name == "fmax" ? "maxnum" : name == "fmin" ? "minnum" : name;

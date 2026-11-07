@@ -110,46 +110,57 @@ pub new function weights_row(out: ptr<f32>, w: Weights, r: int) {
     for j in 0..n { out[j] = f32(w.q[base + j]) * w.s[(base + j) / w.group] }
 }
 
+// Block b of a GGUF Q8_0 row times the matching 32 inputs, as 4 partial sums.
+new function q8_block(base: ptr<u8>, x: QVec, b: int) -> f32x4 {
+    let block = ptr<u8>(&base[b * 34])
+    let qs = ptr<i8>(&block[2])
+    let acc = i8x16_dot(i8x16_dot(i32x4(i32(0)), load16(qs, 0), load16(x.q, b * 32)), load16(qs, 16), load16(x.q, b * 32 + 16))
+    return f32x4(acc) * f32x4(f32(ptr<f16>(block)[0]) * x.s[b])
+}
+
 // One output row of a GGUF Q8_0 matrix times a quantized vector (group 32).
 new function qdot_row_blocks(w: Weights, x: QVec, row: int) -> f32 {
     let nb = w.cols / 32
     let base = ptr<u8>(&ptr<u8>(w.q)[row * nb * 34])
-    var accf = f32x16(0.0)
-    for b in 0..nb {
-        let block = ptr<u8>(&base[b * 34])
-        let qs = ptr<i8>(&block[2])
-        let acc = load16(qs, 0) * load16(x.q, b * 32) + load16(qs, 16) * load16(x.q, b * 32 + 16)
-        accf = accf + f32x16(acc) * f32x16(f32(ptr<f16>(block)[0]) * x.s[b])
+    var acc0 = f32x4(0.0) // two accumulators, alternating blocks: two independent chains of adds
+    var acc1 = f32x4(0.0)
+    var b = 0
+    while b + 1 < nb {
+        acc0 = acc0 + q8_block(base, x, b)
+        acc1 = acc1 + q8_block(base, x, b + 1)
+        b += 2
     }
-    return f32x16_sum(accf)
+    if b < nb { acc0 = acc0 + q8_block(base, x, b) }
+    return f32x4_sum(acc0 + acc1)
 }
 
-// 16 int8 at p[i], widened to i32
-new function load16(p: ptr<i8>, i: int) -> i32x16 { return i32x16(ptr<i8x16>(&p[i])[0]) }
+// 16 int8 at p[i]
+new function load16(p: ptr<i8>, i: int) -> i8x16 { return ptr<i8x16>(&p[i])[0] }
 
 // One output of a Q8_0 matrix-vector product. Within a group, an exact integer
-// dot product (16 lanes at a time); each group's lane sums are then scaled by
-// both groups' scales into a float accumulator, reduced once at the end.
+// dot product (i8x16_dot: SDOT on Apple Silicon); each group's four lane sums
+// are then scaled by both groups' scales into a float accumulator, reduced once at the end.
 new function qdot_row(w: Weights, x: QVec, row: int) -> f32 {
     let n = w.cols
     let gs = w.group
     let wq = ptr<i8>(&w.q[row * n])
     let ws = ptr<f32>(&w.s[row * n / gs])
     if gs % 16 == 0 {
-        var accf = f32x16(0.0)
+        let zero = i32x4(i32(0))
+        var accf = f32x4(0.0)
         var g = 0
         while g < n / gs {
             let base = g * gs
-            var acc = load16(wq, base) * load16(x.q, base)
-            var j = 16
+            var acc = zero
+            var j = 0
             while j < gs {
-                acc = acc + load16(wq, base + j) * load16(x.q, base + j)
+                acc = i8x16_dot(acc, load16(wq, base + j), load16(x.q, base + j))
                 j += 16
             }
-            accf = accf + f32x16(acc) * f32x16(ws[g] * x.s[g])
+            accf = accf + f32x4(acc) * f32x4(ws[g] * x.s[g])
             g += 1
         }
-        return f32x16_sum(accf)
+        return f32x4_sum(accf)
     }
     var val: f32 = 0.0
     for g in 0..n / gs {
@@ -168,13 +179,169 @@ new function qdot_row_q4(w: Weights, x: QVec, row: int) -> f32 {
     let low = u8x16(15)
     let four = u8x16(4)
     let eight = i8x16(8)
+    let zero = i32x4(i32(0))
+    var accf = f32x4(0.0)
+    for b in 0..nb {
+        let block = ptr<u8>(&base[b * 18])
+        let qs = ptr<u8x16>(&block[2])[0]
+        let lo = i8x16(qs & low) - eight
+        let hi = i8x16(qs >> four) - eight
+        let acc = i8x16_dot(i8x16_dot(zero, lo, load16(x.q, b * 32)), hi, load16(x.q, b * 32 + 16))
+        accf = accf + f32x4(acc) * f32x4(f32(ptr<f16>(block)[0]) * x.s[b])
+    }
+    return f32x4_sum(accf)
+}
+
+// GGUF Q6_K, ggml's layout: per 256-value block, ql (128 bytes: low 4 bits),
+// qh (64 bytes: high 2 bits), 16 int8 scales (one per 16 values), f16 d.
+// Each half-block of 128 values decodes as four runs of 32 from the same bytes.
+new function qdot_row_q6k(w: Weights, x: QVec, row: int) -> f32 {
+    let nb = w.cols / 256
+    let base = ptr<u8>(&ptr<u8>(w.q)[row * nb * 210])
+    let low = u8x16(15)
+    let three = u8x16(3)
+    let two = u8x16(2)
+    let four = u8x16(4)
+    let six = u8x16(6)
+    let bias = i8x16(32)
+    let zero = i32x4(i32(0))
+    var accf = f32x4(0.0)
+    for b in 0..nb {
+        let block = ptr<u8>(&base[b * 210])
+        let d = f32(ptr<f16>(&block[208])[0])
+        let sc = ptr<i8>(&block[192])
+        for c in 0..2 {
+            let ql = ptr<u8>(&block[c * 64])
+            let qh = ptr<u8>(&block[128 + c * 32])
+            let y = b * 256 + c * 128
+            var a0 = zero
+            var a1 = zero
+            var a2 = zero
+            var a3 = zero
+            for h in 0..2 {
+                let l0 = ptr<u8x16>(&ql[h * 16])[0]
+                let l1 = ptr<u8x16>(&ql[32 + h * 16])[0]
+                let hh = ptr<u8x16>(&qh[h * 16])[0]
+                let q1 = i8x16((l0 & low) | ((hh & three) << four)) - bias
+                let q2 = i8x16((l1 & low) | (((hh >> two) & three) << four)) - bias
+                let q3 = i8x16((l0 >> four) | (((hh >> four) & three) << four)) - bias
+                let q4 = i8x16((l1 >> four) | (((hh >> six) & three) << four)) - bias
+                let is = c * 8 + h
+                a0 = a0 + i8x16_dot(zero, q1, load16(x.q, y + h * 16)) * i32x4(i32(sc[is]))
+                a1 = a1 + i8x16_dot(zero, q2, load16(x.q, y + 32 + h * 16)) * i32x4(i32(sc[is + 2]))
+                a2 = a2 + i8x16_dot(zero, q3, load16(x.q, y + 64 + h * 16)) * i32x4(i32(sc[is + 4]))
+                a3 = a3 + i8x16_dot(zero, q4, load16(x.q, y + 96 + h * 16)) * i32x4(i32(sc[is + 6]))
+            }
+            let g = y / 32
+            accf = accf + f32x4(a0) * f32x4(d * x.s[g]) + f32x4(a1) * f32x4(d * x.s[g + 1])
+            accf = accf + f32x4(a2) * f32x4(d * x.s[g + 2]) + f32x4(a3) * f32x4(d * x.s[g + 3])
+        }
+    }
+    return f32x4_sum(accf)
+}
+
+new function qmatvec_rows(out: ptr<f32>, w: Weights, x: QVec, first: int, last: int) {
+    if !has_fast_i8_dot() {
+        qmatvec_rows_wide(out, w, x, first, last)
+        return
+    }
+    if w.format == FORMAT_Q4_0 {
+        for i in first..last { out[i] = qdot_row_q4(w, x, i) }
+        return
+    }
+    if w.format == FORMAT_Q6_K {
+        for i in first..last { out[i] = qdot_row_q6k(w, x, i) }
+        return
+    }
+    if w.format == FORMAT_Q8_BLOCKS {
+        for i in first..last { out[i] = qdot_row_blocks(w, x, i) }
+        return
+    }
+    for i in first..last { out[i] = qdot_row(w, x, i) }
+}
+
+new function qmatvec_rows_wide(out: ptr<f32>, w: Weights, x: QVec, first: int, last: int) {
+    if w.format == FORMAT_Q4_0 {
+        for i in first..last { out[i] = qdot_row_q4_wide(w, x, i) }
+        return
+    }
+    if w.format == FORMAT_Q6_K {
+        for i in first..last { out[i] = qdot_row_q6k_wide(w, x, i) }
+        return
+    }
+    if w.format == FORMAT_Q8_BLOCKS {
+        for i in first..last { out[i] = qdot_row_blocks_wide(w, x, i) }
+        return
+    }
+    for i in first..last { out[i] = qdot_row_wide(w, x, i) }
+}
+
+// The same kernels for CPUs without a single-instruction int8 dot product (x86):
+// widen to i32 lanes and multiply 16 at a time, which measured faster there.
+new function load16w(p: ptr<i8>, i: int) -> i32x16 { return i32x16(ptr<i8x16>(&p[i])[0]) }
+
+// One output of a Q8_0 matrix-vector product. Within a group, an exact integer
+// dot product (16 lanes at a time); each group's lane sums are then scaled by
+// both groups' scales into a float accumulator, reduced once at the end.
+new function qdot_row_wide(w: Weights, x: QVec, row: int) -> f32 {
+    let n = w.cols
+    let gs = w.group
+    let wq = ptr<i8>(&w.q[row * n])
+    let ws = ptr<f32>(&w.s[row * n / gs])
+    if gs % 16 == 0 {
+        var accf = f32x16(0.0)
+        var g = 0
+        while g < n / gs {
+            let base = g * gs
+            var acc = load16w(wq, base) * load16w(x.q, base)
+            var j = 16
+            while j < gs {
+                acc = acc + load16w(wq, base + j) * load16w(x.q, base + j)
+                j += 16
+            }
+            accf = accf + f32x16(acc) * f32x16(ws[g] * x.s[g])
+            g += 1
+        }
+        return f32x16_sum(accf)
+    }
+    var val: f32 = 0.0
+    for g in 0..n / gs {
+        let base = g * gs
+        var ival: i32 = 0
+        for j in 0..gs { ival = ival + i32(wq[base + j]) * i32(x.q[base + j]) }
+        val += f32(ival) * ws[g] * x.s[g]
+    }
+    return val
+}
+
+// One output row of a GGUF Q8_0 matrix times a quantized vector (group 32).
+new function qdot_row_blocks_wide(w: Weights, x: QVec, row: int) -> f32 {
+    let nb = w.cols / 32
+    let base = ptr<u8>(&ptr<u8>(w.q)[row * nb * 34])
+    var accf = f32x16(0.0)
+    for b in 0..nb {
+        let block = ptr<u8>(&base[b * 34])
+        let qs = ptr<i8>(&block[2])
+        let acc = load16w(qs, 0) * load16w(x.q, b * 32) + load16w(qs, 16) * load16w(x.q, b * 32 + 16)
+        accf = accf + f32x16(acc) * f32x16(f32(ptr<f16>(block)[0]) * x.s[b])
+    }
+    return f32x16_sum(accf)
+}
+
+// GGUF Q4_0: each byte holds two values (low nibble: the block's first 16, high: its last 16), stored + 8.
+new function qdot_row_q4_wide(w: Weights, x: QVec, row: int) -> f32 {
+    let nb = w.cols / 32
+    let base = ptr<u8>(&ptr<u8>(w.q)[row * nb * 18])
+    let low = u8x16(15)
+    let four = u8x16(4)
+    let eight = i8x16(8)
     var accf = f32x16(0.0)
     for b in 0..nb {
         let block = ptr<u8>(&base[b * 18])
         let qs = ptr<u8x16>(&block[2])[0]
         let lo = i8x16(qs & low) - eight
         let hi = i8x16(qs >> four) - eight
-        let acc = i32x16(lo) * load16(x.q, b * 32) + i32x16(hi) * load16(x.q, b * 32 + 16)
+        let acc = i32x16(lo) * load16w(x.q, b * 32) + i32x16(hi) * load16w(x.q, b * 32 + 16)
         accf = accf + f32x16(acc) * f32x16(f32(ptr<f16>(block)[0]) * x.s[b])
     }
     return f32x16_sum(accf)
@@ -183,7 +350,7 @@ new function qdot_row_q4(w: Weights, x: QVec, row: int) -> f32 {
 // GGUF Q6_K, ggml's layout: per 256-value block, ql (128 bytes: low 4 bits),
 // qh (64 bytes: high 2 bits), 16 int8 scales (one per 16 values), f16 d.
 // Each half-block of 128 values decodes as four runs of 32 from the same bytes.
-new function qdot_row_q6k(w: Weights, x: QVec, row: int) -> f32 {
+new function qdot_row_q6k_wide(w: Weights, x: QVec, row: int) -> f32 {
     let nb = w.cols / 256
     let base = ptr<u8>(&ptr<u8>(w.q)[row * nb * 210])
     let low = u8x16(15)
@@ -214,10 +381,10 @@ new function qdot_row_q6k(w: Weights, x: QVec, row: int) -> f32 {
                 let q3 = i8x16((l0 >> four) | (((hh >> four) & three) << four)) - bias
                 let q4 = i8x16((l1 >> four) | (((hh >> six) & three) << four)) - bias
                 let is = c * 8 + h
-                a0 = a0 + i32x16(q1) * load16(x.q, y + h * 16) * i32x16(i32(sc[is]))
-                a1 = a1 + i32x16(q2) * load16(x.q, y + 32 + h * 16) * i32x16(i32(sc[is + 2]))
-                a2 = a2 + i32x16(q3) * load16(x.q, y + 64 + h * 16) * i32x16(i32(sc[is + 4]))
-                a3 = a3 + i32x16(q4) * load16(x.q, y + 96 + h * 16) * i32x16(i32(sc[is + 6]))
+                a0 = a0 + i32x16(q1) * load16w(x.q, y + h * 16) * i32x16(i32(sc[is]))
+                a1 = a1 + i32x16(q2) * load16w(x.q, y + 32 + h * 16) * i32x16(i32(sc[is + 2]))
+                a2 = a2 + i32x16(q3) * load16w(x.q, y + 64 + h * 16) * i32x16(i32(sc[is + 4]))
+                a3 = a3 + i32x16(q4) * load16w(x.q, y + 96 + h * 16) * i32x16(i32(sc[is + 6]))
             }
             let g = y / 32
             accf = accf + f32x16(a0) * f32x16(d * x.s[g]) + f32x16(a1) * f32x16(d * x.s[g + 1])
@@ -227,21 +394,7 @@ new function qdot_row_q6k(w: Weights, x: QVec, row: int) -> f32 {
     return f32x16_sum(accf)
 }
 
-new function qmatvec_rows(out: ptr<f32>, w: Weights, x: QVec, first: int, last: int) {
-    if w.format == FORMAT_Q4_0 {
-        for i in first..last { out[i] = qdot_row_q4(w, x, i) }
-        return
-    }
-    if w.format == FORMAT_Q6_K {
-        for i in first..last { out[i] = qdot_row_q6k(w, x, i) }
-        return
-    }
-    if w.format == FORMAT_Q8_BLOCKS {
-        for i in first..last { out[i] = qdot_row_blocks(w, x, i) }
-        return
-    }
-    for i in first..last { out[i] = qdot_row(w, x, i) }
-}
+
 
 new type QJob {
     out: ptr<f32>

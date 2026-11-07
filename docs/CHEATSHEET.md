@@ -492,6 +492,8 @@ let total = f32x8_sum(acc)           // all lanes added (in any order)
 let x = a[3]                         // one lane;  f32x8_with(a, 3, 1.0): a copy with lane 3 set
 let w = i32x16(bytes)                // lane-by-lane conversion between vectors with equal lane counts
 f32x8_fma(a, b, c)  f32x8_max(a, b)  f32x8_min(a, b)    fma_f32(a, b, c)
+i8x16_dot(acc, a, b)                 // i32x4: acc[i] + sum of a[4i..4i+3] * b[4i..4i+3] (SDOT on Apple Silicon)
+has_fast_i8_dot()                    // compile-time constant: is i8x16_dot one instruction here?
 ```
 - Types (all in Atomic, freestanding): `f32x4 f32x8 f32x16 f64x2 f64x4 f64x8 i32x4 i32x8 i32x16
   i16x8 i16x16 i16x32 i8x16 i8x32 i8x64 u8x16 u8x32 u8x64 u32x8 i64x4`.

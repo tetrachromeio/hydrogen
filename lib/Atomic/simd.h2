@@ -322,6 +322,15 @@ pub new function i64x4_with(v: i64x4, i: int, x: i64) -> i64x4 { return intrinsi
 pub new function i64x4_max(a: i64x4, b: i64x4) -> i64x4 { return intrinsic.smax(a, b) }
 pub new function i64x4_min(a: i64x4, b: i64x4) -> i64x4 { return intrinsic.smin(a, b) }
 
+// Integer dot product, 4 at a time: lane i of the result is
+//   acc[i] + a[4i]*b[4i] + a[4i+1]*b[4i+1] + a[4i+2]*b[4i+2] + a[4i+3]*b[4i+3]
+// One SDOT instruction on Apple Silicon; a short exact sequence elsewhere. The
+// building block of int8 (quantized) matrix multiplies.
+pub new function i8x16_dot(acc: i32x4, a: i8x16, b: i8x16) -> i32x4 { return intrinsic.dot4(acc, a, b) }
+// True when i8x16_dot is a single instruction on the CPU being compiled for (a
+// constant, so `if has_fast_i8_dot() { ... } else { ... }` keeps only one branch).
+pub new function has_fast_i8_dot() -> bool { return intrinsic.fast_dot4() }
+
 // Scalar fused multiply-add: a * b + c with one rounding.
 pub new function fma_f32(a: f32, b: f32, c: f32) -> f32 { return intrinsic.fma(a, b, c) }
 pub new function fma_f64(a: f64, b: f64, c: f64) -> f64 { return intrinsic.fma(a, b, c) }
