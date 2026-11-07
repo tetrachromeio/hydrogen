@@ -78,6 +78,9 @@ extension in [`editors/vscode`](editors/vscode) adds syntax highlighting and
 connects to it; other LSP editors (Neovim, Helix, Zed, ...) can run `hy lsp`
 directly. See [editors/vscode/README.md](editors/vscode/README.md).
 
+## Install
+Step-by-step for macOS, Linux and Windows (WSL): [docs/INSTALL.md](docs/INSTALL.md).
+
 ## Build the toolchain
 ```bash
 cmake -S . -B build -G Ninja
