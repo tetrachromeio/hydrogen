@@ -168,3 +168,15 @@ new function thread_errors() {
     let d = spawn(1, work_int)                                    // fine
     let e = spawn(string("ok"), function(s: string) -> uint { return s.len() })   // fine
 }
+
+new function asm_errors() {
+    let fixed = 1
+    asm {
+        "mov {r}, {missing}"
+        out r -> fixed                       // fixed is a let
+    }
+    asm {
+        "nop"
+        in p = Point(1.0, 2.0)               // not a number or pointer
+    }
+}

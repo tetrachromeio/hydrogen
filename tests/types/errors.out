@@ -49,6 +49,7 @@ tests/types/errors.h2:166:5: b: Thread<int>
 tests/types/errors.h2:167:5: c: Thread<int>
 tests/types/errors.h2:168:5: d: Thread<int>
 tests/types/errors.h2:169:5: e: Thread<uint>
+tests/types/errors.h2:173:5: fixed: int
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -111,3 +112,6 @@ tests/types/errors.h2:157:13: error: this function value uses local variables fr
 tests/types/errors.h2:165:18: error: ptr<int> can't be sent to another thread: it contains a raw pointer (ptr<int>)
 tests/types/errors.h2:166:18: error: str can't be sent to another thread: str is a borrowed view; send an owned string instead (string(text))
 tests/types/errors.h2:167:22: error: this function value uses local variables from the code around it, so it can only be called or passed to a function parameter: it can't be stored, returned, or given to an 'own' parameter
+tests/types/errors.h2:174:5: error: asm uses {missing}, but no operand has that name
+tests/types/errors.h2:176:18: error: asm writes to 'fixed', which is immutable. Declare it with var
+tests/types/errors.h2:180:21: error: asm operands are numbers, bools, chars or pointers, not Point

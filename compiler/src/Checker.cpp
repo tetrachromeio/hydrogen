@@ -1767,7 +1767,36 @@ private:
                 error(f.target->loc, "'free' needs a pointer from 'alloc', found " + str(t));
             return;
         }
-        case StmtKind::Asm: return;
+        case StmtKind::Asm: checkAsm(static_cast<AsmStmt&>(s)); return;
+        }
+    }
+
+    void checkAsm(AsmStmt& a) {
+        std::set<std::string> names;
+        for (auto& op : a.operands) {
+            const Type* t = checkExpr(*op.expr, nullptr);
+            t = finalize(*op.expr);
+            if (!op.isRegister && !names.insert(op.name).second)
+                error(op.loc, "asm operand " + q(op.name) + " is defined twice");
+            if (!t->isError() && t->kind != K::Ptr && scalarOf(t).kind == Scalar::None)
+                error(op.expr->loc, "asm operands are numbers, bools, chars or pointers, not " + str(t));
+            if (op.kind == AsmOperand::Kind::In) continue;
+            if (!isPlace(*op.expr)) error(op.expr->loc, "an asm 'out'/'inout' needs a variable to write");
+            else if (const Symbol* root = immutableRoot(*op.expr))
+                error(op.expr->loc, "asm writes to " + q(root->name) + ", which is immutable. Declare it with var");
+            else if (selfRooted(*op.expr) && !selfMutable_)
+                error(op.expr->loc, "asm writes to self" + mutHint());
+        }
+        // Every {name} in the instructions must be an operand.
+        for (const auto& line : a.lines) {
+            for (size_t i = 0; i < line.size(); ++i) {
+                if (line[i] != '{') continue;
+                size_t end = line.find('}', i);
+                if (end == std::string::npos) break;
+                std::string n = line.substr(i + 1, end - i - 1);
+                if (!n.empty() && !names.count(n)) error(a.loc, "asm uses {" + n + "}, but no operand has that name");
+                i = end;
+            }
         }
     }
 
@@ -2682,7 +2711,9 @@ private:
             }
             return false;
         case StmtKind::Free: moveExpr(*static_cast<const FreeStmt&>(s).target, false); return true;
-        case StmtKind::Asm: return true;
+        case StmtKind::Asm:
+            for (const auto& op : static_cast<const AsmStmt&>(s).operands) moveExpr(*op.expr, false);
+            return true;
         }
         return true;
     }

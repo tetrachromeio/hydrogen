@@ -321,11 +321,20 @@ private:
             expr(*static_cast<const FreeStmt&>(s).target, depth);
             os_ << ')';
             break;
-        case StmtKind::Asm:
+        case StmtKind::Asm: {
+            const auto& a = static_cast<const AsmStmt&>(s);
             os_ << "(asm";
-            for (const auto& l : static_cast<const AsmStmt&>(s).lines) os_ << ' ' << quote(l, '"');
+            for (const auto& l : a.lines) os_ << ' ' << quote(l, '"');
+            for (const auto& op : a.operands) {
+                const char* k = op.kind == AsmOperand::Kind::In ? "in" : op.kind == AsmOperand::Kind::Out ? "out" : "inout";
+                os_ << " (" << k << ' ' << (op.isRegister ? quote(op.name, '"') : op.name) << ' ';
+                expr(*op.expr, depth);
+                os_ << ')';
+            }
+            for (const auto& c : a.clobbers) os_ << " (clobber " << quote(c, '"') << ')';
             os_ << ')';
             break;
+        }
         }
     }
 

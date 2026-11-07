@@ -445,6 +445,15 @@ least one parameter of a named type, and it applies in its own module and in
 every module that uses it (including through `pub use`). Operators declared
 inside the type are looked up first.
 
+## Inline assembly
+`asm { ... }` holds instruction strings plus operands:
+`in name = value`, `out name -> place`, `inout name = place` (read, then written
+back), and `clobber "reg"` / `clobber "memory"`. Instructions refer to operands as
+`{name}`. Using a string instead of a name (`in "rax" = 1`) puts the operand in
+that exact register. On x86-64 the instructions use Intel syntax. Operands are
+numbers, bools, chars or pointers; `out`/`inout` targets must be changeable.
+The block is never removed or reordered by the optimizer.
+
 ## C interop: `extern`, pointer casts, `null`
 - `extern function name(params) -> T` declares a C function. It's allowed in
   any module, can be `pub`, has no body and can't be generic. Parameters and

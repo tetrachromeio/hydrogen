@@ -450,6 +450,26 @@ print(arr.len)                    // arrays and slices have .len
 - `free` is explicit for anything you `alloc`.
 - Writing through a raw pointer (`p[i] = v`, `*p = v`) doesn't drop the old value.
 
+### Inline assembly
+```
+var total = 10
+asm {
+    "add {t}, {s}"          // Intel syntax on x86-64; {name} is an operand
+    inout t = total         // read into a register, written back
+    in s = 5                // input
+}
+asm {
+    "syscall"
+    in "rax" = 60           // a specific register
+    in "rdi" = 0
+    out "rax" -> result     // write a register to a variable
+    clobber "rcx"           // registers or "memory" the code changes
+    clobber "r11"
+}
+```
+Operands are numbers, bools, chars or pointers; `out`/`inout` need a `var`. The
+instructions are specific to the CPU (x86-64 or ARM64).
+
 ### Talking to C: `extern`, pointer casts, `null`
 ```
 extern function socket(domain: i32, kind: i32, protocol: i32) -> i32   // any C function
@@ -637,7 +657,6 @@ Elemental uses `extern` to reach the C library instead.
 - String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
 - Closures that outlive the variables they capture (escaping closures)
-- Inline `asm` (parses, but the code generator rejects it). Use `extern` instead
 - Variadic C functions (like `printf`) through `extern`
 - UTF-8 decoding in `for c in text` (iterates bytes)
 - Full borrow checking of `str` views (only returning one is caught)

@@ -232,8 +232,20 @@ struct FreeStmt : Stmt {
     FreeStmt(SourceLoc l) : Stmt(StmtKind::Free, l) {}
 };
 
+// asm { "add {t}, {s}"  inout t = total  in s = 5  out r -> result  clobber "memory" }
+struct AsmOperand {
+    enum class Kind { In, Out, InOut };
+    Kind kind = Kind::In;
+    SourceLoc loc;
+    std::string name;     // referenced as {name}, or a register when isRegister
+    bool isRegister = false;
+    ExprPtr expr;         // value (in) or the variable written (out / inout)
+};
+
 struct AsmStmt : Stmt {
     std::vector<std::string> lines;
+    std::vector<AsmOperand> operands;
+    std::vector<std::string> clobbers;
     AsmStmt(SourceLoc l) : Stmt(StmtKind::Asm, l) {}
 };
 

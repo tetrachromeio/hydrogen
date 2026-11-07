@@ -1122,7 +1122,7 @@ private:
             flushTemps();
             return;
         }
-        case StmtKind::Asm: unsupported(s.loc, "inline asm"); return;
+        case StmtKind::Asm: emitAsm(static_cast<const AsmStmt&>(s)); flushTemps(); return;
         }
     }
 
@@ -2223,6 +2223,88 @@ private:
         }
         unsupported(c.loc, "intrinsic." + name);
         return {"i64", "0"};
+    }
+
+    // Inline assembly: outputs (out, inout) first, then inputs, then the inputs tied
+    // to inout outputs. {name} becomes $N; Intel syntax on x86.
+    void emitAsm(const AsmStmt& a) {
+        std::vector<const AsmOperand*> outs, ins;
+        for (const auto& op : a.operands)
+            (op.kind == AsmOperand::Kind::In ? ins : outs).push_back(&op);
+        std::map<std::string, size_t> index;
+        std::string constraints;
+        auto add = [&](const std::string& c) { constraints += (constraints.empty() ? "" : ",") + c; };
+        auto reg = [](const AsmOperand* op) { return op->isRegister ? "{" + op->name + "}" : std::string("r"); };
+        for (size_t i = 0; i < outs.size(); ++i) {
+            add("=" + reg(outs[i]));
+            if (!outs[i]->isRegister) index[outs[i]->name] = i;
+        }
+        std::vector<Val> args;
+        for (size_t i = 0; i < ins.size(); ++i) {
+            add(reg(ins[i]));
+            if (!ins[i]->isRegister) index[ins[i]->name] = outs.size() + i;
+            args.push_back(convertTo(*ins[i]->expr, typeOf(*ins[i]->expr)));
+        }
+        for (size_t i = 0; i < outs.size(); ++i)
+            if (outs[i]->kind == AsmOperand::Kind::InOut) {
+                add(std::to_string(i));
+                args.push_back(convertTo(*outs[i]->expr, typeOf(*outs[i]->expr)));
+            }
+        for (const auto& c : a.clobbers) add("~{" + c + "}");
+#if defined(__x86_64__) || defined(_M_X64)
+        add("~{dirflag},~{fpsr},~{flags}");
+#endif
+        std::string tmpl;
+        for (size_t l = 0; l < a.lines.size(); ++l) {
+            if (l) tmpl += "\n";
+            const std::string& line = a.lines[l];
+            for (size_t i = 0; i < line.size(); ++i) {
+                if (line[i] == '$') {
+                    tmpl += "$$";
+                } else if (line[i] == '{') {
+                    size_t end = line.find('}', i);
+                    std::string n = end == std::string::npos ? "" : line.substr(i + 1, end - i - 1);
+                    if (auto it = index.find(n); it != index.end()) {
+                        tmpl += "${" + std::to_string(it->second) + "}";
+                        i = end;
+                    } else {
+                        tmpl += line[i];
+                    }
+                } else {
+                    tmpl += line[i];
+                }
+            }
+        }
+        std::string rett = "void";
+        if (outs.size() == 1) rett = lty(typeOf(*outs[0]->expr));
+        else if (outs.size() > 1) {
+            rett = "{ ";
+            for (size_t i = 0; i < outs.size(); ++i) rett += (i ? ", " : "") + lty(typeOf(*outs[i]->expr));
+            rett += " }";
+        }
+        std::string argList;
+        for (const auto& v : args) argList += (argList.empty() ? "" : ", ") + v.ty + " " + v.v;
+#if defined(__x86_64__) || defined(_M_X64)
+        std::string dialect = " inteldialect";
+#else
+        std::string dialect;
+#endif
+        std::string call = "asm sideeffect" + dialect + " " + llvmQuote(tmpl) + ", " + llvmQuote(constraints) + "(" + argList + ")";
+        if (outs.empty()) {
+            emit("call void " + call);
+            return;
+        }
+        std::string r = tmp();
+        emit(r + " = call " + rett + " " + call);
+        for (size_t i = 0; i < outs.size(); ++i) {
+            const Type* t = typeOf(*outs[i]->expr);
+            std::string v = r;
+            if (outs.size() > 1) {
+                v = tmp();
+                emit(v + " = extractvalue " + rett + " " + r + ", " + std::to_string(i));
+            }
+            store({lty(t), v}, addressOf(*outs[i]->expr));
+        }
     }
 
     // Stops the program (llvm.trap) when `cond` is true. Works without any OS.

@@ -602,11 +602,37 @@ private:
             auto s = std::make_unique<AsmStmt>(loc);
             NestReset reset(*this);
             expect(Tok::LBrace, "'{' after 'asm'");
-            while (!at(Tok::RBrace)) {
+            while (!at(Tok::RBrace) && !at(Tok::Eof)) {
                 if (accept(Tok::Semi) || accept(Tok::Comma)) continue;
-                s->lines.push_back(expect(Tok::StringLit, "an assembly string or '}'").text);
+                if (at(Tok::StringLit)) {
+                    s->lines.push_back(advance().text);
+                    continue;
+                }
+                if (atIdent("clobber")) {
+                    advance();
+                    s->clobbers.push_back(expect(Tok::StringLit, "a register name or \"memory\" after 'clobber'").text);
+                    continue;
+                }
+                AsmOperand op;
+                op.loc = peek().loc;
+                if (accept(Tok::KwIn)) op.kind = AsmOperand::Kind::In;
+                else if (atIdent("out") || atIdent("inout")) {
+                    op.kind = advance().text == "out" ? AsmOperand::Kind::Out : AsmOperand::Kind::InOut;
+                } else {
+                    failExpected("an instruction string, 'in', 'out', 'inout' or 'clobber' in asm");
+                }
+                if (at(Tok::StringLit)) {
+                    op.name = advance().text;
+                    op.isRegister = true;
+                } else {
+                    op.name = expectIdent("an operand name or a register string");
+                }
+                if (op.kind == AsmOperand::Kind::Out) expect(Tok::Arrow, "'->' and the variable to write");
+                else expect(Tok::Assign, "'=' and a value");
+                op.expr = parseExpr();
+                s->operands.push_back(std::move(op));
             }
-            advance();
+            expect(Tok::RBrace, "'}' to close asm");
             return s;
         }
         case Tok::LBrace: return parseBlock();

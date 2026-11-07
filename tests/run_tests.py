@@ -124,6 +124,8 @@ def main():
         first_line = p.read_text().split("\n", 1)[0]
         if first_line.startswith("// requires: linux") and platform.system() != "Linux":
             continue  # platform-specific test
+        if first_line.startswith("// requires: x86_64") and platform.machine().lower() not in ("x86_64", "amd64"):
+            continue
         count += 1
         if not clang:
             failures.append(f"{p}: clang not found; cannot run code generation tests")

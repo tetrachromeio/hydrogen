@@ -732,8 +732,10 @@ private:
         }
         case StmtKind::Free: resolveExpr(*static_cast<FreeStmt&>(s).target); return;
         case StmtKind::Break:
-        case StmtKind::Continue:
-        case StmtKind::Asm: return;
+        case StmtKind::Continue: return;
+        case StmtKind::Asm:
+            for (auto& op : static_cast<AsmStmt&>(s).operands) resolveExpr(*op.expr);
+            return;
         }
     }
 
