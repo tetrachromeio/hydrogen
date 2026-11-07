@@ -50,6 +50,9 @@ tests/types/errors.h2:167:5: c: Thread<int>
 tests/types/errors.h2:168:5: d: Thread<int>
 tests/types/errors.h2:169:5: e: Thread<uint>
 tests/types/errors.h2:173:5: fixed: int
+tests/types/errors.h2:188:5: p: Packed
+tests/types/errors.h2:189:5: addr: <error>
+tests/types/errors.h2:190:5: u: Bad
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -115,3 +118,7 @@ tests/types/errors.h2:167:22: error: this function value uses local variables fr
 tests/types/errors.h2:174:5: error: asm uses {missing}, but no operand has that name
 tests/types/errors.h2:176:18: error: asm writes to 'fixed', which is immutable. Declare it with var
 tests/types/errors.h2:180:21: error: asm operands are numbers, bools, chars or pointers, not Point
+tests/types/errors.h2:184:17: error: union fields must be plain values (numbers, pointers, arrays, plain types), not string: the union can't know which field to clean up
+tests/types/errors.h2:185:19: error: bitfields are only allowed in 'new type' layouts, not classes
+tests/types/errors.h2:189:16: error: a bitfield has no address of its own; copy it into a variable first
+tests/types/errors.h2:190:16: error: a union starts zeroed: write Bad() and then set one of its fields

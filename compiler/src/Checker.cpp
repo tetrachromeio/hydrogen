@@ -91,6 +91,9 @@ private:
     };
     std::map<const Expr*, CallInfo> calls_;
     std::set<const Expr*> viewCoerced_; // string expressions used as str (a borrow, not a move)
+    std::set<const Expr*> bitfields_;   // member accesses that read/write a bitfield
+
+    bool isBitfield(const Expr& e) { return bitfields_.count(&e) > 0; }
     struct LambdaSite {
         FunctionDecl* fn;
         ModuleInfo* mod;
@@ -788,6 +791,7 @@ private:
                 for (const auto& f : *fields)
                     if (f.name == m.member) {
                         checkMemberAccess(obj->sym, f.isPub, "field", f.name, m.loc);
+                        if (f.bitWidth) bitfields_.insert(&m);
                         return subst(convert(*f.type, selfT), s);
                     }
             if (cls)
@@ -852,6 +856,10 @@ private:
         if (u.op == "&") {
             checkExpr(*u.operand, nullptr);
             const Type* t = finalize(*u.operand);
+            if (isBitfield(*u.operand)) {
+                error(u.loc, "a bitfield has no address of its own; copy it into a variable first");
+                return tc_.error();
+            }
             if (!isPlace(*u.operand)) {
                 error(u.loc, "'&' needs a variable, field or element to point to");
                 return tc_.error();
@@ -1393,6 +1401,12 @@ private:
                 return checkConversion(c, target);
             }
         }
+        if (s->kind == Symbol::Kind::Type && declAs<TypeDecl>(s)->isUnion) {
+            if (!c.args.empty())
+                error(c.loc, "a union starts zeroed: write " + s->name + "() and then set one of its fields");
+            for (auto& a : c.args) checkExpr(*a, nullptr);
+            return tc_.named(s, {});
+        }
         const auto* gs = genericsOf(s);
         Subst sub;
         std::set<const Symbol*> vars;
@@ -1781,7 +1795,8 @@ private:
             if (!t->isError() && t->kind != K::Ptr && scalarOf(t).kind == Scalar::None)
                 error(op.expr->loc, "asm operands are numbers, bools, chars or pointers, not " + str(t));
             if (op.kind == AsmOperand::Kind::In) continue;
-            if (!isPlace(*op.expr)) error(op.expr->loc, "an asm 'out'/'inout' needs a variable to write");
+            if (!isPlace(*op.expr) || isBitfield(*op.expr))
+                error(op.expr->loc, "an asm 'out'/'inout' needs a variable to write");
             else if (const Symbol* root = immutableRoot(*op.expr))
                 error(op.expr->loc, "asm writes to " + q(root->name) + ", which is immutable. Declare it with var");
             else if (selfRooted(*op.expr) && !selfMutable_)
@@ -1913,8 +1928,9 @@ private:
             Expr& a = *c.args[i];
             std::string p = q(fn.params[i].name);
             if (!a.type || a.type->isError()) continue;
-            if (!isPlace(a) || a.type->isLiteral() || viewCoerced_.count(&a))
-                error(a.loc, p + " is a var parameter: pass a variable that can be changed, not a value");
+            if (!isPlace(a) || a.type->isLiteral() || viewCoerced_.count(&a) || isBitfield(a))
+                error(a.loc, p + " is a var parameter: pass a variable that can be changed, not a value" +
+                                 std::string(isBitfield(a) ? " (a bitfield has no address)" : ""));
             else if (const Symbol* root = immutableRoot(a))
                 error(a.loc, p + " is a var parameter, but " + q(root->name) +
                                  " can't be changed (it's a let or a parameter). Declare it with var");
@@ -2018,7 +2034,14 @@ private:
             const Symbol* s = declSym_[&t];
             if (!s) return;
             const Type* selfT = selfTypeOf(s);
-            for (auto& f : t.fields) convert(*f.type, selfT);
+            for (auto& f : t.fields) {
+                const Type* ft = convert(*f.type, selfT);
+                if (t.isUnion && f.bitWidth) error(f.loc, "a union can't have bitfields");
+                else if (t.isUnion && !plainData(ft, 0))
+                    error(f.loc, "union fields must be plain values (numbers, pointers, arrays, plain types), not " +
+                                     str(ft) + ": the union can't know which field to clean up");
+            }
+            if (t.isUnion && !t.generics.empty()) error(t.loc, "a union can't be generic");
             for (auto& op : t.operators) checkOperatorShape(*op, selfT);
             for (auto& op : t.operators) checkFunction(*op, selfT);
             return;
@@ -2028,6 +2051,8 @@ private:
             const Symbol* s = declSym_[&c];
             if (!s) return;
             const Type* selfT = selfTypeOf(s);
+            for (const auto& f : c.fields)
+                if (f.bitWidth) error(f.loc, "bitfields are only allowed in 'new type' layouts, not classes");
             for (auto& m : c.methods) {
                 if (m->isOperator) checkOperatorShape(*m, selfT);
                 if (!m->isOperator && (m->name == "init" || m->name == "drop") &&
@@ -2060,6 +2085,19 @@ private:
             error(op.loc, "operator string must return string");
         if (op.name == "hash" && sig.ret != lang_.uintT && !sig.ret->isError())
             error(op.loc, "operator hash must return uint");
+    }
+
+    // Plain data: no cleanup and no hidden ownership (for union fields).
+    bool plainData(const Type* t, int depth) {
+        if (depth > 16 || t->isError()) return true;
+        if (t->kind == K::Ptr) return true;
+        if (t->kind == K::Array) return plainData(t->elem(), depth + 1);
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Type) return false;
+        if (scalarOf(t).kind != Scalar::None) return true;
+        Subst s = substFor(t);
+        for (const auto& f : declAs<TypeDecl>(t->sym)->fields)
+            if (!plainData(subst(convert(*f.type, selfTypeOf(t->sym)), s), depth + 1)) return false;
+        return true;
     }
 
     // Operators: 1 or 2 parameters, at least one of the owner's type.

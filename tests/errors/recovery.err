@@ -4,4 +4,4 @@ tests/errors/recovery.h2:11:5: error: a type built on bits or another type canno
 tests/errors/recovery.h2:15:5: error: 'let' needs a value: let x = ...
 tests/errors/recovery.h2:16:15: error: expected end of statement (newline or ';') before integer literal
 tests/errors/recovery.h2:17:5: error: 'var' needs a type or a value: var z: T
-tests/errors/recovery.h2:23:5: error: expected 'function', 'operator', 'type', 'class', 'enum' or 'interface' after 'new', found 'widget'
+tests/errors/recovery.h2:23:5: error: expected 'function', 'operator', 'type', 'class', 'enum', 'union' or 'interface' after 'new', found 'widget'

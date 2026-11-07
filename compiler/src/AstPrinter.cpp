@@ -343,7 +343,8 @@ private:
     void fields(const std::vector<Field>& fs, int depth) {
         for (const auto& f : fs) {
             nl(depth);
-            os_ << (f.isPub ? "(pub field " : "(field ") << f.name << " : " << typeStr(*f.type) << ')';
+            os_ << (f.isPub ? "(pub field " : "(field ") << f.name << " : "
+                << (f.bitWidth ? "bits(" + std::to_string(f.bitWidth) + ")" : typeStr(*f.type)) << ')';
         }
     }
 
@@ -389,7 +390,7 @@ private:
         case DeclKind::Function: function(static_cast<const FunctionDecl&>(d), depth); break;
         case DeclKind::Type: {
             const auto& t = static_cast<const TypeDecl&>(d);
-            os_ << (t.isPub ? "(pub type " : "(type ") << t.name << genericsStr(t.generics);
+            os_ << (t.isPub ? "(pub " : "(") << (t.isUnion ? "union " : "type ") << t.name << genericsStr(t.generics);
             switch (t.base) {
             case TypeDecl::Base::Layout: break;
             case TypeDecl::Base::Bits: os_ << " (bits " << t.bits << (t.isSigned ? " signed)" : ")"); break;

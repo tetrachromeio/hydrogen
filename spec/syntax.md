@@ -445,6 +445,18 @@ least one parameter of a named type, and it applies in its own module and in
 every module that uses it (including through `pub use`). Operators declared
 inside the type are looked up first.
 
+## Unions and bitfields
+`new union Name { fields }` stores every field in the same memory; `Name()`
+creates one zero-filled, and reading a field reinterprets the bytes. Fields must
+be plain data (no `drop` anywhere inside), and unions can't be generic. Size and
+alignment follow C.
+
+In a `new type` layout, `name: bits(N)` (1 to 64) declares a bitfield, read and
+written as `uint` (values are cut to N bits). Consecutive bitfields are packed
+into 64-bit words, lowest bits first; a normal field ends the current word. This
+layout is Hydrogen's own, not C's. Bitfields have no address (`&`, `var`
+arguments and asm outputs are rejected), and classes can't have them.
+
 ## Inline assembly
 `asm { ... }` holds instruction strings plus operands:
 `in name = value`, `out name -> place`, `inout name = place` (read, then written

@@ -271,6 +271,17 @@ private:
         case Tok::KwFunction:
         case Tok::KwOperator: return parseFunction(/*bodyOptional=*/false);
         case Tok::KwType: return parseTypeDecl();
+        case Tok::Ident:
+            if (peek(1).text == "union") {
+                // new union Name { fields }: like a type, with all fields in the same storage
+                auto d = parseTypeDecl();
+                auto& td = static_cast<TypeDecl&>(*d);
+                td.isUnion = true;
+                if (td.base != TypeDecl::Base::Layout) fail(td.loc, "a union is a set of fields: new union Name { ... }");
+                return d;
+            }
+            advance();
+            failExpected("'function', 'operator', 'type', 'class', 'enum', 'union' or 'interface' after 'new'");
         case Tok::KwClass: return parseClass();
         case Tok::KwEnum: return parseEnum();
         case Tok::KwInterface: return parseInterface();
@@ -395,7 +406,20 @@ private:
         f.loc = peek().loc;
         f.name = expectIdent(what);
         expect(Tok::Colon, "':' and a type after field name");
-        f.type = parseType();
+        if (atIdent("bits") && peek(1).kind == Tok::LParen) {
+            // name: bits(N) -- a packed bitfield, read and written as uint
+            SourceLoc at = advance().loc;
+            advance();
+            const Token& n = expect(Tok::IntLit, "a bit width");
+            f.bitWidth = static_cast<uint32_t>(std::stoul(n.text, nullptr, 0));
+            expect(Tok::RParen);
+            if (f.bitWidth == 0 || f.bitWidth > 64) fail(at, "a bitfield is 1 to 64 bits wide");
+            f.type = std::make_unique<TypeRef>();
+            f.type->loc = at;
+            f.type->name = "uint";
+        } else {
+            f.type = parseType();
+        }
         if (!accept(Tok::Comma)) expectTerminator("field");
         return f;
     }

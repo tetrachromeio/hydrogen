@@ -301,6 +301,7 @@ struct FunctionDecl : Decl {
 struct Field {
     SourceLoc loc;
     bool isPub = false;
+    uint32_t bitWidth = 0; // `name: bits(N)`: a packed bitfield (read and written as uint)
     std::string name;
     TypeRefPtr type;
 };
@@ -320,6 +321,7 @@ struct TypeDecl : Decl {
     TypeRefPtr aliasOf;      // Distinct / Alias
     std::vector<Field> fields;
     std::vector<std::unique_ptr<FunctionDecl>> operators;
+    bool isUnion = false; // `new union`: all fields share the same storage
     TypeDecl(SourceLoc l) : Decl(DeclKind::Type, l) {}
 };
 

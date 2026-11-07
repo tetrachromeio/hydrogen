@@ -180,3 +180,12 @@ new function asm_errors() {
         in p = Point(1.0, 2.0)               // not a number or pointer
     }
 }
+
+new union Bad { s: string, n: int }
+new class Flags { mode: bits(3) }
+new type Packed { a: bits(4), b: bits(4) }
+new function bit_errors() {
+    var p = Packed(1, 2)
+    let addr = &p.a
+    var u = Bad(1)
+}

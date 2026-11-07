@@ -439,6 +439,78 @@ private:
         return out;
     }
 
+    // How a layout type's fields map onto LLVM struct slots. Consecutive bitfields
+    // share 64-bit words; a union is one block big enough for its largest field.
+    struct Physical {
+        bool isUnion = false;
+        std::vector<const Type*> slots;   // LLVM struct members (unions: none)
+        std::vector<int> slotOf;          // field -> slot (-1 for union fields)
+        std::vector<unsigned> shift, width; // bitfields only (width 0 = normal field)
+        uint64_t unionWords = 1; // union storage: unionWords units of unionUnit bytes
+        uint64_t unionUnit = 1;  // the largest field alignment (as in C)
+    };
+    std::map<const Type*, Physical> physCache_;
+
+    const Physical& physical(const Type* t) {
+        auto it = physCache_.find(t);
+        if (it != physCache_.end()) return it->second;
+        Physical ph;
+        const std::vector<Field>* fields = nullptr;
+        if (t->sym->kind == Symbol::Kind::Class) fields = &declAs<ClassDecl>(t->sym)->fields;
+        else if (t->sym->kind == Symbol::Kind::Type) {
+            fields = &declAs<TypeDecl>(t->sym)->fields;
+            ph.isUnion = declAs<TypeDecl>(t->sym)->isUnion;
+        }
+        auto fts = fieldTypes(t);
+        if (ph.isUnion) {
+            uint64_t biggest = 0;
+            for (const Type* ft : fts) {
+                biggest = std::max(biggest, sizeOf(ft));
+                ph.unionUnit = std::max(ph.unionUnit, alignOf(ft));
+            }
+            ph.unionWords = std::max<uint64_t>(1, (biggest + ph.unionUnit - 1) / ph.unionUnit);
+            ph.slotOf.assign(fts.size(), -1);
+            ph.shift.assign(fts.size(), 0);
+            ph.width.assign(fts.size(), 0);
+            return physCache_[t] = ph;
+        }
+        unsigned openBits = 64; // no open word
+        for (size_t i = 0; fields && i < fields->size(); ++i) {
+            unsigned w = (*fields)[i].bitWidth;
+            if (w) {
+                if (openBits + w > 64) {
+                    ph.slots.push_back(lang_.uintT);
+                    openBits = 0;
+                }
+                ph.slotOf.push_back(static_cast<int>(ph.slots.size()) - 1);
+                ph.shift.push_back(openBits);
+                ph.width.push_back(w);
+                openBits += w;
+            } else {
+                openBits = 64;
+                ph.slots.push_back(fts[i]);
+                ph.slotOf.push_back(static_cast<int>(ph.slots.size()) - 1);
+                ph.shift.push_back(0);
+                ph.width.push_back(0);
+            }
+        }
+        return physCache_[t] = ph;
+    }
+
+    bool hasBitfields(const Type* t) {
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Type) return false;
+        for (const auto& f : declAs<TypeDecl>(t->sym)->fields)
+            if (f.bitWidth) return true;
+        return false;
+    }
+
+    // The address of field `idx` (for unions: the union itself).
+    std::string fieldAddress(const Type* t, const std::string& base, int idx) {
+        const Physical& ph = physical(t);
+        if (ph.isUnion) return base;
+        return gepField(t, base, ph.slotOf[static_cast<size_t>(idx)]);
+    }
+
     int fieldIndex(const Type* t, const std::string& name) {
         const std::vector<Field>* fields = nullptr;
         if (t->sym->kind == Symbol::Kind::Class) fields = &declAs<ClassDecl>(t->sym)->fields;
@@ -481,11 +553,13 @@ private:
             }
             uint64_t words = std::max<uint64_t>(1, (maxSize + 7) / 8);
             def = "{ i32, [" + std::to_string(words) + " x i64] }";
+        } else if (physical(t).isUnion) {
+            def = "{ [" + std::to_string(physical(t).unionWords) + " x i" + std::to_string(physical(t).unionUnit * 8) + "] }";
         } else {
             def = "{ ";
-            auto fs = fieldTypes(t);
-            for (size_t i = 0; i < fs.size(); ++i) def += (i ? ", " : "") + lty(fs[i]);
-            def = fs.empty() ? "{}" : def + " }";
+            const auto& slots = physical(t).slots;
+            for (size_t i = 0; i < slots.size(); ++i) def += (i ? ", " : "") + lty(slots[i]);
+            def = slots.empty() ? "{}" : def + " }";
         }
         types_ << "%" << llvmQuote(name) << " = type " << def << "\n";
     }
@@ -500,8 +574,9 @@ private:
             ScalarInfo s = scalarOf(t);
             if (s.kind != ScalarInfo::None) return std::max<uint64_t>(1, std::min<uint64_t>(8, (s.bits + 7) / 8));
             if (t->sym->kind == Symbol::Kind::Enum) return 8;
+            if (physical(t).isUnion) return physical(t).unionUnit;
             uint64_t a = 1;
-            for (const Type* f : fieldTypes(t)) a = std::max(a, alignOf(f));
+            for (const Type* f : physical(t).slots) a = std::max(a, alignOf(f));
             return a;
         }
         default: return 8;
@@ -534,8 +609,9 @@ private:
                 }
                 return 8 + std::max<uint64_t>(1, (maxSize + 7) / 8) * 8;
             }
+            if (physical(t).isUnion) return physical(t).unionWords * physical(t).unionUnit;
             uint64_t size = 0, align = 1;
-            for (const Type* f : fieldTypes(t)) {
+            for (const Type* f : physical(t).slots) {
                 uint64_t a = alignOf(f);
                 size = (size + a - 1) / a * a + sizeOf(f);
                 align = std::max(align, a);
@@ -917,7 +993,7 @@ private:
             auto fs = fieldTypes(t);
             for (size_t i = fs.size(); i > 0; --i) {
                 if (!isResource(fs[i - 1])) continue;
-                std::string fp = gepField(t, "%p", static_cast<int>(i - 1));
+                std::string fp = fieldAddress(t, "%p", static_cast<int>(i - 1));
                 emit("call void @" + llvmQuote(dropFn(fs[i - 1])) + "(ptr " + fp + ")");
             }
         }
@@ -1247,6 +1323,16 @@ private:
 
     void emitAssign(const AssignStmt& a) {
         const Type* t = typeOf(*a.target);
+        if (a.target->kind == ExprKind::Member)
+            if (auto bf = bitfieldOf(static_cast<const MemberExpr&>(*a.target))) {
+                Val v = convertTo(*a.value, lang_.uintT);
+                if (a.op != "=") {
+                    Val cur{"i64", readBits(*bf)};
+                    v = applyBinary(a.op.substr(0, a.op.size() - 1), lang_.uintT, cur, lang_.uintT, v, a.loc);
+                }
+                writeBits(*bf, v.v);
+                return;
+            }
         if (a.op == "=") {
             Val v = consume(*a.value, t);
             if (a.target->kind == ExprKind::Ident) {
@@ -1321,7 +1407,7 @@ private:
             }
             if (ot->kind == K::Named) {
                 int idx = fieldIndex(ot, m.member);
-                if (idx >= 0) return gepField(ot, base, idx);
+                if (idx >= 0) return fieldAddress(ot, base, idx);
             }
             break;
         }
@@ -1490,6 +1576,7 @@ private:
                 emit(t + " = extractvalue " + sl.ty + " " + sl.v + ", 1");
                 return {"i64", t};
             }
+            if (auto bf = bitfieldOf(m)) return {"i64", readBits(*bf)};
             const Type* t = typeOf(e);
             return {lty(t), load(lty(t), addressOf(e))};
         }
@@ -2026,6 +2113,22 @@ private:
             callFunction(initFn, s, t, slot, c);
             return {lty(t), load(lty(t), slot)};
         }
+        if (t->kind == K::Named && t->sym->kind == Symbol::Kind::Type && physical(t).isUnion)
+            return {lty(t), "zeroinitializer"};
+        if (hasBitfields(t)) {
+            // Build in memory: normal fields stored, bitfields packed.
+            std::string slot = alloca(lty(t));
+            emit("store " + lty(t) + " zeroinitializer, ptr " + slot);
+            auto fts = fieldTypes(t);
+            const Physical& ph = physical(t);
+            for (size_t i = 0; i < c.args.size() && i < fts.size(); ++i) {
+                Val v = consume(*c.args[i], fts[i]);
+                std::string fp = gepField(t, slot, ph.slotOf[i]);
+                if (ph.width[i]) writeBits({fp, ph.shift[i], ph.width[i]}, v.v);
+                else store(v, fp);
+            }
+            return {lty(t), load(lty(t), slot)};
+        }
         // Fields in order.
         auto fts = fieldTypes(t);
         std::vector<Val> vals;
@@ -2305,6 +2408,51 @@ private:
             }
             store({lty(t), v}, addressOf(*outs[i]->expr));
         }
+    }
+
+    // ------------------------------------------------------------ bitfields
+
+    struct BitRef {
+        std::string word; // pointer to the 64-bit storage word
+        unsigned shift, width;
+    };
+
+    std::optional<BitRef> bitfieldOf(const MemberExpr& m) {
+        if (m.sym) return std::nullopt;
+        const Type* ot = typeOf(*m.object);
+        bool viaPtr = ot->kind == K::Ptr;
+        if (viaPtr) ot = ot->elem();
+        if (ot->kind != K::Named || ot->sym->kind != Symbol::Kind::Type) return std::nullopt;
+        int idx = fieldIndex(ot, m.member);
+        if (idx < 0) return std::nullopt;
+        const Physical& ph = physical(ot);
+        if (ph.isUnion || !ph.width[static_cast<size_t>(idx)]) return std::nullopt;
+        std::string base = viaPtr ? rvalue(*m.object).v : addressOf(*m.object);
+        return BitRef{gepField(ot, base, ph.slotOf[static_cast<size_t>(idx)]), ph.shift[static_cast<size_t>(idx)],
+                      ph.width[static_cast<size_t>(idx)]};
+    }
+
+    static std::string maskOf(unsigned width) {
+        uint64_t m = width >= 64 ? ~uint64_t(0) : ((uint64_t(1) << width) - 1);
+        return std::to_string(static_cast<int64_t>(m));
+    }
+
+    std::string readBits(const BitRef& b) {
+        std::string w = load("i64", b.word), s = tmp(), r = tmp();
+        emit(s + " = lshr i64 " + w + ", " + std::to_string(b.shift));
+        emit(r + " = and i64 " + s + ", " + maskOf(b.width));
+        return r;
+    }
+
+    void writeBits(const BitRef& b, const std::string& value) {
+        uint64_t m = b.width >= 64 ? ~uint64_t(0) : ((uint64_t(1) << b.width) - 1);
+        std::string clearMask = std::to_string(static_cast<int64_t>(~(m << b.shift)));
+        std::string w = load("i64", b.word), cleared = tmp(), v = tmp(), sh = tmp(), out = tmp();
+        emit(cleared + " = and i64 " + w + ", " + clearMask);
+        emit(v + " = and i64 " + value + ", " + maskOf(b.width));
+        emit(sh + " = shl i64 " + v + ", " + std::to_string(b.shift));
+        emit(out + " = or i64 " + cleared + ", " + sh);
+        emit("store i64 " + out + ", ptr " + b.word);
     }
 
     // Stops the program (llvm.trap) when `cond` is true. Works without any OS.

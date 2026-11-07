@@ -470,6 +470,29 @@ asm {
 Operands are numbers, bools, chars or pointers; `out`/`inout` need a `var`. The
 instructions are specific to the CPU (x86-64 or ARM64).
 
+### Unions and bitfields
+```
+new union FloatBits {          // all fields share the same storage
+    as_uint: uint
+    as_float: float
+}
+var b = FloatBits()            // starts zeroed; then set one field
+b.as_float = 1.5
+print(b.as_uint)               // the raw bits
+
+new type Header {
+    version: bits(4)           // bitfields: packed, read/written as uint
+    flags: bits(3)
+    length: u16
+}
+var h = Header(3, 5, 1500)
+h.flags = 2                    // too-wide values are cut to the field's width
+```
+- Union fields must be plain values (numbers, pointers, arrays, plain types). Union
+  size and alignment match C.
+- Bitfields are only for `new type` layouts. Consecutive bitfields share 64-bit words
+  (Hydrogen's own layout, not C's). `&h.flags` is an error: a bitfield has no address.
+
 ### Talking to C: `extern`, pointer casts, `null`
 ```
 extern function socket(domain: i32, kind: i32, protocol: i32) -> i32   // any C function
