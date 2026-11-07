@@ -9,10 +9,10 @@ pub new type Stats {
 // Runs the prompt through the model and continues it for up to `steps` positions
 // in total, calling `emit` with each new piece of text as soon as it exists.
 pub new function generate(model: Model, tok: Tokenizer, sampler: var Sampler, prompt: str, steps: int,
-                          emit: function(str)) -> Stats {
+                          threads: int, emit: function(str)) -> Stats {
     var limit = steps
     if limit <= 0 || limit > model.config.seq_len { limit = model.config.seq_len }
-    let state = State(model.config)
+    let state = State(model.config, threads)
     let tokens = tok.encode(prompt, true, false)
     let n_prompt = int(tokens.len())
 

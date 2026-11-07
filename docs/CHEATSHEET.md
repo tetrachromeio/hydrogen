@@ -621,6 +621,7 @@ Two layers:
 | `Atomic.Math` | `sqrt` `floor` `ceil` |
 | atomics on `ptr<int>` | `atomic_load` `atomic_store` `atomic_add` `atomic_swap` `atomic_compare_swap` (lock-free, freestanding) |
 | `NotSendable` | a marker field that keeps a type on its thread |
+| `Shared<T>` | `Shared<T>(p)`, `.ptr`: a pointer that may cross threads (Sendable by your promise: read-only, or each thread writes its own part) |
 | `Atomic.Program` | `arg_count()`, `arg_at(i)` (C string): what the OS passes at startup |
 
 **Elemental**, after `use Elemental`:
@@ -635,7 +636,7 @@ Two layers:
 | `Map<K, V>`: `set(k, v)` `get(k)` (Option of ptr) `has(k)` `remove(k)` (Option) `len()` `for k in map` `value_at(i)` | hash map, keeps insertion order; keys need `==` and `operator hash` |
 | `Elemental.IO` | `print(x)`, `eprint(x)` (stderr), `read_line()` (Option, None at end of input), `args()` (List of strings) |
 | `Elemental.Time` | `now()` (steady seconds, for measuring), `unix_time()`, `sleep(seconds)`; `DateTime` (`utc_now()`, `local_now()`, `utc_from_unix(t)`, fields `year month day hour minute second weekday`, prints as `2026-11-07 14:03:22`, `weekday_name(d)`) |
-| `Elemental.Thread` | `spawn(input, work)` -> `Thread<R>` with `join()`; `channel<T>()` -> `Channel<T>` with `send(x)`, `receive()` (Option), `copy()`; `mutex(value)` -> `Mutex<T>` with `lock()` (a `Guard`: `value()` points at it, unlocks when dropped), `copy()`; `atomic_int(n)` -> `AtomicInt` with `load` `store` `add` `swap` `compare_swap` `copy` |
+| `Elemental.Thread` | `spawn(input, work)` -> `Thread<R>` with `join()`; `channel<T>()` -> `Channel<T>` with `send(x)`, `receive()` (Option), `copy()`; `mutex(value)` -> `Mutex<T>` with `lock()` (a `Guard`: `value()` points at it, unlocks when dropped), `copy()`; `atomic_int(n)` -> `AtomicInt` with `load` `store` `add` `swap` `compare_swap` `copy`; `Pool(threads)`: persistent workers, `run(count, context, work)` splits `0..count` into ranges, one per thread, and waits (~µs per round); `cpu_count()` |
 | `Elemental.Random` | `Random(seed)` with `next()` `below(n)` `between(a, b)` `chance()` (0..1); `random_from_clock()` |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
 | file handles | `open_read(path)`, `open_write(path)`, `open_append(path)` -> `Result<File, FileError>`; `File`: `read_line()` (Option), `read_all()`, `write(text)`; closed automatically |

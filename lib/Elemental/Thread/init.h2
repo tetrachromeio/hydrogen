@@ -3,6 +3,7 @@
 // threads is Sendable, and the work function can't capture variables, so two
 // threads never share memory by accident. Channels pass values while threads run.
 use Atomic.Memory
+use Elemental
 
 extern function h2_thread_spawn(entry: function(ptr<u8>), arg: ptr<u8>) -> ptr<u8>
 extern function h2_thread_join(handle: ptr<u8>)
@@ -212,4 +213,123 @@ pub new function atomic_int(value: int) -> AtomicInt {
     cell.value = value
     cell.handles = 1
     return AtomicInt(cell)
+}
+
+// ---------------------------------------------------------------- worker pools
+
+extern function h2_cpu_count() -> int
+extern function h2_cpu_relax()
+extern function sched_yield() -> i32
+extern function h2_sleep_seconds(s: float)
+
+// How many CPU cores this machine has (at least 1).
+pub new function cpu_count() -> int { return h2_cpu_count() }
+
+new type PoolState {
+    generation: int   // bumped to start a round of work
+    pending: int      // workers still busy in this round
+    quit: int
+    count: int
+    context: ptr<u8>
+    work: function(ptr<u8>, int, int)
+}
+
+new type WorkerArgs {
+    state: Shared<PoolState>
+    index: int        // 1..workers (the caller of run() is part 0)
+    parts: int
+}
+
+new function pool_noop(context: ptr<u8>, first: int, last: int) {}
+
+// The start of part k of `count` items split into `parts`.
+new function part_start(count: int, parts: int, k: int) -> int { return count * k / parts }
+
+// Waits until *p differs from `old`: spins briefly (fast hand-off), then yields
+// the CPU, then sleeps, so idle workers cost almost nothing.
+new function wait_change(p: ptr<int>, old: int) -> int {
+    var tries = 0
+    while true {
+        let now = atomic_load(p)
+        if now != old { return now }
+        tries += 1
+        if tries < 2000 { h2_cpu_relax() }
+        else if tries < 20000 { sched_yield() }
+        else { h2_sleep_seconds(0.0002) }
+    }
+    return old
+}
+
+new function pool_worker(args: WorkerArgs) -> int {
+    let st = args.state.ptr
+    var seen = 0
+    while true {
+        seen = wait_change(&st.generation, seen)
+        if atomic_load(&st.quit) != 0 { return 0 }
+        let first = part_start(st.count, args.parts, args.index)
+        let last = part_start(st.count, args.parts, args.index + 1)
+        if first < last { st.work(st.context, first, last) }
+        atomic_add(&st.pending, -1)
+    }
+    return 0
+}
+
+// Threads that stay alive and split work between them: run(count, context, work)
+// calls work(context, first, last) on ranges covering 0..count, one range per
+// thread (the calling thread takes one too), and returns when all are done.
+// Starting a round costs about a microsecond, unlike spawning threads.
+//
+// `context` is shared by every thread, so run() is where you make Shared's
+// promise: during the call, threads only read what it points to, or write
+// separate parts (their own ranges).
+pub new class Pool {
+    state: ptr<PoolState>
+    threads: List<Thread<int>>
+    parts: int
+
+    // A pool using `threads` threads in total, counting the caller (so Pool(1) runs everything inline).
+    pub new function init(threads: int) {
+        var n = threads
+        if n < 1 { n = 1 }
+        self.state = alloc PoolState(0, 0, 0, 0, null, pool_noop)
+        self.threads = List<Thread<int>>()
+        self.parts = n
+        for k in 1..n {
+            self.threads.push(spawn(WorkerArgs(Shared<PoolState>(self.state), k, n), pool_worker))
+        }
+    }
+
+    pub new function size() -> int { return self.parts }
+
+    pub new function run(count: int, context: ptr<u8>, work: own function(ptr<u8>, int, int)) {
+        if self.parts == 1 || count < self.parts {
+            work(context, 0, count)
+            return
+        }
+        let st = self.state
+        st.count = count
+        st.context = context
+        st.work = work
+        atomic_store(&st.pending, self.parts - 1)
+        atomic_add(&st.generation, 1) // go
+        work(context, 0, part_start(count, self.parts, 1))
+        var left = atomic_load(&st.pending)
+        while left != 0 { left = wait_change(&st.pending, left) }
+    }
+
+    new function drop() {
+        if self.state == null { return } // a zero-filled Pool (assigned over in some init): nothing to stop
+        atomic_store(&self.state.quit, 1)
+        atomic_add(&self.state.generation, 1)
+        while true {
+            match self.threads.pop() {
+                Some(t) => {
+                    var thread = t
+                    thread.join()
+                }
+                None => { break }
+            }
+        }
+        free self.state
+    }
 }

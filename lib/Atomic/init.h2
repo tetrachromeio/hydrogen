@@ -315,6 +315,15 @@ pub new function is_none<T>(option: Option<T>) -> bool { return !is_some(option)
 // (for example a lock guard, which must be released by the thread that took it).
 pub new type NotSendable {}
 
+// A pointer that other threads may use: the one deliberate way to share memory
+// between threads. Shared<T> is Sendable whatever T is, so the compiler stops
+// checking here: you promise that while other threads use it, the memory is
+// only read (like model weights), or each thread writes its own separate part
+// (like rows of an output), and that it outlives them.
+pub new type Shared<T> {
+    pub ptr: ptr<T>
+}
+
 // ---------------------------------------------------------------- atomics
 
 // Lock-free operations on a shared int, visible to all threads at once

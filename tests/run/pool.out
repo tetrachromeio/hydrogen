@@ -1,0 +1,4 @@
+threads: 4
+total: 66586600000, expected: 66586600000
+inline: 7 8 11
+[exit 0]

@@ -12,6 +12,7 @@ use Atomic.Memory
 use Elemental.Memory
 use Elemental.Math
 use Elemental.Time
+use Elemental.Thread
 
 include kernels
 include model

@@ -54,9 +54,9 @@ pub new class Model {
             let loff = l * c.seq_len * kv_dim
             let k = offset(s.key_cache, loff + pos * kv_dim)
             let v = offset(s.value_cache, loff + pos * kv_dim)
-            matvec(s.q, Matrix(offset(self.wq, l * dim * dim), dim, dim), s.xb)
-            matvec(k, Matrix(offset(self.wk, l * dim * kv_dim), kv_dim, dim), s.xb)
-            matvec(v, Matrix(offset(self.wv, l * dim * kv_dim), kv_dim, dim), s.xb)
+            matvec_pool(s.pool, s.q, Matrix(offset(self.wq, l * dim * dim), dim, dim), s.xb)
+            matvec_pool(s.pool, k, Matrix(offset(self.wk, l * dim * kv_dim), kv_dim, dim), s.xb)
+            matvec_pool(s.pool, v, Matrix(offset(self.wv, l * dim * kv_dim), kv_dim, dim), s.xb)
 
             // RoPE: rotate each pair of q and k by an angle that depends on the position.
             var i = 0
@@ -95,25 +95,25 @@ pub new class Model {
                     axpy(xb, att[t], offset(s.value_cache, loff + t * kv_dim + kv_off), head_size)
                 }
             }
-            matvec(s.xb2, Matrix(offset(self.wo, l * dim * dim), dim, dim), s.xb)
+            matvec_pool(s.pool, s.xb2, Matrix(offset(self.wo, l * dim * dim), dim, dim), s.xb)
             add_into(x, s.xb2, dim)
 
             // Feed-forward: w2(silu(w1(x)) * w3(x))
             rmsnorm(s.xb, x, offset(self.rms_ffn, l * dim), dim)
-            matvec(s.hb, Matrix(offset(self.w1, l * dim * hidden), hidden, dim), s.xb)
-            matvec(s.hb2, Matrix(offset(self.w3, l * dim * hidden), hidden, dim), s.xb)
+            matvec_pool(s.pool, s.hb, Matrix(offset(self.w1, l * dim * hidden), hidden, dim), s.xb)
+            matvec_pool(s.pool, s.hb2, Matrix(offset(self.w3, l * dim * hidden), hidden, dim), s.xb)
             for j in 0..hidden {
                 var val = s.hb[j]
                 val *= 1.0 / (1.0 + expf(-val))
                 val *= s.hb2[j]
                 s.hb[j] = val
             }
-            matvec(s.xb, Matrix(offset(self.w2, l * dim * hidden), dim, hidden), s.hb)
+            matvec_pool(s.pool, s.xb, Matrix(offset(self.w2, l * dim * hidden), dim, hidden), s.hb)
             add_into(x, s.xb, dim)
         }
 
         rmsnorm(x, x, self.rms_final, dim)
-        matvec(s.logits, Matrix(self.wcls, c.vocab_size, dim), x)
+        matvec_pool(s.pool, s.logits, Matrix(self.wcls, c.vocab_size, dim), x)
         return s.logits
     }
 }
@@ -170,6 +170,7 @@ pub new function load_model(path: str) -> Result<Model, string> {
 // arena allocation for all of it, sized from the config, made once.
 pub new class State {
     arena: Arena
+    pool: Pool
     pub x: ptr<f32>
     xb: ptr<f32>
     xb2: ptr<f32>
@@ -181,7 +182,9 @@ pub new class State {
     key_cache: ptr<f32>
     value_cache: ptr<f32>
 
-    pub new function init(c: Config) {
+    // `threads`: how many threads matrix multiplies use (cpu_count() for all cores).
+    pub new function init(c: Config, threads: int) {
+        self.pool = Pool(threads)
         let kv_dim = c.dim * c.n_kv_heads / c.n_heads
         let cache = c.n_layers * c.seq_len * kv_dim
         let floats = 3 * c.dim + 2 * c.hidden_dim + c.dim + c.n_heads * c.seq_len + c.vocab_size + 2 * cache
@@ -200,4 +203,5 @@ pub new class State {
     }
 
     pub new function bytes() -> uint { return self.arena.used_bytes() }
+    pub new function threads() -> int { return self.pool.size() }
 }

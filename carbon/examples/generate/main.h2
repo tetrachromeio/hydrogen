@@ -1,13 +1,14 @@
 // Text generation from the command line, with llama2.c's options:
 //
 //   hy run --release -- <model.bin> [-z tokenizer.bin] [-i "prompt"] [-n steps]
-//                       [-t temperature] [-p topp] [-s seed]
+//                       [-t temperature] [-p topp] [-s seed] [-T threads]
 use Elemental
 use Elemental.System
+use Elemental.Thread
 use Carbon
 
 new function usage() -> int {
-    eprint("usage: generate <model.bin> [-z tokenizer.bin] [-i prompt] [-n steps] [-t temperature] [-p topp] [-s seed]")
+    eprint("usage: generate <model.bin> [-z tokenizer.bin] [-i prompt] [-n steps] [-t temperature] [-p topp] [-s seed] [-T threads]")
     return 2
 }
 
@@ -26,6 +27,7 @@ new function main() -> int {
     var temperature: f32 = 1.0
     var topp: f32 = 0.9
     var seed: u64 = 0
+    var threads = cpu_count()
     var i: uint = 2
     while i + 1 < argv.len() {
         let flag: str = argv[i]
@@ -35,6 +37,7 @@ new function main() -> int {
         else if flag == "-n" { steps = unwrap_or(parse_int(value), 256) }
         else if flag == "-t" { temperature = to_f32(value, 1.0) }
         else if flag == "-p" { topp = to_f32(value, 0.9) }
+        else if flag == "-T" { threads = unwrap_or(parse_int(value), threads) }
         else if flag == "-s" {
             let n: int = unwrap_or(parse_int(value), 0)
             seed = u64(n)
@@ -58,7 +61,7 @@ new function main() -> int {
                 }
                 Ok(tok) => {
                     var sampler = Sampler(model.config.vocab_size, temperature, topp, seed)
-                    let stats = generate(model, tok, sampler, prompt, steps, function(piece: str) {
+                    let stats = generate(model, tok, sampler, prompt, steps, threads, function(piece: str) {
                         write_bytes(1, piece.data, piece.len)
                     })
                     write_bytes(1, "\n".data, 1)

@@ -205,6 +205,19 @@ static void* h2_thread_trampoline(void* p) {
 }
 
 // Starts fn(arg) on a new thread. Returns a handle for h2_thread_join, or NULL.
+int64_t h2_cpu_count(void) {
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? n : 1;
+}
+
+void h2_cpu_relax(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    __asm__ __volatile__("pause");
+#elif defined(__aarch64__)
+    __asm__ __volatile__("yield");
+#endif
+}
+
 void* h2_thread_spawn(H2Fn fn, void* arg) {
     pthread_t* t = (pthread_t*)malloc(sizeof *t);
     H2Start* s = (H2Start*)malloc(sizeof *s);

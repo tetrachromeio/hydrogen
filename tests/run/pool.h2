@@ -1,0 +1,37 @@
+// A worker pool: many rounds of work split across threads, each writing its own range.
+use Elemental
+use Elemental.Thread
+
+new type Job {
+    data: ptr<int>
+    out: ptr<int>
+    round: int
+}
+
+new function square_part(context: ptr<u8>, first: int, last: int) {
+    let job = ptr<Job>(context)
+    for i in first..last { job.out[i] = job.data[i] * job.data[i] + job.round }
+}
+
+new function main() -> int {
+    let pool = Pool(4)
+    print("threads: {pool.size()}")
+    let data = alloc [int; 1000]
+    let out = alloc [int; 1000]
+    for i in 0..1000 { data[i] = i }
+    var total = 0
+    for round in 0..200 {
+        var job = Job(ptr<int>(data), ptr<int>(out), round)
+        pool.run(1000, ptr<u8>(&job), square_part)
+        for i in 0..1000 { total += out[i] }
+    }
+    // sum of i^2 for i < 1000 is 332833500; each round adds 1000 * round
+    print("total: {total}, expected: {200 * 332833500 + 1000 * 199 * 200 / 2}")
+    let small = Pool(1)
+    var job = Job(ptr<int>(data), ptr<int>(out), 7)
+    small.run(3, ptr<u8>(&job), square_part)
+    print("inline: {out[0]} {out[1]} {out[2]}")
+    free data
+    free out
+    return 0
+}

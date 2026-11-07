@@ -60,6 +60,29 @@ pub new function matvec(out: ptr<f32>, m: Matrix, x: ptr<f32>) {
     matvec_rows(out, m, x, 0, m.rows)
 }
 
+// matvec split across a pool's threads, each taking a block of rows. Small
+// matrices stay on one thread: below ~64K multiply-adds, waking the others costs more than it saves.
+pub new function matvec_pool(pool: Pool, out: ptr<f32>, m: Matrix, x: ptr<f32>) {
+    if m.rows * m.cols < 65536 || pool.size() == 1 {
+        matvec_rows(out, m, x, 0, m.rows)
+        return
+    }
+    var job = MatvecJob(out, m, x)
+    pool.run(m.rows, ptr<u8>(&job), matvec_part)
+}
+
+new type MatvecJob {
+    out: ptr<f32>
+    m: Matrix
+    x: ptr<f32>
+}
+
+// Each thread reads the shared weights and input and writes only its own rows of `out`.
+new function matvec_part(context: ptr<u8>, first: int, last: int) {
+    let job = ptr<MatvecJob>(context)
+    matvec_rows(job.out, job.m, job.x, first, last)
+}
+
 // matvec for rows [first, last) only: threads split a matrix this way.
 pub new function matvec_rows(out: ptr<f32>, m: Matrix, x: ptr<f32>, first: int, last: int) {
     let n = m.cols

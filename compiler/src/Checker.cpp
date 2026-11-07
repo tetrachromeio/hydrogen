@@ -130,6 +130,7 @@ private:
 
     const Symbol* sendableSym_ = nullptr;
     const Symbol* notSendableSym_ = nullptr;
+    const Symbol* sharedSym_ = nullptr; // Shared<T>: sendable by the programmer's promise
 
     // Can a value of this type move to another thread? Not if it points at memory
     // that the sending thread could still use (raw pointers, str views, any I,
@@ -156,6 +157,7 @@ private:
             why = "it is marked NotSendable";
             return false;
         }
+        if (t->sym == sharedSym_) return true;
         if (t == lang_.strT) {
             why = "str is a borrowed view; send an owned string instead (string(text))";
             return false;
@@ -215,6 +217,7 @@ private:
         if (atomic) {
             if (auto it = atomic->defs.find("Sendable"); it != atomic->defs.end()) sendableSym_ = it->second;
             if (auto it = atomic->defs.find("NotSendable"); it != atomic->defs.end()) notSendableSym_ = it->second;
+            if (auto it = atomic->defs.find("Shared"); it != atomic->defs.end()) sharedSym_ = it->second;
             if (auto it = atomic->defs.find("Result"); it != atomic->defs.end()) lang_.result = it->second;
             if (auto it = atomic->defs.find("Option"); it != atomic->defs.end()) lang_.option = it->second;
         }
