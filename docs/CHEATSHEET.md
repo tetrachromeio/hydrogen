@@ -620,11 +620,12 @@ Two layers:
 | `Elemental.Random` | `Random(seed)` with `next()` `below(n)` `between(a, b)` `chance()` (0..1); `random_from_clock()` |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
 | file handles | `open_read(path)`, `open_write(path)`, `open_append(path)` -> `Result<File, FileError>`; `File`: `read_line()` (Option), `read_all()`, `write(text)`; closed automatically |
+| memory-mapped files | `map_file(path)` -> `Result<MappedFile, FileError>`: `.data` (ptr<u8>) `.len` `.text()` `.prefetch()`; read-only, unmapped automatically |
 | directories | `exists(path)` `is_dir(path)` `make_dir(path)` `remove_dir(path)` (bool), `list_dir(path)` -> `Result<List<string>, FileError>` (sorted) |
 | formatting | `fixed(x, digits)` `pad_left(s, w)` `pad_right(s, w)` `repeat(s, n)` `join(list, sep)` `replace(s, from, to)` `upper` `lower` |
 | text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
-| `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
-| `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)` |
+| `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`); from C: `exp` `log` `pow` `sin` `cos` `tan` `tanh` `atan2` (f64) and `expf` `logf` `powf` `sinf` `cosf` `tanhf` `sqrtf` (f32) |
+| `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)`; `Arena(capacity)`: bump allocator with `bytes(n)` `f32s(n)` (zeroed, 64-byte aligned) `reset()` `used_bytes()`, freed when it goes away |
 | `Elemental.System` | `write_bytes(fd, data, len)` `exit_now(code)` |
 
 Example: reading numbers from input and a file:

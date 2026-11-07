@@ -76,9 +76,8 @@ code must not keep views past a reset.
 
 | | Goal | Proves |
 |---|---|---|
-| M0 | GGUF reader, mmap, tensor views | zero-copy loading |
-| M1 | llama2.c `stories15M` (fp32), scalar, matching reference logits | correctness baseline |
-| M2 | Thread pool, SIMD types, Q8_0 | speed |
+| M0 + M1 ✅ | mmap, tensor views, arena; llama2.c `stories15M` (fp32), scalar, matching an independent reference token for token | correctness baseline |
+| M2 | Thread pool, SIMD types, Q8_0; GGUF reader | speed |
 | M3 | BitNet b1.58 2B4T with 2-bit ternary kernels | the ternary claim |
 | M4 | Sliding window and attention sinks | flat memory on transformers |
 | M5 | Mamba-2 | O(1)-memory mode |

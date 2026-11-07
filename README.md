@@ -34,6 +34,7 @@ The full rules are in [spec/syntax.md](spec/syntax.md).
 ## Layout
 - `compiler/`: `hy` (project tool) and `h2c` (compiler driver), in C++20
 - `lib/`: the standard library. `Atomic` is the freestanding core, `Elemental` the hosted library
+- `carbon/`: **Carbon**, local LLM inference. See [carbon/README.md](carbon/README.md)
 - `boron/`: **Boron**, native desktop UI (macOS: AppKit + WKWebView). See [boron/README.md](boron/README.md)
 - `spec/`: language specification
 - `docs/`: design notes and decisions

@@ -1,0 +1,117 @@
+// Picking the next token from the logits: greedy, temperature, or top-p
+// ("nucleus") sampling. Same algorithm and random numbers as llama2.c, so the
+// same seed gives the same text.
+
+new type ProbIndex {
+    prob: f32
+    index: i32
+}
+
+pub new class Sampler {
+    vocab_size: int
+    pub temperature: f32  // 0: always the most likely token
+    pub topp: f32         // keep the smallest set of tokens whose probability adds up to topp (0 or 1: off)
+    rng: u64
+    candidates: ptr<ProbIndex>
+    scratch: ptr<ProbIndex>
+
+    pub new function init(vocab_size: int, temperature: f32, topp: f32, seed: u64) {
+        self.vocab_size = vocab_size
+        self.temperature = temperature
+        self.topp = topp
+        self.rng = seed
+        self.candidates = ptr<ProbIndex>(alloc_bytes(uint(vocab_size * 8)))
+        self.scratch = ptr<ProbIndex>(alloc_bytes(uint(vocab_size * 8)))
+    }
+
+    // xorshift*, as in llama2.c
+    new mut function random_u32() -> u32 {
+        self.rng = self.rng ^ (self.rng >> 12)
+        self.rng = self.rng ^ (self.rng << 25)
+        self.rng = self.rng ^ (self.rng >> 27)
+        return u32(wrapping_mul(self.rng, 0x2545F4914F6CDD1D) >> 32)
+    }
+    new mut function random_f32() -> f32 { return f32(self.random_u32() >> 8) / 16777216.0 }
+
+    // Changes the logits in place.
+    pub new mut function sample(logits: ptr<f32>) -> int {
+        if self.temperature == 0.0 { return argmax(logits, self.vocab_size) }
+        for q in 0..self.vocab_size { logits[q] /= self.temperature }
+        softmax(logits, self.vocab_size)
+        let coin = self.random_f32()
+        if self.topp <= 0.0 || self.topp >= 1.0 { return sample_mult(logits, self.vocab_size, coin) }
+        return self.sample_topp(logits, coin)
+    }
+
+    new function sample_topp(probs: ptr<f32>, coin: f32) -> int {
+        // Tokens below this can't be in the nucleus; skip them before sorting.
+        let cutoff = (1.0 - self.topp) / f32(self.vocab_size - 1)
+        var n = 0
+        for i in 0..self.vocab_size {
+            if probs[i] >= cutoff {
+                self.candidates[n].index = i32(i)
+                self.candidates[n].prob = probs[i]
+                n += 1
+            }
+        }
+        sort_by_prob(self.candidates, self.scratch, n)
+        var cumulative: f32 = 0.0
+        var last = n - 1
+        for i in 0..n {
+            cumulative += self.candidates[i].prob
+            if cumulative > self.topp {
+                last = i
+                break
+            }
+        }
+        let r = coin * cumulative
+        var cdf: f32 = 0.0
+        for i in 0..last + 1 {
+            cdf += self.candidates[i].prob
+            if r < cdf { return int(self.candidates[i].index) }
+        }
+        return int(self.candidates[last].index)
+    }
+
+    new function drop() {
+        free_bytes(ptr<u8>(self.candidates))
+        free_bytes(ptr<u8>(self.scratch))
+    }
+}
+
+new function sample_mult(probs: ptr<f32>, n: int, coin: f32) -> int {
+    var cdf: f32 = 0.0
+    for i in 0..n {
+        cdf += probs[i]
+        if coin < cdf { return i }
+    }
+    return n - 1
+}
+
+// Stable merge sort, most probable first.
+new function sort_by_prob(items: ptr<ProbIndex>, scratch: ptr<ProbIndex>, n: int) {
+    var width = 1
+    while width < n {
+        var lo = 0
+        while lo < n {
+            let mid = min(lo + width, n)
+            let hi = min(lo + 2 * width, n)
+            var a = lo
+            var b = mid
+            var k = lo
+            while k < hi {
+                if a < mid && (b >= hi || items[a].prob >= items[b].prob) {
+                    scratch[k] = items[a]
+                    a += 1
+                } else {
+                    scratch[k] = items[b]
+                    b += 1
+                }
+                k += 1
+            }
+            lo = hi
+        }
+        for i in 0..n { items[i] = scratch[i] }
+        width *= 2
+    }
+}

@@ -1,0 +1,208 @@
+// A Llama-architecture transformer, in llama2.c's file format:
+//   7 x i32 header (dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len;
+//   a negative vocab_size means the output classifier is stored separately),
+//   then every weight as f32, layer by layer for each kind.
+
+pub new type Config {
+    pub dim: int          // width of the hidden state
+    pub hidden_dim: int   // width of the feed-forward layers
+    pub n_layers: int
+    pub n_heads: int      // query heads
+    pub n_kv_heads: int   // key/value heads (fewer than n_heads: grouped-query attention)
+    pub vocab_size: int
+    pub seq_len: int      // longest context the model was trained for
+}
+
+pub new class Model {
+    pub config: Config
+    file: MappedFile      // every pointer below points into this mapping
+    embed: ptr<f32>       // vocab_size x dim
+    rms_att: ptr<f32>     // per layer: dim
+    wq: ptr<f32>          // per layer: dim x dim
+    wk: ptr<f32>          // per layer: kv_dim x dim
+    wv: ptr<f32>          // per layer: kv_dim x dim
+    wo: ptr<f32>          // per layer: dim x dim
+    rms_ffn: ptr<f32>     // per layer: dim
+    w1: ptr<f32>          // per layer: hidden_dim x dim
+    w2: ptr<f32>          // per layer: dim x hidden_dim
+    w3: ptr<f32>          // per layer: hidden_dim x dim
+    rms_final: ptr<f32>   // dim
+    wcls: ptr<f32>        // vocab_size x dim (the embedding, when shared)
+
+    pub new function kv_dim() -> int { return self.config.dim * self.config.n_kv_heads / self.config.n_heads }
+    pub new function head_size() -> int { return self.config.dim / self.config.n_heads }
+    pub new function file_bytes() -> uint { return self.file.len }
+
+    // Runs one token through the network at position `pos`, filling the state's
+    // key/value cache for that position. Returns the logits (vocab_size values,
+    // inside `s`): a score for every possible next token.
+    pub new function forward(s: State, token: int, pos: int) -> ptr<f32> {
+        let c = self.config
+        let dim = c.dim
+        let kv_dim = self.kv_dim()
+        let kv_mul = c.n_heads / c.n_kv_heads
+        let hidden = c.hidden_dim
+        let head_size = self.head_size()
+        let x = s.x
+
+        copy(ptr<u8>(x), ptr<u8>(offset(self.embed, token * dim)), uint(dim * 4))
+
+        for l in 0..c.n_layers {
+            rmsnorm(s.xb, x, offset(self.rms_att, l * dim), dim)
+
+            // This position's key and value go straight into the cache.
+            let loff = l * c.seq_len * kv_dim
+            let k = offset(s.key_cache, loff + pos * kv_dim)
+            let v = offset(s.value_cache, loff + pos * kv_dim)
+            matvec(s.q, Matrix(offset(self.wq, l * dim * dim), dim, dim), s.xb)
+            matvec(k, Matrix(offset(self.wk, l * dim * kv_dim), kv_dim, dim), s.xb)
+            matvec(v, Matrix(offset(self.wv, l * dim * kv_dim), kv_dim, dim), s.xb)
+
+            // RoPE: rotate each pair of q and k by an angle that depends on the position.
+            var i = 0
+            while i < dim {
+                let head_dim = i % head_size
+                let freq = 1.0 / powf(10000.0, f32(head_dim) / f32(head_size))
+                let val = f32(pos) * freq
+                let fcr = cosf(val)
+                let fci = sinf(val)
+                var rotn = 1
+                if i < kv_dim { rotn = 2 }
+                for which in 0..rotn {
+                    var vec = s.q
+                    if which == 1 { vec = k }
+                    let v0 = vec[i]
+                    let v1 = vec[i + 1]
+                    vec[i] = v0 * fcr - v1 * fci
+                    vec[i + 1] = v0 * fci + v1 * fcr
+                }
+                i += 2
+            }
+
+            // Attention, one head at a time, over every position so far.
+            for h in 0..c.n_heads {
+                let q = offset(s.q, h * head_size)
+                let att = offset(s.att, h * c.seq_len)
+                let kv_off = (h / kv_mul) * head_size
+                for t in 0..pos + 1 {
+                    let kt = offset(s.key_cache, loff + t * kv_dim + kv_off)
+                    var score: f32 = 0.0
+                    for e in 0..head_size { score += q[e] * kt[e] }
+                    score /= sqrtf(f32(head_size))
+                    att[t] = score
+                }
+                softmax(att, pos + 1)
+                let xb = offset(s.xb, h * head_size)
+                for e in 0..head_size { xb[e] = 0.0 }
+                for t in 0..pos + 1 {
+                    let vt = offset(s.value_cache, loff + t * kv_dim + kv_off)
+                    let a = att[t]
+                    for e in 0..head_size { xb[e] += a * vt[e] }
+                }
+            }
+            matvec(s.xb2, Matrix(offset(self.wo, l * dim * dim), dim, dim), s.xb)
+            add_into(x, s.xb2, dim)
+
+            // Feed-forward: w2(silu(w1(x)) * w3(x))
+            rmsnorm(s.xb, x, offset(self.rms_ffn, l * dim), dim)
+            matvec(s.hb, Matrix(offset(self.w1, l * dim * hidden), hidden, dim), s.xb)
+            matvec(s.hb2, Matrix(offset(self.w3, l * dim * hidden), hidden, dim), s.xb)
+            for j in 0..hidden {
+                var val = s.hb[j]
+                val *= 1.0 / (1.0 + expf(-val))
+                val *= s.hb2[j]
+                s.hb[j] = val
+            }
+            matvec(s.xb, Matrix(offset(self.w2, l * dim * hidden), dim, hidden), s.hb)
+            add_into(x, s.xb, dim)
+        }
+
+        rmsnorm(x, x, self.rms_final, dim)
+        matvec(s.logits, Matrix(self.wcls, c.vocab_size, dim), x)
+        return s.logits
+    }
+}
+
+pub new function load_model(path: str) -> Result<Model, string> {
+    match map_file(path) {
+        Err(e) => { return Err("cannot open {path}: {e}") }
+        Ok(file) => {
+            if file.len < 28 { return Err("{path} is too small to be a model") }
+            let h = ptr<i32>(file.data)
+            var vocab = int(h[5])
+            let shared = vocab > 0
+            if !shared { vocab = -vocab }
+            let c = Config(int(h[0]), int(h[1]), int(h[2]), int(h[3]), int(h[4]), vocab, int(h[6]))
+            if c.dim <= 0 || c.hidden_dim <= 0 || c.n_layers <= 0 || c.n_heads <= 0 || c.n_kv_heads <= 0 ||
+               c.seq_len <= 0 || c.dim % c.n_heads != 0 || c.n_heads % c.n_kv_heads != 0 {
+                return Err("{path} doesn't look like a llama2.c model (bad header)")
+            }
+            let head_size = c.dim / c.n_heads
+            let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+            let L = c.n_layers
+            // Where each weight starts, counted in f32s after the header.
+            var at = 7
+            let embed = at;      at += vocab * c.dim
+            let rms_att = at;    at += L * c.dim
+            let wq = at;         at += L * c.dim * c.dim
+            let wk = at;         at += L * c.dim * kv_dim
+            let wv = at;         at += L * c.dim * kv_dim
+            let wo = at;         at += L * c.dim * c.dim
+            let rms_ffn = at;    at += L * c.dim
+            let w1 = at;         at += L * c.dim * c.hidden_dim
+            let w2 = at;         at += L * c.hidden_dim * c.dim
+            let w3 = at;         at += L * c.dim * c.hidden_dim
+            let rms_final = at;  at += c.dim
+            at += c.seq_len * head_size  // unused: precomputed RoPE tables (cos, sin)
+            var wcls = embed
+            if !shared {
+                wcls = at
+                at += vocab * c.dim
+            }
+            if uint(at * 4) > file.len {
+                return Err("{path} is truncated: the header promises {at * 4} bytes, the file has {file.len}")
+            }
+            let base = ptr<f32>(file.data)
+            return Ok(Model(c, file, offset(base, embed), offset(base, rms_att), offset(base, wq),
+                            offset(base, wk), offset(base, wv), offset(base, wo), offset(base, rms_ffn),
+                            offset(base, w1), offset(base, w2), offset(base, w3), offset(base, rms_final),
+                            offset(base, wcls)))
+        }
+    }
+}
+
+// Everything a forward pass writes: activations and the key/value cache. One
+// arena allocation for all of it, sized from the config, made once.
+pub new class State {
+    arena: Arena
+    pub x: ptr<f32>
+    xb: ptr<f32>
+    xb2: ptr<f32>
+    hb: ptr<f32>
+    hb2: ptr<f32>
+    q: ptr<f32>
+    att: ptr<f32>
+    pub logits: ptr<f32>
+    key_cache: ptr<f32>
+    value_cache: ptr<f32>
+
+    pub new function init(c: Config) {
+        let kv_dim = c.dim * c.n_kv_heads / c.n_heads
+        let cache = c.n_layers * c.seq_len * kv_dim
+        let floats = 3 * c.dim + 2 * c.hidden_dim + c.dim + c.n_heads * c.seq_len + c.vocab_size + 2 * cache
+        let bytes = floats * 4 + 1024 // + alignment padding
+        self.arena = Arena(uint(bytes))
+        self.x = self.arena.f32s(uint(c.dim))
+        self.xb = self.arena.f32s(uint(c.dim))
+        self.xb2 = self.arena.f32s(uint(c.dim))
+        self.hb = self.arena.f32s(uint(c.hidden_dim))
+        self.hb2 = self.arena.f32s(uint(c.hidden_dim))
+        self.q = self.arena.f32s(uint(c.dim))
+        self.att = self.arena.f32s(uint(c.n_heads * c.seq_len))
+        self.logits = self.arena.f32s(uint(c.vocab_size))
+        self.key_cache = self.arena.f32s(uint(cache))
+        self.value_cache = self.arena.f32s(uint(cache))
+    }
+
+    pub new function bytes() -> uint { return self.arena.used_bytes() }
+}

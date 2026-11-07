@@ -1,5 +1,8 @@
 // Heap memory, from the C allocator. (`alloc`/`free` in the language also use it.)
 
+use Atomic.Memory
+use Elemental.System
+
 extern function malloc(size: uint) -> ptr<u8>
 
 pub new function alloc_bytes(size: usize) -> ptr<u8> {
@@ -8,4 +11,44 @@ pub new function alloc_bytes(size: usize) -> ptr<u8> {
 
 pub new function free_bytes(p: ptr<u8>) {
     free p
+}
+
+// A bump allocator: one block of memory, handed out front to back. Taking memory
+// is a pointer increment; reset() makes all of it available again at once, and
+// the block is freed when the Arena goes away. Nothing taken is dropped: use it
+// for plain data (numbers, layout types), like scratch buffers.
+pub new class Arena {
+    base: ptr<u8>
+    capacity: uint
+    used: uint
+
+    pub new function init(capacity: uint) {
+        self.base = malloc(capacity)
+        self.capacity = capacity
+        self.used = 0
+    }
+
+    // `size` bytes, zero-filled, aligned to 64 bytes (a cache line; fine for any SIMD width).
+    // Stops the program if the arena is full.
+    pub new mut function bytes(size: uint) -> ptr<u8> {
+        let start = (self.used + 63) / 64 * 64
+        if start + size > self.capacity {
+            write_bytes(2, "error: Arena is full\n".data, 21)
+            exit_now(70)
+        }
+        self.used = start + size
+        let p = ptr<u8>(&self.base[start])
+        fill(p, 0, size)
+        return p
+    }
+
+    // `count` f32 values, zero-filled.
+    pub new mut function f32s(count: uint) -> ptr<f32> { return ptr<f32>(self.bytes(count * 4)) }
+
+    pub new function used_bytes() -> uint { return self.used }
+    pub new function capacity_bytes() -> uint { return self.capacity }
+    // Everything taken so far becomes invalid.
+    pub new mut function reset() { self.used = 0 }
+
+    new function drop() { free self.base }
 }

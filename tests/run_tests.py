@@ -16,6 +16,8 @@
   tests/boron/<example>.in -> boron/examples/<example> is built with `hy build` and run
                         headless (stdin from the .in file); stdout + exit code must match .out
   tests/boron/test_page.js -> Boron's page (JS/CSS) driven in Chromium (needs node + Playwright)
+  tests/carbon/      -> Carbon (carbon/examples/generate) on a tiny random model must print exactly
+                        what the independent numpy implementation (reference.py) prints (needs numpy)
   tests/lsp/test_lsp.py -> drives `hy lsp` like an editor (diagnostics, definition, hover)
   examples/**/*.h2, lib/**/*.h2 -> must pass `h2c --check`
 
@@ -198,6 +200,40 @@ def main():
                            text=True, timeout=120)
         if r.returncode != 0:
             failures.append(f"tests/boron/test_page.js: failed\n{r.stdout}{r.stderr}")
+
+    # Carbon: same text as the numpy reference, greedy and sampled, on a tiny random model.
+    try:
+        import numpy  # noqa: F401
+        have_numpy = True
+    except ImportError:
+        have_numpy = False
+    if have_numpy:
+        app = root / "carbon/examples/generate"
+        b = subprocess.run([hy, "build"], cwd=app, capture_output=True, text=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, "-I", str(root / "tests/carbon/make_tiny.py"), tmp], check=True)
+            model, tok = str(Path(tmp) / "tiny.bin"), str(Path(tmp) / "tiny_tok.bin")
+            cases = [("the cat", "40", "0", "0.9", "1"), ("café on the", "48", "1.0", "0.9", "5"),
+                     ("xyz", "30", "0.7", "0", "9"), ("", "48", "1.0", "0.5", "3")]
+            for prompt, steps, temp, topp, seed in cases:
+                count += 1
+                what = f"carbon: prompt {prompt!r}, -t {temp} -p {topp} -s {seed}"
+                if b.returncode != 0:
+                    failures.append(f"{app}: hy build failed\n{b.stdout}{b.stderr}")
+                    break
+                ref = subprocess.run([sys.executable, "-I", str(root / "tests/carbon/reference.py"), model, tok,
+                                      prompt, steps, temp, topp, seed], capture_output=True)
+                cmd = [str(app / "build/generate"), model, "-z", tok, "-i", prompt, "-n", steps, "-t", temp,
+                       "-p", topp, "-s", seed]
+                if valgrind:
+                    cmd = [valgrind, "-q", "--leak-check=full", "--errors-for-leak-kinds=definite,indirect",
+                           "--error-exitcode=99"] + cmd
+                got = subprocess.run(cmd, capture_output=True, timeout=120)
+                if got.returncode != 0:
+                    failures.append(f"{what}: exit {got.returncode}\n{got.stderr.decode(errors='replace')[-3000:]}")
+                elif got.stdout != ref.stdout:
+                    failures.append(f"{what}: differs from reference.py\n--- carbon ---\n{got.stdout!r}"
+                                    f"\n--- reference ---\n{ref.stdout!r}")
 
     count += 1
     r = subprocess.run([sys.executable, str(root / "tests/lsp/test_lsp.py"), hy], capture_output=True, text=True,

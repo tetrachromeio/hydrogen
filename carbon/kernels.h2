@@ -1,0 +1,56 @@
+// The math of a forward pass, on raw f32 buffers. Each kernel follows llama2.c's
+// order of operations exactly, so results match it bit for bit.
+
+// A row-major matrix view into memory someone else owns (usually the mapped model file).
+pub new type Matrix {
+    data: ptr<f32>
+    rows: int
+    cols: int
+}
+
+// out[i] = sum over j of m[i][j] * x[j]       (out: m.rows values, x: m.cols values)
+pub new function matvec(out: ptr<f32>, m: Matrix, x: ptr<f32>) {
+    let n = m.cols
+    for i in 0..m.rows {
+        let row = ptr<f32>(&m.data[i * n])
+        var sum: f32 = 0.0
+        for j in 0..n { sum += row[j] * x[j] }
+        out[i] = sum
+    }
+}
+
+// out = weight * x / rms(x)
+pub new function rmsnorm(out: ptr<f32>, x: ptr<f32>, weight: ptr<f32>, size: int) {
+    var ss: f32 = 0.0
+    for j in 0..size { ss += x[j] * x[j] }
+    ss /= f32(size)
+    ss += 0.00001
+    ss = 1.0 / sqrtf(ss)
+    for j in 0..size { out[j] = weight[j] * (ss * x[j]) }
+}
+
+// In place: x becomes a probability distribution.
+pub new function softmax(x: ptr<f32>, size: int) {
+    var max_val = x[0]
+    for i in 1..size { if x[i] > max_val { max_val = x[i] } }
+    var sum: f32 = 0.0
+    for i in 0..size {
+        x[i] = expf(x[i] - max_val)
+        sum += x[i]
+    }
+    for i in 0..size { x[i] /= sum }
+}
+
+// a += b
+pub new function add_into(a: ptr<f32>, b: ptr<f32>, size: int) {
+    for i in 0..size { a[i] += b[i] }
+}
+
+pub new function argmax(x: ptr<f32>, size: int) -> int {
+    var best = 0
+    for i in 1..size { if x[i] > x[best] { best = i } }
+    return best
+}
+
+// &p[i], as a pointer
+pub new function offset(p: ptr<f32>, i: int) -> ptr<f32> { return ptr<f32>(&p[i]) }

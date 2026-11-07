@@ -138,3 +138,51 @@ pub new function list_dir(path: str) -> Result<List<string>, FileError> {
     h2_dir_close(dir)
     return Ok(names)
 }
+
+// ---------------------------------------------------------------- memory-mapped files
+
+extern function open(path: ptr<u8>, flags: i32) -> i32
+extern function close(fd: i32) -> i32
+extern function lseek(fd: i32, offset: int, whence: i32) -> int
+extern function mmap(addr: ptr<u8>, len: uint, prot: i32, flags: i32, fd: i32, offset: int) -> ptr<u8>
+extern function munmap(addr: ptr<u8>, len: uint) -> i32
+extern function madvise(addr: ptr<u8>, len: uint, advice: i32) -> i32
+
+// A whole file mapped into memory, read-only. Reading `data[i]` reads the file:
+// the OS loads pages on first touch and shares them between processes, so a
+// multi-gigabyte file costs no copying and no heap. Unmapped when it goes away.
+pub new class MappedFile {
+    pub data: ptr<u8>
+    pub len: uint
+
+    // Asks the OS to start reading the whole file in now, instead of page by page on first use.
+    pub new function prefetch() {
+        if self.len > 0 { madvise(self.data, self.len, 3) } // MADV_WILLNEED (same on Linux and macOS)
+    }
+
+    // The bytes as text (valid while the MappedFile lives).
+    pub new function text() -> str { return str(self.data, self.len) }
+
+    new function drop() {
+        if self.len > 0 { munmap(self.data, self.len) }
+    }
+}
+
+pub new function map_file(path: str) -> Result<MappedFile, FileError> {
+    let c = string(path) + "\0"
+    let fd = open(c.view().data, 0) // O_RDONLY
+    if fd < 0 { return Err(NotFound) }
+    let size = lseek(fd, 0, 2) // SEEK_END
+    if size < 0 {
+        close(fd)
+        return Err(Failed)
+    }
+    if size == 0 {
+        close(fd)
+        return Ok(MappedFile(null, 0))
+    }
+    let p = mmap(null, uint(size), 1, 2, fd, 0) // PROT_READ, MAP_PRIVATE
+    close(fd) // the mapping stays valid without the descriptor
+    if p == ptr<u8>(u64(0xFFFF_FFFF_FFFF_FFFF)) { return Err(Failed) } // MAP_FAILED
+    return Ok(MappedFile(p, uint(size)))
+}

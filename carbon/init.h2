@@ -1,0 +1,20 @@
+// Carbon: local LLM inference in Hydrogen.
+//
+//   let model = load_model("stories15M.bin")      // weights are mmapped, never copied
+//   let tok = load_tokenizer("tokenizer.bin", model.config.vocab_size)
+//   var sampler = Sampler(model.config.vocab_size, 0.8, 0.9, 42)
+//   generate(model, tok, sampler, "Once upon a time", 256, function(piece: str) { ... })
+//
+// Model files are llama2.c's format (Llama-architecture transformers, f32 weights).
+// See docs/CARBON.md for where this is going.
+use Elemental
+use Atomic.Memory
+use Elemental.Memory
+use Elemental.Math
+use Elemental.Time
+
+include kernels
+include model
+include tokenizer
+include sampler
+include generate
