@@ -106,6 +106,9 @@ struct Program {
 struct LoadOptions {
     std::vector<std::filesystem::path> libPaths;              // searched after the main file's dir
     std::map<std::string, std::filesystem::path> packages;    // package name -> root dir
+    // Text to use instead of a file's contents on disk (unsaved editor buffers),
+    // keyed by absolute, normalized path.
+    std::map<std::filesystem::path, std::string> overlays;
 };
 
 // Parses the main file and every module it (transitively) uses.

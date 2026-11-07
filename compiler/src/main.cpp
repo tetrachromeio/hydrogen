@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
                 if (!dir.empty()) libs.emplace_back(dir);
         }
         if (*H2_STDLIB_DIR) libs.emplace_back(H2_STDLIB_DIR);
-        auto program = h2::loadProgram(file, {libs, {}}, diags);
+        auto program = h2::loadProgram(file, {libs, {}, {}}, diags);
         std::vector<h2::LocalTypeNote> notes;
         h2::TypeContext types;
         h2::SemaInfo info;

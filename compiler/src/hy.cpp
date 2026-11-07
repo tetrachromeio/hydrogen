@@ -10,6 +10,7 @@
 
 #include "hydrogen/Checker.h"
 #include "hydrogen/Codegen.h"
+#include "hydrogen/Lsp.h"
 #include "hydrogen/Program.h"
 #include "hydrogen/Project.h"
 
@@ -36,6 +37,7 @@ usage:
   hy build [--release]    compile the project to build/<name>
   hy run [--release] [-- args...]   build and run the project
   hy deps                 show resolved dependencies
+  hy lsp                  run the language server (for editors)
   hy help                 show this message
 
 The project is configured by hy.toml in its root directory.
@@ -139,7 +141,7 @@ int checkProject(const Loaded& p, const fs::path* llPath = nullptr, bool release
         return -1;
     }
     h2::Diagnostics diags;
-    h2::LoadOptions opts{stdlibPaths(), p.packages};
+    h2::LoadOptions opts{stdlibPaths(), p.packages, {}};
     auto program = h2::loadProgram(p.manifest.entry, opts, diags);
     h2::TypeContext types;
     h2::SemaInfo info;
@@ -279,6 +281,7 @@ int main(int argc, char** argv) {
         return cmdBuild(cmd == "run", runArgs, release);
     }
     if (cmd == "deps") return cmdDeps();
+    if (cmd == "lsp") return h2::runLanguageServer(stdlibPaths());
     std::cerr << "error: unknown command '" << cmd << "'\n\n" << kUsage;
     return 2;
 }

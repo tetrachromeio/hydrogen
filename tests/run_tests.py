@@ -13,6 +13,7 @@
                         (under valgrind when available: no leaks or memory errors)
   tests/freestanding/*.h2 -> must not reference any C function (only llvm.* built-ins);
                         run, and stdout + exit code must match .out
+  tests/lsp/test_lsp.py -> drives `hy lsp` like an editor (diagnostics, definition, hover)
   examples/**/*.h2, lib/**/*.h2 -> must pass `h2c --check`
 
 Usage: run_tests.py <h2c> <repo-root> [--update]
@@ -152,6 +153,11 @@ def main():
                 expected_file.write_text(got)
             elif not expected_file.exists() or expected_file.read_text() != got:
                 failures.append(f"{p}: program output differs from {expected_file.name}\n--- got ---\n{got}")
+    count += 1
+    r = subprocess.run([sys.executable, str(root / "tests/lsp/test_lsp.py"), hy], capture_output=True, text=True,
+                       timeout=120)
+    if r.returncode != 0:
+        failures.append(f"tests/lsp/test_lsp.py: language server test failed\n{r.stdout}{r.stderr}")
     for d in ("examples", "lib"):
         # In lib/, only module roots (init.h2) are programs; other files are included parts.
         for p in sorted((root / d).rglob("*.h2" if d == "examples" else "init.h2")):

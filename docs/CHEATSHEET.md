@@ -15,6 +15,7 @@ anything not yet supported is listed at the end.
 | `hy run` | Build and run (`hy run -- args` passes arguments) |
 | `hy build` | Build to `build/<name>` (`--release`: `-O2`, no overflow checks) |
 | `hy deps` | List resolved dependencies |
+| `hy lsp` | Language server for editors: live errors, go to definition, hover (see `editors/vscode`) |
 | `h2c --types file.h2` | Print the inferred type of every local |
 | `h2c --emit-llvm file.h2` | Print the generated LLVM IR |
 | `h2c --ast file.h2` | Print the syntax tree |

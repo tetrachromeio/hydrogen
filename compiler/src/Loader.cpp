@@ -53,6 +53,7 @@ public:
         prog_.searchPaths.push_back(main.parent_path());
         for (const auto& p : opts.libPaths) prog_.searchPaths.push_back(normalize(p));
         for (const auto& [name, dir] : opts.packages) prog_.packages[name] = normalize(dir);
+        for (const auto& [path, text] : opts.overlays) overlays_[normalize(path)] = text;
 
         if (!load(main, inferModulePath(main))) {
             diags_.error(displayPath(main), {1, 1}, "cannot open file");
@@ -68,6 +69,7 @@ private:
     std::map<std::string, ModuleInfo*> byPath_;
     std::map<fs::path, ModuleInfo*> byFile_;
     bool reportedMissingPrelude_ = false;
+    std::map<fs::path, std::string> overlays_;
 
     // A main file at <lib>/A/B/init.h2 *is* module A.B, so it behaves the same
     // whether it is compiled directly or reached through `use`.
@@ -95,11 +97,16 @@ private:
     }
 
     std::unique_ptr<SourceFile> parseFile(const fs::path& file) {
-        std::ifstream in(file, std::ios::binary);
-        if (!in) return nullptr;
-        std::stringstream buf;
-        buf << in.rdbuf();
-        std::string src = buf.str();
+        std::string src;
+        if (auto ov = overlays_.find(file); ov != overlays_.end()) {
+            src = ov->second;
+        } else {
+            std::ifstream in(file, std::ios::binary);
+            if (!in) return nullptr;
+            std::stringstream buf;
+            buf << in.rdbuf();
+            src = buf.str();
+        }
 
         auto f = std::make_unique<SourceFile>();
         f->file = file;

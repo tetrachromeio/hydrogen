@@ -71,6 +71,13 @@ For now, only `path` dependencies are supported.
 and uses `clang` (set `H2_CC` to use a different one) to optimize and link it
 with a small C runtime (`lib/runtime/h2rt.c`). `--release` builds with `-O2`.
 
+## Editor support
+`hy lsp` is a Language Server Protocol server: live errors as you type (syntax,
+names, types, ownership), go to definition, and hover with types. The VS Code
+extension in [`editors/vscode`](editors/vscode) adds syntax highlighting and
+connects to it; other LSP editors (Neovim, Helix, Zed, ...) can run `hy lsp`
+directly. See [editors/vscode/README.md](editors/vscode/README.md).
+
 ## Build the toolchain
 ```bash
 cmake -S . -B build -G Ninja
@@ -97,6 +104,7 @@ python3 tests/run_tests.py build/compiler/h2c . --update
 - [x] Parser and AST, with error recovery
 - [x] Modules, `pub` visibility and name resolution
 - [x] `hy` project tool: `hy.toml`, path dependencies, `hy new` / `check` / `deps`
+- [x] Language server (`hy lsp`) and a VS Code extension
 - [x] Type checking and inference
 - [x] Ownership: move semantics, borrowed parameters, `own`
 - [x] Generic monomorphization

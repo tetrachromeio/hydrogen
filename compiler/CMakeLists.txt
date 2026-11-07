@@ -10,6 +10,7 @@ add_library(h2front
   src/Types.cpp
   src/Checker.cpp
   src/Codegen.cpp
+  src/Lsp.cpp
 )
 target_include_directories(h2front PUBLIC include)
 target_compile_options(h2front PRIVATE -Wall -Wextra -Wpedantic)
