@@ -75,6 +75,7 @@ cd boron/examples/todo && hy run
 | `app.is_open()` | false once it is closed |
 | `app.show(ui)` | replaces what the window shows |
 | `app.wait()` | the next `Event`, blocking; a `"close"` event when the window closes |
+| `app.poll()` | for busy apps (streaming, computing): handles pending window work without waiting; `Some(event)` or `None` |
 | `app.style(css)` | your own CSS, added to Boron's |
 | `app.set_title(title)` | |
 
@@ -122,8 +123,8 @@ every test run (`tests/boron/test_page.js`). After editing either file, run
 
 1. Run on a Mac and fix what the first build finds.
 2. More controls: select, multi-line text, tables and lists with selection, images (local files).
-3. Waiting with a timeout (`wait_for(seconds)`) for clocks, animation, and polling a `Channel`,
-   so background threads (e.g. Carbon streaming tokens) can update the UI.
+3. ✅ `poll()` for apps that update while busy (see `carbon/examples/chat`); a timed
+   `wait_for(seconds)` for clocks and animation is still to do.
 4. Several windows, native dialogs (open/save panels, alerts), and app bundles (`hy bundle` → `.app`).
 5. Keyed lists, so reordering keeps each row's state.
 6. Linux (GTK + WebKitGTK) and Windows (WebView2) backends behind the same C interface (`native/boron.h`).

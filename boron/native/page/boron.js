@@ -70,10 +70,22 @@
         while (parent.childNodes.length > want.length) parent.removeChild(parent.lastChild);
     }
 
+    // Content that grows at the bottom (chats, logs) stays in view: if the page was
+    // scrolled to the bottom before an update, it is scrolled to the bottom after.
+    function atBottom() {
+        var el = document.scrollingElement || document.documentElement;
+        return el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
+    }
+
     function patch(html) {
+        var follow = atBottom();
         var t = document.createElement("template");
         t.innerHTML = html;
         morph(root, t.content);
+        if (follow) {
+            var el = document.scrollingElement || document.documentElement;
+            el.scrollTop = el.scrollHeight;
+        }
     }
 
     function css(text) {

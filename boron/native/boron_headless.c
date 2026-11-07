@@ -75,6 +75,14 @@ bool bnh_wait(void* window, BnString* kind, BnString* id, BnString* value) {
     return false;
 }
 
+// Headless: stdin is only read by bnh_wait, so there is never anything pending.
+int64_t bnh_poll(void* window, BnString* kind, BnString* id, BnString* value) {
+    (void)kind;
+    (void)id;
+    (void)value;
+    return ((Headless*)window)->open ? 0 : -1;
+}
+
 void bnh_close(void* window) {
     free(window);
 }

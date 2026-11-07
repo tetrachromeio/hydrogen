@@ -253,6 +253,22 @@ static void setString(BnString* out, NSString* s) {
     bn_set_string(out, utf8, strlen(utf8));
 }
 
+// Moves the oldest queued page message into the three strings.
+static void popEvent(BNWindow* w, BnString* kind, BnString* id, BnString* value) {
+    @autoreleasepool {
+        NSString* msg = w.queue.firstObject;
+        [w.queue removeObjectAtIndex:0];
+        NSArray<NSString*>* parts = [msg componentsSeparatedByString:@"\x1f"];
+        setString(kind, parts.count > 0 ? parts[0] : @"");
+        setString(id, parts.count > 1 ? parts[1] : @"");
+        // The value may itself contain the separator only if the user typed it; keep it whole.
+        NSString* rest = @"";
+        if (parts.count > 2)
+            rest = [[parts subarrayWithRange:NSMakeRange(2, parts.count - 2)] componentsJoinedByString:@"\x1f"];
+        setString(value, rest);
+    }
+}
+
 bool bn_wait(void* window, BnString* kind, BnString* id, BnString* value) {
     if (headless()) return bnh_wait(window, kind, id, value);
     BNWindow* w = (__bridge BNWindow*)window;
@@ -267,19 +283,30 @@ bool bn_wait(void* window, BnString* kind, BnString* id, BnString* value) {
         }
     }
     if (w.queue.count == 0) return false; // closed
-    @autoreleasepool {
-        NSString* msg = w.queue.firstObject;
-        [w.queue removeObjectAtIndex:0];
-        NSArray<NSString*>* parts = [msg componentsSeparatedByString:@"\x1f"];
-        setString(kind, parts.count > 0 ? parts[0] : @"");
-        setString(id, parts.count > 1 ? parts[1] : @"");
-        // The value may itself contain the separator only if the user typed it; keep it whole.
-        NSString* rest = @"";
-        if (parts.count > 2)
-            rest = [[parts subarrayWithRange:NSMakeRange(2, parts.count - 2)] componentsJoinedByString:@"\x1f"];
-        setString(value, rest);
-    }
+    popEvent(w, kind, id, value);
     return true;
+}
+
+int64_t bn_poll(void* window, BnString* kind, BnString* id, BnString* value) {
+    if (headless()) return bnh_poll(window, kind, id, value);
+    BNWindow* w = (__bridge BNWindow*)window;
+    @autoreleasepool {
+        // Everything already pending, without blocking: input, page messages, and the
+        // run loop work that sends renders to the page and puts them on screen.
+        NSEvent* e;
+        while ((e = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                       untilDate:[NSDate distantPast]
+                                          inMode:NSDefaultRunLoopMode
+                                         dequeue:YES])) {
+            if (e.type != NSEventTypeApplicationDefined) [NSApp sendEvent:e];
+        }
+        [NSApp updateWindows];
+    }
+    if (w.queue.count > 0) {
+        popEvent(w, kind, id, value);
+        return 1;
+    }
+    return w.open ? 0 : -1;
 }
 
 void bn_close(void* window) {

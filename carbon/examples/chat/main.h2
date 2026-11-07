@@ -1,0 +1,177 @@
+// Chat with a local model in a native window: Carbon runs the model, Boron
+// draws the window. Replies stream in as they are generated.
+//
+//   hy run --release --native -- ~/carbon-models/tinyllama-q4.gguf [-T threads] [-t temperature]
+use Elemental
+use Elemental.Time
+use Elemental.Thread
+use Carbon
+use Boron
+
+new function style() -> string {
+    var css = string("")
+    css.append(".chat {{ display: flex; flex-direction: column; gap: 10px; }}")
+    css.append(".msg {{ max-width: 82%; padding: 8px 12px; border-radius: 14px; line-height: 1.45; white-space: pre-wrap; }}")
+    css.append(".msg p {{ margin: 0; }}")
+    css.append(".user {{ align-self: flex-end; background: var(--bn-accent); color: #fff; }}")
+    css.append(".bot {{ align-self: flex-start; background: var(--bn-card); border: 0.5px solid var(--bn-separator); }}")
+    css.append(".composer {{ position: sticky; bottom: 0; background: var(--bn-bg); padding: 10px 0 2px; }}")
+    css.append(".header {{ display: flex; align-items: baseline; gap: 10px; }}")
+    return css
+}
+
+new class Conversation {
+    from_user: List<bool>
+    texts: List<string>
+    draft: string
+    busy: bool          // the model is replying
+    model_name: string
+    status: string      // e.g. "42 tokens, 31.5 tok/s"
+
+    new function init(model_name: str) {
+        self.model_name = string(model_name)
+        self.from_user = List<bool>()
+        self.texts = List<string>()
+        self.draft = string("")
+        self.busy = false
+        self.status = string("")
+    }
+
+    new mut function add(user: bool, text: str) {
+        self.from_user.push(user)
+        self.texts.push(string(text))
+    }
+}
+
+new function render(c: Conversation) -> Ui {
+    var ui = Ui()
+    ui.begin("header")
+    ui.heading("Carbon")
+    ui.caption(c.model_name)
+    ui.spacer()
+    ui.caption(c.status)
+    ui.end()
+    ui.begin("chat")
+    if c.texts.is_empty() { ui.caption("Ask anything. Runs entirely on this machine.") }
+    for i in 0..c.texts.len() {
+        if c.from_user[i] { ui.begin("msg user") } else { ui.begin("msg bot") }
+        var text: str = c.texts[i]
+        if text.len == 0 { text = "…" }
+        ui.selectable(text)
+        ui.end()
+    }
+    ui.end()
+    ui.begin("composer")
+    ui.begin_row()
+    ui.wide_input("draft", c.draft, "Message")
+    if c.busy { ui.button("stop", "Stop") }
+    else if trim(c.draft).len == 0 { ui.disabled_button("send", "Send") }
+    else { ui.accent_button("send", "Send") }
+    ui.end()
+    ui.end()
+    return ui
+}
+
+new function main() -> int {
+    let argv = args()
+    if argv.len() < 2 {
+        eprint("usage: chat <model.gguf> [-T threads] [-t temperature]")
+        return 2
+    }
+    var threads = cpu_count()
+    var temperature: f32 = 0.7
+    var i: uint = 2
+    while i + 1 < argv.len() {
+        let flag: str = argv[i]
+        let value: str = argv[i + 1]
+        if flag == "-T" { threads = unwrap_or(parse_int(value), threads) }
+        else if flag == "-t" {
+            let t: f64 = unwrap_or(parse_float(value), 0.7)
+            temperature = f32(t)
+        }
+        i += 2
+    }
+    match load_model(argv[1]) {
+        Err(e) => {
+            eprint("error: " + e)
+            return 1
+        }
+        Ok(model) => {
+            match model_tokenizer(model) {
+                Err(e) => {
+                    eprint("error: " + e)
+                    return 1
+                }
+                Ok(tok) => { run(model, tok, argv[1], threads, temperature) }
+            }
+        }
+    }
+    return 0
+}
+
+// The file name without its folders.
+new function base_name(path: str) -> str {
+    var start: uint = 0
+    for k in 0..path.len { if path[k] == u8('/') { start = k + 1 } }
+    return slice(path, start, path.len)
+}
+
+new function run(model: Model, tok: Tokenizer, path: str, threads: int, temperature: f32) {
+    var app = App("Carbon Chat", 560, 720)
+    app.style(style())
+    var conv = Conversation(base_name(path))
+    var chat = Chat(model, threads)
+    var sampler = Sampler(model.config.vocab_size, temperature, 0.9, u64(unix_time()))
+    var reply_tokens = 0
+    var reply_start: f64 = 0.0
+
+    while app.is_open() {
+        app.show(render(conv))
+        if conv.busy {
+            // One token per pass, then let the window paint and look at input.
+            match chat.next(model, tok, sampler) {
+                Some(piece) => {
+                    conv.texts.at(conv.texts.len() - 1).append(piece)
+                    reply_tokens += 1
+                }
+                None => {
+                    conv.busy = false
+                    let seconds = now() - reply_start
+                    if seconds > 0.0 {
+                        conv.status = "{reply_tokens} tokens, {fixed(f64(reply_tokens) / seconds, 1)} tok/s"
+                    }
+                    if chat.full { conv.status = string("context full: restart to chat again") }
+                }
+            }
+            match app.poll() {
+                Some(ev) => { handle(ev, conv, chat, model, tok, app) }
+                None => {}
+            }
+        } else {
+            let ev = app.wait()
+            handle(ev, conv, chat, model, tok, app)
+            if conv.busy {
+                reply_tokens = 0
+                reply_start = now()
+            }
+        }
+    }
+}
+
+new function handle(ev: Event, conv: var Conversation, chat: var Chat, model: Model, tok: Tokenizer, app: var App) {
+    if ev.changed("draft") || ev.submitted("draft") { conv.draft = string(ev.text()) }
+    if ev.clicked("stop") { conv.busy = false }
+    let send = ev.clicked("send") || ev.submitted("draft")
+    if !send || conv.busy || chat.full { return }
+    let message = string(trim(conv.draft))
+    if message.len() == 0 { return }
+    conv.add(true, message)
+    conv.add(false, "")
+    conv.draft = string("")
+    conv.busy = true
+    conv.status = string("reading…")
+    app.show(render(conv))
+    app.poll() // paint the message before the model starts reading it
+    chat.say(model, tok, message)
+    conv.status = string("")
+}

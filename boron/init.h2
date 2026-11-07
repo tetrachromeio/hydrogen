@@ -24,6 +24,7 @@ extern function bn_render(window: ptr<u8>, html: ptr<u8>, len: uint)
 extern function bn_css(window: ptr<u8>, css: ptr<u8>, len: uint)
 extern function bn_title(window: ptr<u8>, title: ptr<u8>, len: uint)
 extern function bn_wait(window: ptr<u8>, kind: ptr<string>, id: ptr<string>, value: ptr<string>) -> bool
+extern function bn_poll(window: ptr<u8>, kind: ptr<string>, id: ptr<string>, value: ptr<string>) -> int
 extern function bn_close(window: ptr<u8>)
 
 // Text made safe to put inside HTML (as content or a quoted attribute).
@@ -217,6 +218,23 @@ pub new class App {
             return Event(string("close"), string(""), string(""))
         }
         return Event(kind, id, value)
+    }
+
+    // For apps that are busy (computing, streaming): lets the window repaint and
+    // handle input, without waiting. Returns the next event if there is one (a
+    // "close" event once the window is closed). Call it often, e.g. after each show().
+    pub new mut function poll() -> Option<Event> {
+        if !self.open { return Some(Event(string("close"), string(""), string(""))) }
+        var kind = string("")
+        var id = string("")
+        var value = string("")
+        let got = bn_poll(self.handle, &kind, &id, &value)
+        if got < 0 {
+            self.open = false
+            return Some(Event(string("close"), string(""), string("")))
+        }
+        if got == 0 { return None }
+        return Some(Event(kind, id, value))
     }
 
     new function drop() { bn_close(self.handle) }

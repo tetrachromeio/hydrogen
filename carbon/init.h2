@@ -22,3 +22,4 @@ include tokenizer
 include sampler
 include generate
 include quantize
+include chat

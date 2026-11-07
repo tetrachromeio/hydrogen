@@ -1,0 +1,72 @@
+// A conversation with a chat model, kept in the model's key/value cache, so
+// each new message costs only its own tokens (not the whole history again).
+// Uses the Zephyr-style template TinyLlama-Chat was trained with:
+//   <s><|user|>\n{message}</s>\n<|assistant|>\n{reply}</s>\n<|user|>\n{message}</s> ...
+
+pub new class Chat {
+    state: State
+    pos: int              // tokens already in the cache
+    last: int             // the next token to run through the model (-1: none yet)
+    replying: bool
+    pub full: bool        // the context window is used up
+
+    // `threads`: as for generate().
+    pub new function init(model: Model, threads: int) {
+        self.state = State(model.config, threads)
+        self.pos = 0
+        self.last = -1
+        self.replying = false
+        self.full = false
+    }
+
+    pub new function tokens_used() -> int { return self.pos }
+
+    // Adds the user's message; the reply follows from next() calls. Takes a while
+    // for long messages: every token of it goes through the model here.
+    pub new mut function say(model: Model, tok: Tokenizer, message: str) {
+        var tokens = List<int>()
+        if self.last < 0 {
+            for t in tok.encode("<|user|>\n" + message, true, false) { tokens.push(t) }
+        } else {
+            tokens.push(self.last)
+            if self.replying { tokens.push(model.eos) } // a reply cut short (Stop) still gets closed
+            for t in tok.encode_with("\n<|user|>\n" + message, false, false, false) { tokens.push(t) }
+        }
+        tokens.push(model.eos)
+        for t in tok.encode_with("\n<|assistant|>\n", false, false, false) { tokens.push(t) }
+        let n = int(tokens.len())
+        for i in 0..n - 1 {
+            if self.pos >= model.config.seq_len - 1 {
+                self.full = true
+                return
+            }
+            model.forward(self.state, tokens[uint(i)], self.pos)
+            self.pos += 1
+        }
+        self.last = tokens[uint(n - 1)]
+        self.replying = true
+    }
+
+    // The next piece of the reply, or None when the reply is finished (or the
+    // context window is full).
+    pub new mut function next(model: Model, tok: Tokenizer, sampler: var Sampler) -> Option<string> {
+        if !self.replying { return None }
+        if self.pos >= model.config.seq_len - 1 {
+            self.full = true
+            self.replying = false
+            return None
+        }
+        let logits = model.forward(self.state, self.last, self.pos)
+        self.pos += 1
+        let next = sampler.sample(logits)
+        if next == model.eos || next == model.bos {
+            self.last = model.eos // closes the reply in the cache on the next say()
+            self.replying = false
+            return None
+        }
+        let piece = string(tok.decode(self.last, next))
+        self.last = next
+        if !printable(piece) { return Some(string("")) }
+        return Some(piece)
+    }
+}
