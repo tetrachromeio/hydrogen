@@ -90,11 +90,11 @@ pub new function matvec_rows(out: ptr<f32>, m: Matrix, x: ptr<f32>, first: int, 
 }
 
 // out = weight * x / rms(x)
-pub new function rmsnorm(out: ptr<f32>, x: ptr<f32>, weight: ptr<f32>, size: int) {
+pub new function rmsnorm(out: ptr<f32>, x: ptr<f32>, weight: ptr<f32>, size: int, eps: f32) {
     var ss: f32 = 0.0
     for j in 0..size { ss += x[j] * x[j] }
     ss /= f32(size)
-    ss += 0.00001
+    ss += eps
     ss = 1.0 / sqrtf(ss)
     for j in 0..size { out[j] = weight[j] * (ss * x[j]) }
 }

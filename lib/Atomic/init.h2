@@ -165,6 +165,18 @@ pub new type float : float(64) {
     new operator < (a: float, b: float) -> bool { return intrinsic.flt(a, b) }
 }
 
+// Half precision (IEEE binary16): for storage, like model weights and scales.
+// Convert to f32 for math: f32(h). (CPUs without F16C/FP16 instructions convert in software.)
+pub new type f16 : float(16) {
+    new operator + (a: f16, b: f16) -> f16 { return intrinsic.fadd(a, b) }
+    new operator - (a: f16, b: f16) -> f16 { return intrinsic.fsub(a, b) }
+    new operator * (a: f16, b: f16) -> f16 { return intrinsic.fmul(a, b) }
+    new operator / (a: f16, b: f16) -> f16 { return intrinsic.fdiv(a, b) }
+    new operator - (a: f16) -> f16 { return intrinsic.fneg(a) }
+    new operator == (a: f16, b: f16) -> bool { return intrinsic.feq(a, b) }
+    new operator < (a: f16, b: f16) -> bool { return intrinsic.flt(a, b) }
+}
+
 pub new type f32 : float(32) {
     new operator + (a: f32, b: f32) -> f32 { return intrinsic.fadd(a, b) }
     new operator - (a: f32, b: f32) -> f32 { return intrinsic.fsub(a, b) }

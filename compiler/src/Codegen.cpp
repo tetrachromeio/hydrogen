@@ -113,6 +113,41 @@ std::string floatConst(double v, bool isFloat32) {
     return buf;
 }
 
+// An LLVM `half` constant (0xHxxxx): v rounded to the nearest IEEE binary16.
+std::string halfConst(double d) {
+    float f = static_cast<float>(d);
+    uint32_t x;
+    std::memcpy(&x, &f, sizeof x);
+    uint32_t sign = (x >> 16) & 0x8000, mant = x & 0x7FFFFF;
+    int exp = static_cast<int>((x >> 23) & 0xFF) - 127 + 15;
+    uint16_t h;
+    if (((x >> 23) & 0xFF) == 0xFF) h = static_cast<uint16_t>(sign | 0x7C00 | (mant ? 0x200 : 0)); // inf / nan
+    else if (exp >= 31) h = static_cast<uint16_t>(sign | 0x7C00);                                // overflow: inf
+    else if (exp <= 0) {                                                                          // subnormal / zero
+        if (exp < -10) h = static_cast<uint16_t>(sign);
+        else {
+            mant |= 0x800000;
+            int shift = 14 - exp;
+            uint32_t m = mant >> shift, rest = mant & ((1u << shift) - 1), half = 1u << (shift - 1);
+            if (rest > half || (rest == half && (m & 1))) ++m;
+            h = static_cast<uint16_t>(sign | m);
+        }
+    } else {
+        uint32_t m = mant >> 13, rest = mant & 0x1FFF;
+        uint32_t v = (static_cast<uint32_t>(exp) << 10) | m;
+        if (rest > 0x1000 || (rest == 0x1000 && (m & 1))) ++v; // may carry into the exponent: still right
+        h = static_cast<uint16_t>(sign | v);
+    }
+    char buf[16];
+    snprintf(buf, sizeof buf, "0xH%04X", h);
+    return buf;
+}
+
+std::string floatConstBits(double v, unsigned bits) {
+    if (bits == 16) return halfConst(v);
+    return floatConst(v, bits == 32);
+}
+
 // Decodes the UTF-8 bytes of a char literal into a code point.
 uint32_t decodeChar(const std::string& s) {
     if (s.empty()) return 0;
@@ -457,7 +492,7 @@ private:
         case K::Named: {
             ScalarInfo s = scalarOf(t);
             std::string one = s.kind == ScalarInfo::Int     ? "i" + std::to_string(s.bits)
-                              : s.kind == ScalarInfo::Float ? (s.bits == 32 ? "float" : "double")
+                              : s.kind == ScalarInfo::Float ? (s.bits == 32 ? "float" : s.bits == 16 ? "half" : "double")
                                                             : "";
             if (!one.empty()) return s.lanes ? "<" + std::to_string(s.lanes) + " x " + one + ">" : one;
             ensureStruct(t);
@@ -1696,12 +1731,12 @@ private:
         if (e.kind == ExprKind::IntLit) {
             uint64_t v;
             parseInt(static_cast<const LiteralExpr&>(e).value, v);
-            if (s.kind == ScalarInfo::Float) return {ty, floatConst(static_cast<double>(v), s.bits == 32)};
+            if (s.kind == ScalarInfo::Float) return {ty, floatConstBits(static_cast<double>(v), s.bits)};
             return {ty, std::to_string(v)};
         }
         if (e.kind == ExprKind::FloatLit) {
             double v = std::strtod(static_cast<const LiteralExpr&>(e).value.c_str(), nullptr);
-            return {ty, floatConst(v, s.bits == 32)};
+            return {ty, floatConstBits(v, s.bits)};
         }
         if (e.kind == ExprKind::Unary && static_cast<const UnaryExpr&>(e).op == "-") {
             Val inner = literalAs(*static_cast<const UnaryExpr&>(e).operand, t);
@@ -1709,7 +1744,7 @@ private:
                 double d;
                 uint64_t bits = std::stoull(inner.v.substr(2), nullptr, 16);
                 std::memcpy(&d, &bits, sizeof d);
-                return {ty, floatConst(-d, s.bits == 32)};
+                return {ty, floatConstBits(-d, s.bits)};
             }
             return {ty, "-" + inner.v};
         }

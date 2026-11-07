@@ -20,24 +20,34 @@ pub new type Config {
     pub seq_len: int      // longest context the model was trained for
 }
 
+// One transformer block's weights.
+pub new type Layer {
+    rms_att: ptr<f32>     // dim
+    wq: Weights           // dim x dim
+    wk: Weights           // kv_dim x dim
+    wv: Weights           // kv_dim x dim
+    wo: Weights           // dim x dim
+    rms_ffn: ptr<f32>     // dim
+    w1: Weights           // hidden_dim x dim (gate)
+    w2: Weights           // dim x hidden_dim (down)
+    w3: Weights           // hidden_dim x dim (up)
+}
+
 pub new class Model {
     pub config: Config
     file: MappedFile      // every view below points into this mapping
     group: int            // Q8_0 group size, 0 for f32
     embed: Weights        // vocab_size x dim
-    rms_att: ptr<f32>     // per layer: dim
-    wq: Weights           // layer 0's; the next layer follows at + stride
-    wk: Weights
-    wv: Weights
-    wo: Weights
-    rms_ffn: ptr<f32>     // per layer: dim
-    w1: Weights
-    w2: Weights
-    w3: Weights
+    layers: List<Layer>
     rms_final: ptr<f32>   // dim
     wcls: Weights         // vocab_size x dim (the embedding, when shared)
+    rope_theta: f32       // RoPE base frequency (10000 for Llama 1/2)
+    eps: f32              // RMSNorm epsilon
+    pub bos: int          // begin / end of text token ids
+    pub eos: int
+    vocab: GgufVocab      // where a GGUF file keeps its tokenizer (count 0 otherwise)
 
-    pub new function is_quantized() -> bool { return self.group > 0 }
+    pub new function is_quantized() -> bool { return is_quantized(self.embed) }
     pub new function group_size() -> int { return self.group }
     pub new function kv_dim() -> int { return self.config.dim * self.config.n_kv_heads / self.config.n_heads }
     pub new function head_size() -> int { return self.config.dim / self.config.n_heads }
@@ -59,21 +69,22 @@ pub new class Model {
         weights_row(x, self.embed, token)
 
         for l in 0..c.n_layers {
-            rmsnorm(s.xb, x, offset(self.rms_att, l * dim), dim)
+            let w = self.layers[uint(l)]
+            rmsnorm(s.xb, x, w.rms_att, dim, self.eps)
 
             // This position's key and value go straight into the cache.
             let loff = l * c.seq_len * kv_dim
             let k = offset(s.key_cache, loff + pos * kv_dim)
             let v = offset(s.value_cache, loff + pos * kv_dim)
-            matmul(s.pool, s.q, layer(self.wq, l), s.xb, xq)
-            matmul(s.pool, k, layer(self.wk, l), s.xb, xq)
-            matmul(s.pool, v, layer(self.wv, l), s.xb, xq)
+            matmul(s.pool, s.q, w.wq, s.xb, xq)
+            matmul(s.pool, k, w.wk, s.xb, xq)
+            matmul(s.pool, v, w.wv, s.xb, xq)
 
             // RoPE: rotate each pair of q and k by an angle that depends on the position.
             var i = 0
             while i < dim {
                 let head_dim = i % head_size
-                let freq = 1.0 / powf(10000.0, f32(head_dim) / f32(head_size))
+                let freq = 1.0 / powf(self.rope_theta, f32(head_dim) / f32(head_size))
                 let val = f32(pos) * freq
                 let fcr = cosf(val)
                 let fci = sinf(val)
@@ -106,24 +117,24 @@ pub new class Model {
                     axpy(xb, att[t], offset(s.value_cache, loff + t * kv_dim + kv_off), head_size)
                 }
             }
-            matmul(s.pool, s.xb2, layer(self.wo, l), s.xb, xq)
+            matmul(s.pool, s.xb2, w.wo, s.xb, xq)
             add_into(x, s.xb2, dim)
 
             // Feed-forward: w2(silu(w1(x)) * w3(x))
-            rmsnorm(s.xb, x, offset(self.rms_ffn, l * dim), dim)
-            matmul(s.pool, s.hb, layer(self.w1, l), s.xb, xq)
-            matmul(s.pool, s.hb2, layer(self.w3, l), s.xb, xq)
+            rmsnorm(s.xb, x, w.rms_ffn, dim, self.eps)
+            matmul(s.pool, s.hb, w.w1, s.xb, xq)
+            matmul(s.pool, s.hb2, w.w3, s.xb, xq)
             for j in 0..hidden {
                 var val = s.hb[j]
                 val *= 1.0 / (1.0 + expf(-val))
                 val *= s.hb2[j]
                 s.hb[j] = val
             }
-            matmul(s.pool, s.xb, layer(self.w2, l), s.hb, xq)
+            matmul(s.pool, s.xb, w.w2, s.hb, xq)
             add_into(x, s.xb, dim)
         }
 
-        rmsnorm(x, x, self.rms_final, dim)
+        rmsnorm(x, x, self.rms_final, dim, self.eps)
         matmul(s.pool, s.logits, self.wcls, x, xq)
         return s.logits
     }
@@ -132,11 +143,22 @@ pub new class Model {
 // Layer l's matrix of a kind: layers are stored back to back.
 new function layer(w: Weights, l: int) -> Weights {
     let n = w.rows * w.cols
-    if w.group == 0 { return Weights(offset(w.f, l * n), null, null, w.rows, w.cols, 0) }
+    if w.group == 0 { return Weights(offset(w.f, l * n), null, null, w.rows, w.cols, 0, FORMAT_F32) }
     let stride = n + n / w.group * 4 // int8 values, then f32 scales
     let base = ptr<u8>(w.q)
     let q = ptr<u8>(&base[l * stride])
-    return Weights(null, ptr<i8>(q), ptr<f32>(&q[n]), w.rows, w.cols, w.group)
+    return Weights(null, ptr<i8>(q), ptr<f32>(&q[n]), w.rows, w.cols, w.group, FORMAT_Q8)
+}
+
+// llama2.c files store each kind of matrix for all layers back to back.
+new function strided_layers(L: int, rms_att: ptr<f32>, wq: Weights, wk: Weights, wv: Weights, wo: Weights,
+                            rms_ffn: ptr<f32>, w1: Weights, w2: Weights, w3: Weights, dim: int) -> List<Layer> {
+    var layers = List<Layer>()
+    for l in 0..L {
+        layers.push(Layer(offset(rms_att, l * dim), layer(wq, l), layer(wk, l), layer(wv, l), layer(wo, l),
+                          offset(rms_ffn, l * dim), layer(w1, l), layer(w2, l), layer(w3, l)))
+    }
+    return layers
 }
 
 pub new function load_model(path: str) -> Result<Model, string> {
@@ -146,6 +168,7 @@ pub new function load_model(path: str) -> Result<Model, string> {
             if file.len < 28 { return Err("{path} is too small to be a model") }
             let h = ptr<i32>(file.data)
             if u32(h[0]) == 0x616b3432 { return load_q8(path, file) }
+            if u32(h[0]) == 0x46554747 { return load_gguf(path, file) } // "GGUF"
             var vocab = int(h[5])
             let shared = vocab > 0
             if !shared { vocab = -vocab }
@@ -179,16 +202,17 @@ pub new function load_model(path: str) -> Result<Model, string> {
             let b = ptr<f32>(file.data)
             let D = c.dim
             let H = c.hidden_dim
-            return Ok(Model(c, file, 0, f32w(b, embed, vocab, D), offset(b, rms_att), f32w(b, wq, D, D),
-                            f32w(b, wk, kv_dim, D), f32w(b, wv, kv_dim, D), f32w(b, wo, D, D), offset(b, rms_ffn),
-                            f32w(b, w1, H, D), f32w(b, w2, D, H), f32w(b, w3, H, D), offset(b, rms_final),
-                            f32w(b, wcls, vocab, D)))
+            let layers = strided_layers(L, offset(b, rms_att), f32w(b, wq, D, D), f32w(b, wk, kv_dim, D),
+                                        f32w(b, wv, kv_dim, D), f32w(b, wo, D, D), offset(b, rms_ffn),
+                                        f32w(b, w1, H, D), f32w(b, w2, D, H), f32w(b, w3, H, D), D)
+            return Ok(Model(c, file, 0, f32w(b, embed, vocab, D), layers, offset(b, rms_final),
+                            f32w(b, wcls, vocab, D), 10000.0, 0.00001, 1, 2, GgufVocab(0, 0, 0)))
         }
     }
 }
 
 new function f32w(base: ptr<f32>, at: int, rows: int, cols: int) -> Weights {
-    return Weights(offset(base, at), null, null, rows, cols, 0)
+    return Weights(offset(base, at), null, null, rows, cols, 0, FORMAT_F32)
 }
 
 new function valid(c: Config) -> bool {
@@ -231,10 +255,11 @@ new function load_q8(path: str, file: own MappedFile) -> Result<Model, string> {
     }
     if uint(at) > file.len { return Err("{path} is truncated: the header promises {at} bytes, the file has {file.len}") }
     let b = file.data
-    return Ok(Model(c, file, gs, q8w(b, embed, c.vocab_size, D, gs), ptr<f32>(&b[rms_att]), q8w(b, wq, D, D, gs),
-                    q8w(b, wk, kv_dim, D, gs), q8w(b, wv, kv_dim, D, gs), q8w(b, wo, D, D, gs),
-                    ptr<f32>(&b[rms_ffn]), q8w(b, w1, H, D, gs), q8w(b, w2, D, H, gs), q8w(b, w3, H, D, gs),
-                    ptr<f32>(&b[rms_final]), q8w(b, wcls, c.vocab_size, D, gs)))
+    let layers = strided_layers(L, ptr<f32>(&b[rms_att]), q8w(b, wq, D, D, gs), q8w(b, wk, kv_dim, D, gs),
+                                q8w(b, wv, kv_dim, D, gs), q8w(b, wo, D, D, gs), ptr<f32>(&b[rms_ffn]),
+                                q8w(b, w1, H, D, gs), q8w(b, w2, D, H, gs), q8w(b, w3, H, D, gs), D)
+    return Ok(Model(c, file, gs, q8w(b, embed, c.vocab_size, D, gs), layers, ptr<f32>(&b[rms_final]),
+                    q8w(b, wcls, c.vocab_size, D, gs), 10000.0, 0.00001, 1, 2, GgufVocab(0, 0, 0)))
 }
 
 // Bytes taken by `layers` quantized rows x cols matrices.
@@ -244,7 +269,7 @@ new function qbytes(rows: int, cols: int, gs: int, layers: int) -> int {
 
 new function q8w(base: ptr<u8>, at: int, rows: int, cols: int, gs: int) -> Weights {
     let q = ptr<u8>(&base[at])
-    return Weights(null, ptr<i8>(q), ptr<f32>(&q[rows * cols]), rows, cols, gs)
+    return Weights(null, ptr<i8>(q), ptr<f32>(&q[rows * cols]), rows, cols, gs, FORMAT_Q8)
 }
 
 // Everything a forward pass writes: activations and the key/value cache. One

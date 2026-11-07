@@ -8,6 +8,7 @@ pub new function quantize_model(input: str, output: str, group: int) -> Result<s
         Err(e) => { return Err(e) }
         Ok(model) => {
             if model.is_quantized() { return Err("{input} is already quantized") }
+            if model.vocab.count > 0 { return Err("{input}: converting GGUF files isn't supported; use an f32 llama2.c model") }
             let c = model.config
             let kv_dim = c.dim * c.n_kv_heads / c.n_heads
             var gs = group
@@ -45,18 +46,14 @@ pub new function quantize_model(input: str, output: str, group: int) -> Result<s
                     arena.reset()
 
                     let L = c.n_layers
-                    ok = ok && put(file, ptr<u8>(model.rms_att), L * c.dim * 4)
-                    ok = ok && put(file, ptr<u8>(model.rms_ffn), L * c.dim * 4)
+                    for l in 0..L { ok = ok && put(file, ptr<u8>(model.layers[uint(l)].rms_att), c.dim * 4) }
+                    for l in 0..L { ok = ok && put(file, ptr<u8>(model.layers[uint(l)].rms_ffn), c.dim * 4) }
                     ok = ok && put(file, ptr<u8>(model.rms_final), c.dim * 4)
-                    ok = ok && put_quantized(file, arena, model.embed, 1, gs)
-                    ok = ok && put_quantized(file, arena, model.wq, L, gs)
-                    ok = ok && put_quantized(file, arena, model.wk, L, gs)
-                    ok = ok && put_quantized(file, arena, model.wv, L, gs)
-                    ok = ok && put_quantized(file, arena, model.wo, L, gs)
-                    ok = ok && put_quantized(file, arena, model.w1, L, gs)
-                    ok = ok && put_quantized(file, arena, model.w2, L, gs)
-                    ok = ok && put_quantized(file, arena, model.w3, L, gs)
-                    if !shared { ok = ok && put_quantized(file, arena, model.wcls, 1, gs) }
+                    ok = ok && put_quantized(file, arena, model.embed, gs)
+                    for kind in 0..7 {
+                        for l in 0..L { ok = ok && put_quantized(file, arena, matrix(model.layers[uint(l)], kind), gs) }
+                    }
+                    if !shared { ok = ok && put_quantized(file, arena, model.wcls, gs) }
                     if !ok { return Err("writing {output} failed") }
                     let before = model.file_bytes()
                     return Ok("quantized {input} ({before / 1048576} MB) to {output}, Q8_0 with group size {gs}")
@@ -73,17 +70,24 @@ new function put(file: var File, data: ptr<u8>, n: int) -> bool {
     }
 }
 
-// Each layer's matrix: its int8 values, then its scales.
-new function put_quantized(file: var File, arena: var Arena, w: Weights, layers: int, gs: int) -> bool {
+// The file's order of matrix kinds: wq wk wv wo w1 w2 w3.
+new function matrix(l: Layer, kind: int) -> Weights {
+    if kind == 0 { return l.wq }
+    if kind == 1 { return l.wk }
+    if kind == 2 { return l.wv }
+    if kind == 3 { return l.wo }
+    if kind == 4 { return l.w1 }
+    if kind == 5 { return l.w2 }
+    return l.w3
+}
+
+// A matrix: its int8 values, then its scales.
+new function put_quantized(file: var File, arena: var Arena, w: Weights, gs: int) -> bool {
     let n = w.rows * w.cols
-    for l in 0..layers {
-        let m = layer(w, l)
-        let q = arena.bytes(uint(n))
-        let s = arena.f32s(uint(n / gs))
-        quantize(ptr<i8>(q), s, m.f, n, gs)
-        let ok = put(file, q, n) && put(file, ptr<u8>(s), n / gs * 4)
-        arena.reset()
-        if !ok { return false }
-    }
-    return true
+    let q = arena.bytes(uint(n))
+    let s = arena.f32s(uint(n / gs))
+    quantize(ptr<i8>(q), s, w.f, n, gs)
+    let ok = put(file, q, n) && put(file, ptr<u8>(s), n / gs * 4)
+    arena.reset()
+    return ok
 }

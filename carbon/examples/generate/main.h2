@@ -1,14 +1,17 @@
 // Text generation from the command line, with llama2.c's options:
 //
 //   hy run --release -- <model.bin> [-z tokenizer.bin] [-i "prompt"] [-n steps]
-//                       [-t temperature] [-p topp] [-s seed] [-T threads]
+//                       [-t temperature] [-p topp] [-s seed] [-T threads] [-c]
+//
+// <model> is a llama2.c .bin (f32 or Q8_0, needs -z) or a GGUF file (has its own tokenizer).
+// -c: chat: wrap the prompt in the chat template (TinyLlama-Chat style)
 use Elemental
 use Elemental.System
 use Elemental.Thread
 use Carbon
 
 new function usage() -> int {
-    eprint("usage: generate <model.bin> [-z tokenizer.bin] [-i prompt] [-n steps] [-t temperature] [-p topp] [-s seed] [-T threads]")
+    eprint("usage: generate <model.bin> [-z tokenizer.bin] [-i prompt] [-n steps] [-t temperature] [-p topp] [-s seed] [-T threads] [-c]")
     return 2
 }
 
@@ -28,9 +31,16 @@ new function main() -> int {
     var topp: f32 = 0.9
     var seed: u64 = 0
     var threads = cpu_count()
+    var chat = false
     var i: uint = 2
-    while i + 1 < argv.len() {
+    while i < argv.len() {
         let flag: str = argv[i]
+        if flag == "-c" {
+            chat = true
+            i += 1
+            continue
+        }
+        if i + 1 >= argv.len() { return usage() }
         let value: str = argv[i + 1]
         if flag == "-z" { tokenizer_path = string(value) }
         else if flag == "-i" { prompt = string(value) }
@@ -54,14 +64,17 @@ new function main() -> int {
             return 1
         }
         Ok(model) => {
-            match load_tokenizer(tokenizer_path, model.config.vocab_size) {
+            var loaded = model_tokenizer(model)
+            if ends_with(model_path, ".bin") { loaded = load_tokenizer(tokenizer_path, model.config.vocab_size) }
+            match loaded {
                 Err(e) => {
                     eprint("error: " + e)
                     return 1
                 }
                 Ok(tok) => {
                     var sampler = Sampler(model.config.vocab_size, temperature, topp, seed)
-                    let stats = generate(model, tok, sampler, prompt, steps, threads, function(piece: str) {
+                    let stats = generate(model, tok, sampler, prompt_tokens(model, tok, prompt, chat), steps, threads, !chat,
+                                          function(piece: str) {
                         write_bytes(1, piece.data, piece.len)
                     })
                     write_bytes(1, "\n".data, 1)

@@ -2,14 +2,20 @@
 // group with one f32 scale: value = q * scale. A quarter of f32's size, and the
 // dot products run on integers. Same scheme and file layout as llama2.c's runq.c.
 
-// A weight matrix (rows x cols), either f32 or Q8_0. Views into the model file.
+// How a weight matrix is stored.
+pub const FORMAT_F32 = 0       // plain f32
+pub const FORMAT_Q8 = 1        // llama2.c Q8_0: all int8 values, then all f32 scales
+pub const FORMAT_Q8_BLOCKS = 2 // GGUF Q8_0: blocks of (f16 scale, 32 x int8), 34 bytes each
+
+// A weight matrix (rows x cols). Views into the model file.
 pub new type Weights {
-    f: ptr<f32>    // f32 values, or null when quantized
-    q: ptr<i8>     // Q8_0: rows * cols int8 values ...
-    s: ptr<f32>    // ... and one scale per `group` values
+    f: ptr<f32>    // FORMAT_F32: the values
+    q: ptr<i8>     // FORMAT_Q8: rows * cols int8 values; FORMAT_Q8_BLOCKS: the first block
+    s: ptr<f32>    // FORMAT_Q8: one scale per `group` values
     rows: int
     cols: int
-    group: int     // 0 for f32
+    group: int     // values per scale (0 for f32)
+    format: int
 }
 
 // An activation vector quantized on the fly (scratch space in State).
@@ -18,7 +24,7 @@ new type QVec {
     s: ptr<f32>
 }
 
-pub new function is_quantized(w: Weights) -> bool { return w.group > 0 }
+pub new function is_quantized(w: Weights) -> bool { return w.format != FORMAT_F32 }
 
 // x rounded half away from zero, like C's roundf
 new function round_away(x: f32) -> f32 {
@@ -53,8 +59,32 @@ pub new function weights_row(out: ptr<f32>, w: Weights, r: int) {
         for j in 0..n { out[j] = w.f[r * n + j] }
         return
     }
+    if w.format == FORMAT_Q8_BLOCKS {
+        let row = ptr<u8>(&ptr<u8>(w.q)[r * (n / 32) * 34])
+        for b in 0..n / 32 {
+            let block = ptr<u8>(&row[b * 34])
+            let d = f32(ptr<f16>(block)[0])
+            let qs = ptr<i8>(&block[2])
+            for j in 0..32 { out[b * 32 + j] = f32(qs[j]) * d }
+        }
+        return
+    }
     let base = r * n
     for j in 0..n { out[j] = f32(w.q[base + j]) * w.s[(base + j) / w.group] }
+}
+
+// One output row of a GGUF Q8_0 matrix times a quantized vector (group 32).
+new function qdot_row_blocks(w: Weights, x: QVec, row: int) -> f32 {
+    let nb = w.cols / 32
+    let base = ptr<u8>(&ptr<u8>(w.q)[row * nb * 34])
+    var accf = f32x16(0.0)
+    for b in 0..nb {
+        let block = ptr<u8>(&base[b * 34])
+        let qs = ptr<i8>(&block[2])
+        let acc = load16(qs, 0) * load16(x.q, b * 32) + load16(qs, 16) * load16(x.q, b * 32 + 16)
+        accf = accf + f32x16(acc) * f32x16(f32(ptr<f16>(block)[0]) * x.s[b])
+    }
+    return f32x16_sum(accf)
 }
 
 // 16 int8 at p[i], widened to i32
@@ -95,6 +125,10 @@ new function qdot_row(w: Weights, x: QVec, row: int) -> f32 {
 }
 
 new function qmatvec_rows(out: ptr<f32>, w: Weights, x: QVec, first: int, last: int) {
+    if w.format == FORMAT_Q8_BLOCKS {
+        for i in first..last { out[i] = qdot_row_blocks(w, x, i) }
+        return
+    }
     for i in first..last { out[i] = qdot_row(w, x, i) }
 }
 

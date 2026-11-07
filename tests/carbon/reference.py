@@ -2,7 +2,7 @@
 """An independent numpy implementation of the llama2.c model, tokenizer and
 sampler, to check Carbon against.
 
-  reference.py <model.bin> <tokenizer.bin> <prompt> <steps> <temperature> <topp> <seed>
+  reference.py <model.bin|model.gguf> <tokenizer.bin|-> <prompt> <steps> <temperature> <topp> <seed> [chat]
   reference.py --quantize <f32 model.bin> <out.bin> <group size>
 
 The first prints the generated text, like Carbon's generate example; the model
@@ -115,7 +115,99 @@ def write_q8(src, out, gs):
     open(out, "wb").write(b"".join(parts))
 
 
+def load_gguf(path):
+    raw = np.memmap(path, dtype=np.uint8, mode="r")
+    buf = raw.tobytes() if len(raw) < (64 << 20) else bytes(raw[: 64 << 20])
+    at = 8
+    n_tensors, n_kv = struct.unpack_from("<QQ", buf, at)
+    at += 16
+    sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+    fmts = {0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i", 6: "f", 7: "?", 10: "Q", 11: "q", 12: "d"}
+
+    def text():
+        nonlocal at
+        n, = struct.unpack_from("<Q", buf, at)
+        at += 8
+        out = buf[at:at + n]
+        at += n
+        return out
+
+    def value(t):
+        nonlocal at
+        if t == 8:
+            return text()
+        if t == 9:
+            et, n = struct.unpack_from("<IQ", buf, at)
+            at += 12
+            if et == 8:
+                return [text() for _ in range(n)]
+            out = np.frombuffer(buf, "<" + fmts[et], n, at)
+            at += sizes[et] * n
+            return out
+        v, = struct.unpack_from("<" + fmts[t], buf, at)
+        at += sizes[t]
+        return v
+
+    meta = {}
+    for _ in range(n_kv):
+        k = text().decode()
+        t, = struct.unpack_from("<I", buf, at)
+        at += 4
+        meta[k] = value(t)
+    tensors = {}
+    for _ in range(n_tensors):
+        name = text().decode()
+        nd, = struct.unpack_from("<I", buf, at)
+        at += 4
+        dims = struct.unpack_from("<" + "Q" * nd, buf, at)
+        at += 8 * nd
+        t, off = struct.unpack_from("<IQ", buf, at)
+        at += 12
+        tensors[name] = (t, dims, off)
+    align = meta.get("general.alignment", 32)
+    base = (at + align - 1) // align * align
+    block = np.dtype([("d", "<f2"), ("qs", "i1", 32)])
+
+    def get(name):
+        t, dims, off = tensors[name]
+        cols, rows = dims[0], (dims[1] if len(dims) > 1 else 1)
+        if t == 0:
+            a = np.frombuffer(raw, np.float32, rows * cols, base + off)
+            return a if len(dims) == 1 else a.reshape(rows, cols)
+        assert t == 8, f"{name}: ggml type {t}"
+        b = np.frombuffer(raw, block, rows * cols // 32, base + off).reshape(rows, cols // 32)
+        return Q8(b["qs"].reshape(rows, cols), b["d"].astype(np.float32), 32)
+
+    a = meta["general.architecture"].decode()
+    dim, n_layers, n_heads = meta[a + ".embedding_length"], meta[a + ".block_count"], meta[a + ".attention.head_count"]
+    n_kv = meta.get(a + ".attention.head_count_kv", n_heads)
+    vocab = len(meta["tokenizer.ggml.tokens"])
+    m = dict(dim=dim, hidden=meta[a + ".feed_forward_length"], L=n_layers, H=n_heads, KV=n_kv, vocab=vocab,
+             seq=meta[a + ".context_length"], head=dim // n_heads, kv_dim=dim * n_kv // n_heads,
+             eps=np.float32(meta.get(a + ".attention.layer_norm_rms_epsilon", 1e-5)),
+             theta=np.float32(meta.get(a + ".rope.freq_base", 10000.0)),
+             bos=meta.get("tokenizer.ggml.bos_token_id", 1), eos=meta.get("tokenizer.ggml.eos_token_id", 2))
+    m["embed_q"] = get("token_embd.weight")
+    m["wcls"] = get("output.weight") if "output.weight" in tensors else m["embed_q"]
+    m["rms_final"] = get("output_norm.weight")
+    for key, name in [("rms_att", "attn_norm"), ("rms_ffn", "ffn_norm"), ("wq", "attn_q"), ("wk", "attn_k"),
+                      ("wv", "attn_v"), ("wo", "attn_output"), ("w1", "ffn_gate"), ("w2", "ffn_down"),
+                      ("w3", "ffn_up")]:
+        m[key] = [get(f"blk.{l}.{name}.weight") for l in range(n_layers)]
+    m["kcache"] = np.zeros((n_layers, m["seq"], m["kv_dim"]), np.float32)
+    m["vcache"] = np.zeros((n_layers, m["seq"], m["kv_dim"]), np.float32)
+    pieces = [p.replace("\u2581".encode(), b" ") for p in meta["tokenizer.ggml.tokens"]]
+    scores = [float(x) for x in meta["tokenizer.ggml.scores"]]
+    lookup = {}
+    for i, p in enumerate(pieces):
+        lookup.setdefault(p, i)
+    m["tokenizer"] = (pieces, scores, lookup)
+    return m
+
+
 def load_model(path):
+    if open(path, "rb").read(4) == b"GGUF":
+        return load_gguf(path)
     raw = open(path, "rb").read()
     if struct.unpack_from("I", raw, 0)[0] == 0x616B3432:
         return load_q8(raw)
@@ -154,8 +246,8 @@ def load_model(path):
     return m
 
 
-def rmsnorm(x, weight):
-    ss = np.float32(np.mean(x * x, dtype=np.float32)) + np.float32(1e-5)
+def rmsnorm(x, weight, eps=np.float32(1e-5)):
+    ss = np.float32(np.mean(x * x, dtype=np.float32)) + eps
     return weight * (x / np.sqrt(ss)).astype(np.float32)
 
 
@@ -170,7 +262,7 @@ def forward(m, token, pos):
     x = m["embed_q"].row(token) if "embed_q" in m else m["embed"][token].copy()
     # RoPE angles for this position
     i = np.arange(0, m["dim"], 2)
-    freq = (1.0 / np.power(np.float32(10000.0), (i % head).astype(np.float32) / np.float32(head))).astype(np.float32)
+    freq = (1.0 / np.power(np.float32(m.get("theta", 10000.0)), (i % head).astype(np.float32) / np.float32(head))).astype(np.float32)
     ang = np.float32(pos) * freq
     cos, sin = np.cos(ang).astype(np.float32), np.sin(ang).astype(np.float32)
 
@@ -181,7 +273,7 @@ def forward(m, token, pos):
         v[1::2] = v0 * sin[:n] + v1 * cos[:n]
 
     for l in range(m["L"]):
-        xb = rmsnorm(x, m["rms_att"][l])
+        xb = rmsnorm(x, m["rms_att"][l], m.get("eps", np.float32(1e-5)))
         q = m["wq"][l] @ xb
         k = m["wk"][l] @ xb
         v = m["wv"][l] @ xb
@@ -197,12 +289,12 @@ def forward(m, token, pos):
             att = softmax((keys @ qh) / np.sqrt(np.float32(head)))
             out[h * head:(h + 1) * head] = att @ m["vcache"][l, :pos + 1, off:off + head]
         x = x + m["wo"][l] @ out
-        xb = rmsnorm(x, m["rms_ffn"][l])
+        xb = rmsnorm(x, m["rms_ffn"][l], m.get("eps", np.float32(1e-5)))
         h1 = m["w1"][l] @ xb
         h3 = m["w3"][l] @ xb
         hb = (h1 * (np.float32(1.0) / (np.float32(1.0) + np.exp(-h1)))) * h3
         x = x + m["w2"][l] @ hb.astype(np.float32)
-    x = rmsnorm(x, m["rms_final"])
+    x = rmsnorm(x, m["rms_final"], m.get("eps", np.float32(1e-5)))
     return m["wcls"] @ x
 
 
@@ -222,11 +314,11 @@ def load_tokenizer(path, vocab):
     return pieces, scores, lookup
 
 
-def encode(tok, text):
+def encode(tok, text, bos=True, prefix=True):
     pieces, scores, lookup = tok
     data = text.encode()
-    ids = [1]
-    if data:
+    ids = [1] if bos else []
+    if data and prefix:
         ids.append(lookup[b" "])
     i = 0
     while i < len(data):
@@ -306,24 +398,31 @@ def main():
         write_q8(sys.argv[2], sys.argv[3], int(sys.argv[4]))
         return
     model_path, tok_path, prompt, steps, temperature, topp, seed = sys.argv[1:8]
+    chat = len(sys.argv) > 8 and sys.argv[8] == "chat"
     m = load_model(model_path)
-    tok = load_tokenizer(tok_path, m["vocab"])
+    tok = m["tokenizer"] if "tokenizer" in m else load_tokenizer(tok_path, m["vocab"])
+    bos, eos = m.get("bos", 1), m.get("eos", 2)
     sampler = Sampler(float(temperature), float(topp), int(seed))
     steps = int(steps)
     if steps <= 0 or steps > m["seq"]:
         steps = m["seq"]
-    ids = encode(tok, prompt)
+    if chat:
+        ids = encode(tok, "<|user|>\n" + prompt) + [eos] + encode(tok, "\n<|assistant|>\n", False, False)
+    else:
+        ids = encode(tok, prompt)
     out = bytearray()
     token, pos = ids[0], 0
     while pos < steps:
         logits = forward(m, token, pos)
-        nxt = ids[pos + 1] if pos < len(ids) - 1 else sampler.sample(logits)
-        pos += 1
-        if nxt == 1:
+        in_prompt = pos < len(ids) - 1
+        nxt = ids[pos + 1] if in_prompt else sampler.sample(logits)
+        if not in_prompt and nxt in (bos, eos):
             break
+        pos += 1
         piece = decode(tok, token, nxt)
         if len(piece) != 1 or 32 <= piece[0] < 127 or piece[0] in (9, 10, 11, 12, 13):
-            out += piece
+            if not (chat and in_prompt):
+                out += piece
         token = nxt
     sys.stdout.buffer.write(bytes(out) + b"\n")
 

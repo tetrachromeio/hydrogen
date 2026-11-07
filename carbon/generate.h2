@@ -6,14 +6,26 @@ pub new type Stats {
     pub seconds: f64      // from the second token on (the first includes page-ins), as llama2.c measures
 }
 
+// The prompt as tokens: plain text (starting with BOS), or with `chat`, wrapped
+// in the Zephyr-style chat template that TinyLlama-Chat and similar models use:
+//   <|user|>\n{prompt}</s>\n<|assistant|>\n
+pub new function prompt_tokens(model: Model, tok: Tokenizer, prompt: str, chat: bool) -> List<int> {
+    if !chat { return tok.encode(prompt, true, false) }
+    var tokens = tok.encode("<|user|>\n" + prompt, true, false)
+    tokens.push(model.eos)
+    for t in tok.encode_with("\n<|assistant|>\n", false, false, false) { tokens.push(t) }
+    return tokens
+}
+
 // Runs the prompt through the model and continues it for up to `steps` positions
 // in total, calling `emit` with each new piece of text as soon as it exists.
-pub new function generate(model: Model, tok: Tokenizer, sampler: var Sampler, prompt: str, steps: int,
-                          threads: int, emit: function(str)) -> Stats {
+// Stops early when the model ends the text (BOS or EOS). `echo`: also emit the
+// prompt's own text (as llama2.c does), not just what the model adds.
+pub new function generate(model: Model, tok: Tokenizer, sampler: var Sampler, tokens: List<int>, steps: int,
+                          threads: int, echo: bool, emit: function(str)) -> Stats {
     var limit = steps
     if limit <= 0 || limit > model.config.seq_len { limit = model.config.seq_len }
     let state = State(model.config, threads)
-    let tokens = tok.encode(prompt, true, false)
     let n_prompt = int(tokens.len())
 
     var start: f64 = 0.0
@@ -23,16 +35,17 @@ pub new function generate(model: Model, tok: Tokenizer, sampler: var Sampler, pr
     while pos < limit {
         let logits = model.forward(state, token, pos)
         var next = 0
-        if pos < n_prompt - 1 {
+        let in_prompt = pos < n_prompt - 1
+        if in_prompt {
             next = tokens[uint(pos + 1)] // still inside the prompt: force its next token
         } else {
             next = sampler.sample(logits)
             generated += 1
+            if next == model.bos || next == model.eos { break } // the model ended the text
         }
         pos += 1
-        if next == 1 { break } // BOS: the model ended the text
         let piece = tok.decode(token, next)
-        if printable(piece) { emit(piece) }
+        if printable(piece) && (echo || !in_prompt) { emit(piece) }
         token = next
         if start == 0.0 { start = now() }
     }

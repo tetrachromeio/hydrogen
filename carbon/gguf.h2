@@ -1,0 +1,255 @@
+// GGUF, llama.cpp's model format: a header of typed key/value metadata
+// (sizes, tokenizer), a table of tensors (name, shape, type, offset), then the
+// tensor data. Carbon reads Llama-architecture models (Llama 1/2, TinyLlama,
+// Mistral...) whose matrices are F32 or Q8_0; everything is used in place.
+
+// Where a GGUF file keeps its vocabulary (count 0: not a GGUF model).
+pub new type GgufVocab {
+    tokens_at: uint   // the first token string (u64 length + bytes, one after another)
+    scores_at: uint   // count f32 scores
+    count: int
+}
+
+new type TensorInfo {
+    kind: int         // ggml type: 0 F32, 8 Q8_0
+    rows: int
+    cols: int
+    at: uint          // offset from the start of the tensor data
+}
+
+// Reads GGUF's little-endian values from the mapped file, never past its end.
+new class Cursor {
+    data: ptr<u8>
+    len: uint
+    at: uint
+    failed: bool
+
+    new mut function need(n: uint) -> bool {
+        if self.failed || n > self.len || self.at > self.len - n {
+            self.failed = true
+            return false
+        }
+        return true
+    }
+    new mut function read_u32() -> int {
+        if !self.need(4) { return 0 }
+        let v = ptr<u32>(&self.data[self.at])[0]
+        self.at += 4
+        return int(v)
+    }
+    new mut function read_u64() -> int {
+        if !self.need(8) { return 0 }
+        let v = ptr<i64>(&self.data[self.at])[0]
+        self.at += 8
+        return v
+    }
+    new mut function read_text() -> str {
+        let n = uint(self.read_u64())
+        if !self.need(n) { return "" }
+        let s = str(ptr<u8>(&self.data[self.at]), n)
+        self.at += n
+        return s
+    }
+    // A number of any GGUF numeric type, as f64.
+    new mut function read_number(kind: int) -> f64 {
+        let size = value_size(kind)
+        if size == 0 || !self.need(uint(size)) {
+            self.failed = true
+            return 0.0
+        }
+        let p = ptr<u8>(&self.data[self.at])
+        self.at += uint(size)
+        if kind == 0 { return f64(p[0]) }
+        if kind == 1 { return f64(ptr<i8>(p)[0]) }
+        if kind == 2 { return f64(ptr<u16>(p)[0]) }
+        if kind == 3 { return f64(ptr<i16>(p)[0]) }
+        if kind == 4 { return f64(ptr<u32>(p)[0]) }
+        if kind == 5 { return f64(ptr<i32>(p)[0]) }
+        if kind == 6 { return f64(ptr<f32>(p)[0]) }
+        if kind == 7 { return f64(p[0]) }
+        if kind == 10 { return f64(ptr<u64>(p)[0]) }
+        if kind == 11 { return f64(ptr<i64>(p)[0]) }
+        return ptr<f64>(p)[0]
+    }
+    new mut function skip(kind: int) {
+        if kind == 8 {
+            self.read_text()
+            return
+        }
+        if kind == 9 {
+            let item = self.read_u32()
+            let n = self.read_u64()
+            if item == 8 { for i in 0..n { self.read_text() } }
+            else if item == 9 { self.failed = true } // arrays of arrays: not in any model metadata we need
+            else {
+                let bytes = uint(n * value_size(item))
+                if self.need(bytes) { self.at += bytes }
+            }
+            return
+        }
+        self.read_number(kind)
+    }
+}
+
+// Bytes taken by one value of a fixed-size GGUF type (0 for strings and arrays).
+new function value_size(kind: int) -> int {
+    if kind == 0 || kind == 1 || kind == 7 { return 1 }
+    if kind == 2 || kind == 3 { return 2 }
+    if kind == 4 || kind == 5 || kind == 6 { return 4 }
+    if kind == 10 || kind == 11 || kind == 12 { return 8 }
+    return 0
+}
+
+new function load_gguf(path: str, file: own MappedFile) -> Result<Model, string> {
+    var c = Cursor(file.data, file.len, 4, false)
+    let version = c.read_u32()
+    if version < 2 || version > 3 { return Err("{path}: GGUF version {version} isn't supported (2 and 3 are)") }
+    let n_tensors = c.read_u64()
+    let n_meta = c.read_u64()
+
+    var arch = string("")
+    var dim = 0
+    var hidden = 0
+    var n_layers = 0
+    var n_heads = 0
+    var n_kv_heads = 0
+    var context = 0
+    var eps: f64 = 0.00001
+    var theta: f64 = 10000.0
+    var alignment = 32
+    var bos = 1
+    var eos = 2
+    var vocab = GgufVocab(0, 0, 0)
+    for i in 0..n_meta {
+        if c.failed { break }
+        let key = c.read_text()
+        let kind = c.read_u32()
+        let k = string(key)
+        if k == "general.architecture" && kind == 8 { arch = string(c.read_text()) }
+        else if k == "tokenizer.ggml.tokens" && kind == 9 {
+            let item = c.read_u32()
+            let n = c.read_u64()
+            vocab.tokens_at = c.at
+            vocab.count = n
+            if item != 8 { return Err("{path}: tokenizer.ggml.tokens isn't a list of strings") }
+            for t in 0..n { c.read_text() }
+        } else if k == "tokenizer.ggml.scores" && kind == 9 {
+            let item = c.read_u32()
+            let n = c.read_u64()
+            if item != 6 { return Err("{path}: tokenizer.ggml.scores isn't a list of f32") }
+            vocab.scores_at = c.at
+            let bytes = uint(n * 4)
+            if c.need(bytes) { c.at += bytes }
+        } else if kind == 8 || kind == 9 { c.skip(kind) }
+        else {
+            let v = c.read_number(kind)
+            if k == arch + ".embedding_length" { dim = int(v) }
+            else if k == arch + ".feed_forward_length" { hidden = int(v) }
+            else if k == arch + ".block_count" { n_layers = int(v) }
+            else if k == arch + ".attention.head_count" { n_heads = int(v) }
+            else if k == arch + ".attention.head_count_kv" { n_kv_heads = int(v) }
+            else if k == arch + ".context_length" { context = int(v) }
+            else if k == arch + ".attention.layer_norm_rms_epsilon" { eps = v }
+            else if k == arch + ".rope.freq_base" { theta = v }
+            else if k == "general.alignment" { alignment = int(v) }
+            else if k == "tokenizer.ggml.bos_token_id" { bos = int(v) }
+            else if k == "tokenizer.ggml.eos_token_id" { eos = int(v) }
+        }
+    }
+    if c.failed { return Err("{path}: the GGUF metadata is cut off or malformed") }
+    if arch != "llama" { return Err("{path}: architecture '{arch}' isn't supported yet (Carbon runs 'llama')") }
+    if n_kv_heads == 0 { n_kv_heads = n_heads }
+    if vocab.count == 0 || vocab.scores_at == 0 { return Err("{path}: no tokenizer vocabulary with scores in the file") }
+    let cfg = Config(dim, hidden, n_layers, n_heads, n_kv_heads, vocab.count, context)
+    if !valid(cfg) { return Err("{path}: missing or inconsistent model sizes in the metadata") }
+
+    var tensors = Map<string, TensorInfo>()
+    for i in 0..n_tensors {
+        let name = string(c.read_text())
+        let nd = c.read_u32()
+        var rows = 1
+        var cols = 0
+        for d in 0..nd {
+            let size = c.read_u64()
+            if d == 0 { cols = size } else { rows = rows * size }
+        }
+        let kind = c.read_u32()
+        let at = c.read_u64()
+        tensors.set(name, TensorInfo(kind, rows, cols, uint(at)))
+    }
+    if c.failed { return Err("{path}: the GGUF tensor table is cut off or malformed") }
+    let data_at = (c.at + uint(alignment) - 1) / uint(alignment) * uint(alignment)
+
+    var problem = string("")
+    let base = ptr<u8>(&file.data[data_at])
+    let room = file.len - data_at
+    let kv_dim = dim * n_kv_heads / n_heads
+    var layers = List<Layer>()
+    for l in 0..n_layers {
+        let p = "blk.{l}."
+        layers.push(Layer(gguf_vector(tensors, base, room, p + "attn_norm.weight", dim, problem),
+                          gguf_matrix(tensors, base, room, p + "attn_q.weight", dim, dim, problem),
+                          gguf_matrix(tensors, base, room, p + "attn_k.weight", kv_dim, dim, problem),
+                          gguf_matrix(tensors, base, room, p + "attn_v.weight", kv_dim, dim, problem),
+                          gguf_matrix(tensors, base, room, p + "attn_output.weight", dim, dim, problem),
+                          gguf_vector(tensors, base, room, p + "ffn_norm.weight", dim, problem),
+                          gguf_matrix(tensors, base, room, p + "ffn_gate.weight", hidden, dim, problem),
+                          gguf_matrix(tensors, base, room, p + "ffn_down.weight", dim, hidden, problem),
+                          gguf_matrix(tensors, base, room, p + "ffn_up.weight", hidden, dim, problem)))
+    }
+    let embed = gguf_matrix(tensors, base, room, "token_embd.weight", vocab.count, dim, problem)
+    let norm = gguf_vector(tensors, base, room, "output_norm.weight", dim, problem)
+    var wcls = embed
+    if tensors.has(string("output.weight")) {
+        wcls = gguf_matrix(tensors, base, room, "output.weight", vocab.count, dim, problem)
+    }
+    if problem.len() > 0 { return Err("{path}: {problem}") }
+    var group = 0
+    if is_quantized(embed) { group = 32 }
+    return Ok(Model(cfg, file, group, embed, layers, norm, wcls, f32(theta), f32(eps), bos, eos, vocab))
+}
+
+new function gguf_find(tensors: Map<string, TensorInfo>, name: str, rows: int, cols: int, room: uint,
+                       problem: var string) -> TensorInfo {
+    match tensors.get(string(name)) {
+        None => {
+            if problem.len() == 0 { problem = "tensor {name} is missing" }
+        }
+        Some(t) => {
+            let info = *t
+            var bytes = 0
+            if info.kind == 0 { bytes = rows * cols * 4 }
+            else if info.kind == 8 { bytes = rows * cols / 32 * 34 }
+            if info.rows != rows || info.cols != cols {
+                if problem.len() == 0 { problem = "tensor {name} is {info.rows}x{info.cols}, expected {rows}x{cols}" }
+            } else if bytes == 0 {
+                if problem.len() == 0 {
+                    problem = "tensor {name} has ggml type {info.kind}; Carbon reads F32 (0) and Q8_0 (8) so far"
+                }
+            } else if info.kind == 8 && cols % 32 != 0 {
+                if problem.len() == 0 { problem = "tensor {name}: Q8_0 rows must be a multiple of 32 long" }
+            } else if info.at > room || uint(bytes) > room - info.at {
+                if problem.len() == 0 { problem = "tensor {name} runs past the end of the file" }
+            } else {
+                return info
+            }
+        }
+    }
+    return TensorInfo(-1, 0, 0, 0)
+}
+
+new function gguf_matrix(tensors: Map<string, TensorInfo>, base: ptr<u8>, room: uint, name: str, rows: int,
+                         cols: int, problem: var string) -> Weights {
+    let t = gguf_find(tensors, name, rows, cols, room, problem)
+    if t.kind == 0 { return Weights(ptr<f32>(&base[t.at]), null, null, rows, cols, 0, FORMAT_F32) }
+    if t.kind == 8 { return Weights(null, ptr<i8>(&base[t.at]), null, rows, cols, 32, FORMAT_Q8_BLOCKS) }
+    return Weights(null, null, null, rows, cols, 0, FORMAT_F32)
+}
+
+new function gguf_vector(tensors: Map<string, TensorInfo>, base: ptr<u8>, room: uint, name: str, n: int,
+                         problem: var string) -> ptr<f32> {
+    let t = gguf_find(tensors, name, 1, n, room, problem)
+    if t.kind == 0 { return ptr<f32>(&base[t.at]) }
+    if t.kind >= 0 && problem.len() == 0 { problem = "tensor {name} must be F32" }
+    return null
+}

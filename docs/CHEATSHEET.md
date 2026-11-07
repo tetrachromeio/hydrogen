@@ -128,7 +128,7 @@ Escapes: `\n \t \r \0 \\ \' \" \xHH`
 | `int` | 64-bit signed | `i64` |
 | `uint` | 64-bit unsigned | `u64`, `usize` |
 | `float` | 64-bit float | `f64` |
-| `i8 i16 i32`, `u8 u16 u32`, `f32` | sized | |
+| `i8 i16 i32`, `u8 u16 u32`, `f32`, `f16` | sized (`f16`: half precision, for storage; convert with `f32(h)` for math) | |
 | `bool`, `char` | char is a 32-bit Unicode code point | |
 | `str` | borrowed text (pointer + length) | |
 | `string` | owned, growable text | |

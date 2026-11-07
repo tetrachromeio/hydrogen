@@ -16,6 +16,7 @@ use Elemental.Thread
 
 include kernels
 include quant
+include gguf
 include model
 include tokenizer
 include sampler

@@ -3,8 +3,15 @@
 Local LLM inference in Hydrogen (element 6). The plan and milestones are in
 [docs/CARBON.md](../docs/CARBON.md).
 
-**Status: M1 and M2 done: correct, SIMD, multithreaded, Q8_0 quantized.** Next: M3, ternary weights. Carbon runs Llama-architecture models
-in llama2.c's formats, f32 or Q8_0, for example [stories15M / 42M / 110M](https://huggingface.co/karpathy/tinyllamas):
+**Status: M1 and M2 done: correct, SIMD, multithreaded, Q8_0, GGUF.** Carbon runs
+TinyLlama-1.1B-Chat from its standard GGUF file, at ~10 tok/s on 4 cores, and its
+output matches the numpy reference exactly. Carbon runs Llama-architecture models from:
+- llama2.c files, f32 or Q8_0, e.g. [stories15M / 42M / 110M](https://huggingface.co/karpathy/tinyllamas);
+- GGUF files (llama.cpp's format) with F32 or Q8_0 tensors and a SentencePiece
+  vocabulary, e.g. [TinyLlama-1.1B-Chat Q8_0](https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF).
+  The tokenizer is read from the file.
+
+What it does:
 - Weights are memory-mapped from the file and used in place, never copied or parsed into objects.
 - All activations and the key/value cache come from one `Arena` allocation, made once.
 - Grouped-query attention, RoPE, SwiGLU feed-forward.
@@ -17,13 +24,26 @@ Its output matches an independent numpy implementation (`tests/carbon/reference.
 token for token, greedy and sampled.
 
 ```bash
+cd carbon/examples/generate && hy build --release --native
+build/generate tinyllama-1.1b-chat-v1.0.Q8_0.gguf -c -i "Write a haiku about the ocean." -t 0
+```
+```
+Ocean's calmness, a serene sight
+A peaceful haven, a sanctuary
+...
+```
+
+`-c` wraps the prompt in the chat template (TinyLlama/Zephyr style). With llama2.c models:
+
+```bash
 cd carbon/examples/quantize && hy build --release && build/quantize stories42M.bin stories42M_q8.bin
 cd ../generate && hy build --release --native
 build/generate stories42M_q8.bin -z tokenizer.bin -i "Once upon a time" -n 200 -t 0.8 -s 42
 ```
 
-Options are llama2.c's: `-z` tokenizer, `-i` prompt, `-n` steps, `-t` temperature
-(0 means greedy), `-p` top-p, `-s` seed; plus `-T` threads (default: all cores).
+Options are llama2.c's: `-z` tokenizer (llama2.c models only), `-i` prompt, `-n` steps,
+`-t` temperature (0 means greedy), `-p` top-p, `-s` seed; plus `-T` threads (default:
+all cores) and `-c` chat. Generation stops early at the model's end-of-text token.
 
 ## As a library
 
@@ -32,9 +52,10 @@ use Carbon
 
 match load_model("stories15M.bin") {
     Ok(model) => {
-        let tok = load_tokenizer("tokenizer.bin", model.config.vocab_size)   // Result
+        let tok = load_tokenizer("tokenizer.bin", model.config.vocab_size)   // Result; GGUF: model_tokenizer(model)
         var sampler = Sampler(model.config.vocab_size, 0.8, 0.9, 42)
-        generate(model, tok, sampler, "Once upon a time", 256, cpu_count(), function(piece: str) {
+        let prompt = prompt_tokens(model, tok, "Once upon a time", false)  // true: chat template
+        generate(model, tok, sampler, prompt, 256, cpu_count(), true, function(piece: str) {
             // each new piece of text, as soon as it exists (send it to a Channel, a socket, a Boron UI...)
         })
     }
@@ -53,6 +74,7 @@ x86-64 container with 4 cores, `--release --native`, tokens per second:
 |---|---|---|---|---|
 | stories15M (61 MB → 17 MB) | ~380 | ~840 | ~500 | ~880 |
 | stories42M (167 MB → 47 MB) | ~54 | ~290 | ~146 | ~530 |
+| TinyLlama-1.1B-Chat GGUF (1.17 GB, Q8_0) | | | | ~10 |
 
 How we got here (stories15M, one thread): the scalar M1 loop managed ~50, because
 each multiply-add waited for the previous one. SIMD `f32x8` kernels with four
@@ -61,6 +83,8 @@ accumulators reached ~290, and `--native` (AVX2) ~380. A persistent thread
 bytes: one core can't read f32 stories42M fast enough, but it can read Q8_0.
 
 **Correctness:**
+- **TinyLlama-1.1B-Chat GGUF:** greedy chat replies are byte-identical to the
+  reference's (60 and 70 steps; the reference has its own GGUF parser).
 - **f32, and tiny-model Q8_0:** the text matches the numpy reference (`tests/carbon/reference.py`)
   token for token.
 - **Quantizer:** the file Carbon writes is byte-identical to the reference's.
@@ -75,6 +99,7 @@ bytes: one core can't read f32 stories42M fast enough, but it can read Q8_0.
 | `kernels.h2` | `Matrix` views, SIMD `dot`/`axpy`/`matvec`, `matvec_pool`, `rmsnorm`, `softmax`, `argmax` |
 | `quant.h2` | `Weights` (f32 or Q8_0), `quantize`, Q8_0 matrix-vector product, `matmul` |
 | `quantize.h2` | `quantize_model`: f32 file → Q8_0 file |
+| `gguf.h2` | GGUF reader: metadata, tensor table, `Layer` views; Q8_0 blocks (f16 scale + 32 int8) |
 | `model.h2` | `Config`, `Model` (both file formats, mapped weights, `forward`), `State` (arena, pool) |
 | `tokenizer.h2` | `Tokenizer`: `encode`, `decode` |
 | `sampler.h2` | `Sampler`: greedy, temperature, top-p |

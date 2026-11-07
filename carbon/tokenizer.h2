@@ -19,10 +19,15 @@ pub new class Tokenizer {
 
     // Text -> token ids. Optionally starts with BOS (1) / ends with EOS (2).
     pub new function encode(text: str, bos: bool, eos: bool) -> List<int> {
+        return self.encode_with(text, bos, eos, true)
+    }
+
+    // encode, choosing whether to add SentencePiece's leading space (the "dummy
+    // prefix"): yes at the start of a text, no for text that continues after a special token.
+    pub new function encode_with(text: str, bos: bool, eos: bool, dummy_prefix: bool) -> List<int> {
         var tokens = List<int>()
         if bos { tokens.push(1) }
-        // SentencePiece adds a leading space ("dummy prefix") to non-empty text.
-        if text.len > 0 { tokens.push(self.id_of(" ")) }
+        if dummy_prefix && text.len > 0 { tokens.push(self.id_of(" ")) }
 
         // One token per UTF-8 code point; code points with no token become byte tokens (byte + 3).
         var start: uint = 0
@@ -118,9 +123,33 @@ pub new function load_tokenizer(path: str, vocab_size: int) -> Result<Tokenizer,
                 pieces.push(piece)
                 scores.push(score)
             }
-            let bytes = alloc [u8; 256]
-            for b in 0..256 { bytes[b] = u8(b) }
-            return Ok(Tokenizer(pieces, scores, lookup, ptr<u8>(bytes)))
+            return Ok(make_tokenizer(pieces, scores, lookup))
         }
     }
+}
+
+new function make_tokenizer(pieces: own List<string>, scores: own List<f32>, lookup: own Map<string, int>) -> Tokenizer {
+    let bytes = alloc [u8; 256]
+    for b in 0..256 { bytes[b] = u8(b) }
+    return Tokenizer(pieces, scores, lookup, ptr<u8>(bytes))
+}
+
+// The tokenizer stored inside a GGUF model file. SentencePiece marks spaces as
+// U+2581 ("▁") there; llama2.c's tokenizer.bin, and Carbon, use plain spaces.
+pub new function model_tokenizer(model: Model) -> Result<Tokenizer, string> {
+    let v = model.vocab
+    if v.count == 0 { return Err(string("this model file has no tokenizer inside; pass a tokenizer.bin")) }
+    var c = Cursor(model.file.data, model.file.len, v.tokens_at, false)
+    var pieces = List<string>()
+    var scores = List<f32>()
+    var lookup = Map<string, int>()
+    let s = ptr<f32>(&model.file.data[v.scores_at])
+    for i in 0..v.count {
+        let piece = replace(c.read_text(), "\xE2\x96\x81", " ")
+        if !lookup.has(piece) { lookup.set(piece.copy(), i) }
+        pieces.push(piece)
+        scores.push(s[i])
+    }
+    if c.failed { return Err(string("the model's vocabulary is cut off")) }
+    return Ok(make_tokenizer(pieces, scores, lookup))
 }

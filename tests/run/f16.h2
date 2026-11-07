@@ -1,0 +1,11 @@
+// f16: literals rounded to half precision, arithmetic, loads, conversions, overflow and subnormals.
+use Elemental
+new function main() -> int {
+    let a: f16 = 1.5
+    let b = f16(0.1)
+    let bits: [u16; 2] = [0x3C00, 0xC500]   // 1.0, -5.0
+    let p = ptr<f16>(&bits[0])
+    let c = a * b + p[1]
+    print("{f32(a)} {f32(b)} {f32(c)} {f32(p[0])} {f64(f16(65504.0))} {f32(f16(70000.0))} {f32(f16(0.0000001))}")
+    return 0
+}
