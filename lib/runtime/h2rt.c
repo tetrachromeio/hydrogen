@@ -361,3 +361,130 @@ void h2_float_fixed(double v, int64_t digits, H2String* out) {
     if (n < 0 || n >= (int)sizeof tmp) n = (int)strlen(tmp);
     from_bytes(out, tmp, (size_t)n);
 }
+
+// ---- file handles and directories (Elemental.File)
+
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+// mode: 0 read, 1 write (truncate), 2 append. On failure returns NULL and sets *err.
+void* h2_fopen(const uint8_t* path, uint64_t len, int64_t mode, int64_t* err) {
+    char* p = c_path(path, len);
+    FILE* f = fopen(p, mode == 0 ? "rb" : mode == 1 ? "wb" : "ab");
+    free(p);
+    *err = f ? 0 : error_code();
+    return f;
+}
+
+_Bool h2_fread_line(void* f, H2String* out) {
+    char* line = NULL;
+    size_t cap = 0;
+    ssize_t n = getline(&line, &cap, (FILE*)f);
+    if (n < 0) {
+        free(line);
+        return 0;
+    }
+    if (n > 0 && line[n - 1] == '\n') --n;
+    if (n > 0 && line[n - 1] == '\r') --n;
+    out->buf = (uint8_t*)line;
+    out->used = (uint64_t)n;
+    out->cap = (uint64_t)cap;
+    return 1;
+}
+
+void h2_fread_all(void* f, H2String* out) {
+    size_t cap = 4096, used = 0, n;
+    uint8_t* buf = (uint8_t*)malloc(cap);
+    while ((n = fread(buf + used, 1, cap - used, (FILE*)f)) > 0) {
+        used += n;
+        if (used == cap) buf = (uint8_t*)realloc(buf, cap *= 2);
+    }
+    out->buf = buf;
+    out->used = used;
+    out->cap = cap;
+}
+
+int64_t h2_fwrite(void* f, const uint8_t* data, uint64_t n) {
+    if (n && fwrite(data, 1, n, (FILE*)f) != n) return 3;
+    return 0;
+}
+
+void h2_fclose(void* f) { fclose((FILE*)f); }
+
+_Bool h2_path_exists(const uint8_t* path, uint64_t len) {
+    char* p = c_path(path, len);
+    struct stat st;
+    int ok = stat(p, &st) == 0;
+    free(p);
+    return ok;
+}
+
+_Bool h2_is_dir(const uint8_t* path, uint64_t len) {
+    char* p = c_path(path, len);
+    struct stat st;
+    int ok = stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+    free(p);
+    return ok;
+}
+
+int64_t h2_make_dir(const uint8_t* path, uint64_t len) {
+    char* p = c_path(path, len);
+    int r = mkdir(p, 0777);
+    free(p);
+    return r == 0 || errno == EEXIST ? 0 : error_code();
+}
+
+int64_t h2_remove_dir(const uint8_t* path, uint64_t len) {
+    char* p = c_path(path, len);
+    int r = rmdir(p);
+    free(p);
+    return r == 0 ? 0 : error_code();
+}
+
+// A directory listing, read all at once and sorted by name ("." and ".." left out).
+typedef struct {
+    char** names;
+    size_t count, next;
+} H2Dir;
+
+static int compare_names(const void* a, const void* b) { return strcmp(*(char* const*)a, *(char* const*)b); }
+
+void* h2_dir_open(const uint8_t* path, uint64_t len, int64_t* err) {
+    char* p = c_path(path, len);
+    DIR* d = opendir(p);
+    free(p);
+    if (!d) {
+        *err = error_code();
+        return NULL;
+    }
+    H2Dir* dir = (H2Dir*)calloc(1, sizeof *dir);
+    size_t cap = 0;
+    struct dirent* e;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (dir->count == cap) dir->names = (char**)realloc(dir->names, (cap = cap ? cap * 2 : 16) * sizeof(char*));
+        size_t n = strlen(e->d_name);
+        dir->names[dir->count] = (char*)malloc(n + 1);
+        memcpy(dir->names[dir->count++], e->d_name, n + 1);
+    }
+    closedir(d);
+    qsort(dir->names, dir->count, sizeof(char*), compare_names);
+    *err = 0;
+    return dir;
+}
+
+_Bool h2_dir_next(void* p, H2String* out) {
+    H2Dir* dir = (H2Dir*)p;
+    if (dir->next >= dir->count) return 0;
+    const char* name = dir->names[dir->next++];
+    from_bytes(out, name, strlen(name));
+    return 1;
+}
+
+void h2_dir_close(void* p) {
+    H2Dir* dir = (H2Dir*)p;
+    for (size_t i = 0; i < dir->count; ++i) free(dir->names[i]);
+    free(dir->names);
+    free(dir);
+}

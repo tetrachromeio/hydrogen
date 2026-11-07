@@ -52,3 +52,89 @@ pub new function remove_file(path: str) -> bool {
     let c = string(path) + "\0"
     return remove(c.view().data) == 0
 }
+
+// ---------------------------------------------------------------- file handles
+
+extern function h2_fopen(path: ptr<u8>, len: uint, mode: int, err: ptr<int>) -> ptr<u8>
+extern function h2_fread_line(f: ptr<u8>, out: ptr<string>) -> bool
+extern function h2_fread_all(f: ptr<u8>, out: ptr<string>)
+extern function h2_fwrite(f: ptr<u8>, data: ptr<u8>, n: uint) -> int
+extern function h2_fclose(f: ptr<u8>)
+
+// An open file. It is closed automatically when it goes away.
+pub new class File {
+    handle: ptr<u8>
+
+    // The next line (without its newline), or None at the end of the file.
+    pub new mut function read_line() -> Option<string> {
+        var line = string("")
+        if h2_fread_line(self.handle, &line) { return Some(line) }
+        return None
+    }
+
+    // Everything from here to the end of the file.
+    pub new mut function read_all() -> string {
+        var text = string("")
+        h2_fread_all(self.handle, &text)
+        return text
+    }
+
+    // Writes text (add "\n" yourself for lines). Returns the bytes written.
+    pub new mut function write(text: str) -> Result<uint, FileError> {
+        let code = h2_fwrite(self.handle, text.data, text.len)
+        if code != 0 { return Err(to_error(code)) }
+        return Ok(text.len)
+    }
+
+    pub new function drop() { h2_fclose(self.handle) }
+}
+
+new function open_mode(path: str, mode: int) -> Result<File, FileError> {
+    var err = 0
+    let handle = h2_fopen(path.data, path.len, mode, &err)
+    if handle == null { return Err(to_error(err)) }
+    return Ok(File(handle))
+}
+
+// Opens a file for reading.
+pub new function open_read(path: str) -> Result<File, FileError> { return open_mode(path, 0) }
+// Creates (or empties) a file for writing.
+pub new function open_write(path: str) -> Result<File, FileError> { return open_mode(path, 1) }
+// Opens a file for adding to its end (creating it if needed).
+pub new function open_append(path: str) -> Result<File, FileError> { return open_mode(path, 2) }
+
+// ---------------------------------------------------------------- directories
+
+extern function h2_path_exists(path: ptr<u8>, len: uint) -> bool
+extern function h2_is_dir(path: ptr<u8>, len: uint) -> bool
+extern function h2_make_dir(path: ptr<u8>, len: uint) -> int
+extern function h2_remove_dir(path: ptr<u8>, len: uint) -> int
+extern function h2_dir_open(path: ptr<u8>, len: uint, err: ptr<int>) -> ptr<u8>
+extern function h2_dir_next(dir: ptr<u8>, out: ptr<string>) -> bool
+extern function h2_dir_close(dir: ptr<u8>)
+
+// Does a file or directory exist at this path?
+pub new function exists(path: str) -> bool { return h2_path_exists(path.data, path.len) }
+
+pub new function is_dir(path: str) -> bool { return h2_is_dir(path.data, path.len) }
+
+// Creates a directory (fine if it already exists). Returns false if it couldn't.
+pub new function make_dir(path: str) -> bool { return h2_make_dir(path.data, path.len) == 0 }
+
+// Removes an empty directory. Returns false if it couldn't.
+pub new function remove_dir(path: str) -> bool { return h2_remove_dir(path.data, path.len) == 0 }
+
+// The names in a directory, sorted (without "." and "..").
+pub new function list_dir(path: str) -> Result<List<string>, FileError> {
+    var err = 0
+    let dir = h2_dir_open(path.data, path.len, &err)
+    if dir == null { return Err(to_error(err)) }
+    var names = List<string>()
+    var name = string("")
+    while h2_dir_next(dir, &name) {
+        names.push(name)
+        name = string("")
+    }
+    h2_dir_close(dir)
+    return Ok(names)
+}

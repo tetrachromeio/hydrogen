@@ -1,0 +1,73 @@
+use Elemental
+
+new function write_lines(path: str, lines: [str]) {
+    match open_write(path) {
+        Ok(f) => {
+            var file = f
+            for line in lines { file.write(line + "\n") }
+        }                                            // closed here
+        Err(e) => print(e)
+    }
+}
+
+new function main() -> int {
+    print(make_dir("workspace"))
+    print(is_dir("workspace"))
+    write_lines("workspace/b.txt", ["beta 1", "beta 2"])
+    write_lines("workspace/a.txt", ["alpha"])
+
+    match list_dir("workspace") {
+        Ok(names) => print(join(names, ", "))        // sorted
+        Err(e) => print(e)
+    }
+
+    // line by line
+    match open_read("workspace/b.txt") {
+        Ok(f) => {
+            var file = f
+            var n = 0
+            while true {
+                match file.read_line() {
+                    Some(line) => {
+                        n += 1
+                        print("{n}: {line}")
+                    }
+                    None => { break }
+                }
+            }
+        }
+        Err(e) => print(e)
+    }
+
+    // append, then read everything
+    match open_append("workspace/a.txt") {
+        Ok(f) => {
+            var file = f
+            file.write("omega\n")
+        }
+        Err(e) => print(e)
+    }
+    match open_read("workspace/a.txt") {
+        Ok(f) => {
+            var file = f
+            print(replace(trim(file.read_all()), "\n", " | "))
+        }
+        Err(e) => print(e)
+    }
+
+    // errors
+    match open_read("workspace/missing.txt") {
+        Ok(f) => print("unexpected")
+        Err(e) => print(e)
+    }
+    print(exists("workspace/a.txt"))
+    print(exists("workspace/nope"))
+
+    // clean up
+    print(remove_dir("workspace"))                   // not empty yet
+    remove_file("workspace/a.txt")
+    remove_file("workspace/b.txt")
+    print(remove_dir("workspace"))
+    print(exists("workspace"))
+    return 0
+}

@@ -608,6 +608,8 @@ Two layers:
 | `Elemental.Thread` | `spawn(input, work)` -> `Thread<R>` with `join()`; `channel<T>()` -> `Channel<T>` with `send(x)`, `receive()` (Option), `copy()`; `mutex(value)` -> `Mutex<T>` with `lock()` (a `Guard`: `value()` points at it, unlocks when dropped), `copy()`; `atomic_int(n)` -> `AtomicInt` with `load` `store` `add` `swap` `compare_swap` `copy` |
 | `Elemental.Random` | `Random(seed)` with `next()` `below(n)` `between(a, b)` `chance()` (0..1); `random_from_clock()` |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
+| file handles | `open_read(path)`, `open_write(path)`, `open_append(path)` -> `Result<File, FileError>`; `File`: `read_line()` (Option), `read_all()`, `write(text)`; closed automatically |
+| directories | `exists(path)` `is_dir(path)` `make_dir(path)` `remove_dir(path)` (bool), `list_dir(path)` -> `Result<List<string>, FileError>` (sorted) |
 | formatting | `fixed(x, digits)` `pad_left(s, w)` `pad_right(s, w)` `repeat(s, n)` `join(list, sep)` `replace(s, from, to)` `upper` `lower` |
 | text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
 | `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
