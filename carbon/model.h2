@@ -84,20 +84,15 @@ pub new class Model {
                 let q = offset(s.q, h * head_size)
                 let att = offset(s.att, h * c.seq_len)
                 let kv_off = (h / kv_mul) * head_size
+                let scale = sqrtf(f32(head_size))
                 for t in 0..pos + 1 {
-                    let kt = offset(s.key_cache, loff + t * kv_dim + kv_off)
-                    var score: f32 = 0.0
-                    for e in 0..head_size { score += q[e] * kt[e] }
-                    score /= sqrtf(f32(head_size))
-                    att[t] = score
+                    att[t] = dot(q, offset(s.key_cache, loff + t * kv_dim + kv_off), head_size) / scale
                 }
                 softmax(att, pos + 1)
                 let xb = offset(s.xb, h * head_size)
                 for e in 0..head_size { xb[e] = 0.0 }
                 for t in 0..pos + 1 {
-                    let vt = offset(s.value_cache, loff + t * kv_dim + kv_off)
-                    let a = att[t]
-                    for e in 0..head_size { xb[e] += a * vt[e] }
+                    axpy(xb, att[t], offset(s.value_cache, loff + t * kv_dim + kv_off), head_size)
                 }
             }
             matvec(s.xb2, Matrix(offset(self.wo, l * dim * dim), dim, dim), s.xb)

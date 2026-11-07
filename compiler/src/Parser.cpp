@@ -436,7 +436,19 @@ private:
         d->name = expectIdent("a type name");
         d->generics = parseGenericParams();
         if (accept(Tok::Colon)) {
-            if ((atIdent("bits") || atIdent("float")) && peek(1).kind == Tok::LParen) {
+            if (atIdent("vector") && peek(1).kind == Tok::LParen) {
+                // vector(f32, 8): a SIMD vector of 8 f32 lanes
+                d->base = TypeDecl::Base::Vector;
+                advance();
+                advance();
+                d->aliasOf = parseType();
+                expect(Tok::Comma, "',' and a lane count, as in vector(f32, 8)");
+                const Token& n = expect(Tok::IntLit, "a lane count");
+                d->bits = static_cast<uint32_t>(std::stoul(n.text, nullptr, 0));
+                if (d->bits < 2 || d->bits > 64 || (d->bits & (d->bits - 1)))
+                    fail(n.loc, "a vector has 2, 4, 8, 16, 32 or 64 lanes");
+                expect(Tok::RParen);
+            } else if ((atIdent("bits") || atIdent("float")) && peek(1).kind == Tok::LParen) {
                 d->base = peek().text == "bits" ? TypeDecl::Base::Bits : TypeDecl::Base::Float;
                 advance();
                 advance();

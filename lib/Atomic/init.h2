@@ -13,6 +13,8 @@
 // The friendly names are the real types; the sized names are aliases:
 //   int = i64, uint = u64 = usize, float = f64
 
+include simd
+
 // ---------------------------------------------------------------- integers
 
 pub new type int : bits(64) signed {

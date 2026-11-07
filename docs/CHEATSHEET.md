@@ -13,7 +13,7 @@ anything not yet supported is listed at the end.
 | `hy new <name>` | Create an app in `./<name>` (`--lib` for a library) |
 | `hy check` | Check the whole project: syntax, names, types, ownership |
 | `hy run` | Build and run (`hy run -- args` passes arguments) |
-| `hy build` | Build to `build/<name>` (`--release`: `-O2`, no overflow checks) |
+| `hy build` | Build to `build/<name>` (`--release`: `-O2`, no overflow checks; `--native`: use this CPU's newest instructions, e.g. AVX2) |
 | `hy deps` | List resolved dependencies |
 | `hy lsp` | Language server for editors: live errors, go to definition, hover (see `editors/vscode`) |
 | `h2c --types file.h2` | Print the inferred type of every local |
@@ -481,6 +481,25 @@ asm {
 ```
 Operands are numbers, bools, chars or pointers; `out`/`inout` need a `var`. The
 instructions are specific to the CPU (x86-64 or ARM64).
+
+### SIMD vectors
+```
+let a = ptr<f32x8>(&xs[i])[0]        // load 8 f32 from memory (any alignment)
+ptr<f32x8>(&out[i])[0] = a * b       // store 8
+var acc = f32x8(0.0)                 // conversion from one value: every lane
+acc = acc + a * b                    // + - * / and unary - act lane by lane
+let total = f32x8_sum(acc)           // all lanes added (in any order)
+let x = a[3]                         // one lane;  f32x8_with(a, 3, 1.0): a copy with lane 3 set
+let w = i32x16(bytes)                // lane-by-lane conversion between vectors with equal lane counts
+f32x8_fma(a, b, c)  f32x8_max(a, b)  f32x8_min(a, b)    fma_f32(a, b, c)
+```
+- Types (all in Atomic, freestanding): `f32x4 f32x8 f32x16 f64x2 f64x4 f64x8 i32x4 i32x8 i32x16
+  i16x8 i16x16 i16x32 i8x16 i8x32 i8x64 u8x16 u8x32 u8x64 u32x8 i64x4`.
+  Integer vectors also have `& | ^`, and their arithmetic wraps around.
+- Each is an ordinary `new type f32x8 : vector(f32, 8)`, so you can declare your own.
+- Wider vectors than the CPU has are split into several instructions. Build with `--native`
+  for AVX2/AVX-512 on x86-64, where `_fma` is a single instruction. Without FMA hardware it's a slow library call:
+  write `acc + a * b` instead.
 
 ### Unions and bitfields
 ```

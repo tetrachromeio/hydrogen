@@ -379,6 +379,8 @@ private:
         enum Kind { None, Int, Float } kind = None;
         unsigned bits = 0;
         bool isSigned = false;
+        unsigned lanes = 0;          // a SIMD vector of `lanes` of these (0: a single value)
+        const Type* lane = nullptr;  // vectors: the lane type
     };
 
     ScalarInfo scalarOf(const Type* t, int depth = 0) {
@@ -388,8 +390,43 @@ private:
         case TypeDecl::Base::Bits: return {ScalarInfo::Int, td->bits, td->isSigned};
         case TypeDecl::Base::Float: return {ScalarInfo::Float, td->bits, true};
         case TypeDecl::Base::Distinct: return scalarOf(typeOfRef(*td->aliasOf, {}, nullptr), depth + 1);
+        case TypeDecl::Base::Vector: {
+            const Type* lane = typeOfRef(*td->aliasOf, {}, nullptr);
+            ScalarInfo s = scalarOf(lane, depth + 1);
+            if (s.kind == ScalarInfo::None || s.lanes) return {};
+            s.lanes = td->bits;
+            s.lane = lane;
+            return s;
+        }
         default: return {};
         }
+    }
+
+    // The LLVM intrinsic suffix for a scalar or vector type: f32, v8f32, v16i8.
+    static std::string intrinsicSuffix(const std::string& ty) {
+        auto scalar = [](const std::string& s) {
+            if (s == "float") return std::string("f32");
+            if (s == "double") return std::string("f64");
+            return s; // iN
+        };
+        if (ty.empty() || ty[0] != '<') return scalar(ty);
+        size_t x = ty.find(" x ");
+        return "v" + ty.substr(1, x - 1) + scalar(ty.substr(x + 3, ty.size() - x - 4));
+    }
+
+    // "<8 x float>" -> "float"
+    static std::string laneTy(const std::string& ty) {
+        size_t x = ty.find(" x ");
+        return ty.substr(x + 3, ty.size() - x - 4);
+    }
+
+    // Vectors through pointers may sit anywhere (a model file, a struct field): only
+    // the lane's alignment is assumed.
+    static std::string alignSuffix(const std::string& ty) {
+        if (ty.empty() || ty[0] != '<') return "";
+        std::string lane = laneTy(ty);
+        int bytes = lane == "double" || lane == "i64" ? 8 : lane == "float" || lane == "i32" ? 4 : lane == "i16" ? 2 : 1;
+        return ", align " + std::to_string(bytes);
     }
 
     bool isAggregate(const Type* t) {
@@ -419,8 +456,10 @@ private:
         case K::Generic: return "i64";
         case K::Named: {
             ScalarInfo s = scalarOf(t);
-            if (s.kind == ScalarInfo::Int) return "i" + std::to_string(s.bits);
-            if (s.kind == ScalarInfo::Float) return s.bits == 32 ? "float" : "double";
+            std::string one = s.kind == ScalarInfo::Int     ? "i" + std::to_string(s.bits)
+                              : s.kind == ScalarInfo::Float ? (s.bits == 32 ? "float" : "double")
+                                                            : "";
+            if (!one.empty()) return s.lanes ? "<" + std::to_string(s.lanes) + " x " + one + ">" : one;
             ensureStruct(t);
             return "%" + llvmQuote(typeName(t));
         }
@@ -572,6 +611,7 @@ private:
         case K::Range: return alignOf(t->elem());
         case K::Named: {
             ScalarInfo s = scalarOf(t);
+            if (s.lanes) return std::min<uint64_t>(64, sizeOf(t)); // LLVM aligns vectors to their size
             if (s.kind != ScalarInfo::None) return std::max<uint64_t>(1, std::min<uint64_t>(8, (s.bits + 7) / 8));
             if (t->sym->kind == Symbol::Kind::Enum) return 8;
             if (physical(t).isUnion) return physical(t).unionUnit;
@@ -597,7 +637,7 @@ private:
                 uint64_t bytes = (s.bits + 7) / 8;
                 uint64_t p = 1;
                 while (p < bytes) p *= 2;
-                return p;
+                return s.lanes ? p * s.lanes : p;
             }
             if (t->sym->kind == Symbol::Kind::Enum) {
                 ensureStruct(t);
@@ -809,6 +849,15 @@ private:
         if (auto it = dbgTypes_.find(t); it != dbgTypes_.end()) return it->second;
         std::string name = TypeContext::str(t);
         ScalarInfo s = scalarOf(t);
+        if (t->kind == K::Named && s.lanes) {
+            int base = dbgType(s.lane);
+            int sub = metaCount_++, id = metaCount_++;
+            meta_ << "!" << sub << " = !DISubrange(count: " << s.lanes << ")\n";
+            meta_ << "!" << id << " = !DICompositeType(tag: DW_TAG_array_type, name: " << llvmQuote(name)
+                  << ", baseType: !" << base << ", size: " << sizeOf(t) * 8 << ", flags: DIFlagVector, elements: !{!"
+                  << sub << "})\n";
+            return dbgTypes_[t] = id;
+        }
         if (t->kind == K::Named && s.kind != ScalarInfo::None) {
             int id;
             if (t == lang_.boolT) id = dbgBasic("bool", 8, "DW_ATE_boolean");
@@ -940,11 +989,22 @@ private:
 
     std::string load(const std::string& ty, const std::string& ptr) {
         std::string t = tmp();
-        emit(t + " = load " + ty + ", ptr " + ptr);
+        emit(t + " = load " + ty + ", ptr " + ptr + alignSuffix(ty));
         return t;
     }
 
-    void store(const Val& v, const std::string& ptr) { emit("store " + v.ty + " " + v.v + ", ptr " + ptr); }
+    void store(const Val& v, const std::string& ptr) {
+        emit("store " + v.ty + " " + v.v + ", ptr " + ptr + alignSuffix(v.ty));
+    }
+
+    // A vector with every lane set to `v`.
+    Val splat(const Val& v, const std::string& vecTy) {
+        std::string one = tmp(), all = tmp();
+        emit(one + " = insertelement " + vecTy + " poison, " + v.ty + " " + v.v + ", i64 0");
+        emit(all + " = shufflevector " + vecTy + " " + one + ", " + vecTy + " poison, <" +
+             vecTy.substr(1, vecTy.find(" x ") - 1) + " x i32> zeroinitializer");
+        return {vecTy, all};
+    }
 
     std::string gepField(const Type* structT, const std::string& ptr, int idx) {
         std::string t = tmp();
@@ -2261,10 +2321,19 @@ private:
 
     Val emitConversion(const CallExpr& c, const Type* target) {
         const Expr& arg = *c.args[0];
+        ScalarInfo ts = scalarOf(target);
+        if (ts.lanes) {
+            const Type* from = typeOf(arg);
+            if (from->isLiteral() || !scalarOf(from).lanes) { // f32x8(x): x in every lane
+                Val one = from->isLiteral() ? literalAs(arg, ts.lane) : rvalue(arg);
+                if (from != ts.lane && !from->isLiteral()) one = {lty(ts.lane), one.v};
+                return splat(one, lty(target));
+            }
+        }
         if (arg.type && arg.type->isLiteral()) return literalAs(arg, target);
         const Type* from = typeOf(arg);
         Val v = rvalue(arg);
-        ScalarInfo fs = scalarOf(from), ts = scalarOf(target);
+        ScalarInfo fs = scalarOf(from);
         std::string fty = lty(from), tty = lty(target);
         if (fty == tty) return {tty, v.v};
         std::string t = tmp();
@@ -2341,6 +2410,44 @@ private:
             trapIf(z);
         }
         if (auto it = arith.find(name); it != arith.end()) return bin(it->second);
+        // SIMD vectors.
+        if (name == "lane") { // v[i]
+            std::string t = tmp();
+            emit(t + " = extractelement " + a[0].ty + " " + a[0].v + ", " + a[1].ty + " " + a[1].v);
+            return {laneTy(a[0].ty), t};
+        }
+        if (name == "with_lane") { // a copy of v with lane i set to x
+            std::string t = tmp();
+            emit(t + " = insertelement " + a[0].ty + " " + a[0].v + ", " + a[2].ty + " " + a[2].v + ", " + a[1].ty +
+                 " " + a[1].v);
+            return {a[0].ty, t};
+        }
+        if (name == "vsum") { // all lanes added up (in any order: floats may round differently than a loop)
+            std::string lane = laneTy(a[0].ty), sfx = intrinsicSuffix(a[0].ty), t = tmp();
+            bool isFloat = lane == "float" || lane == "double";
+            std::string fn = std::string("llvm.vector.reduce.") + (isFloat ? "fadd." : "add.") + sfx;
+            if (isFloat) {
+                rawDecls_.insert("declare " + lane + " @" + fn + "(" + lane + ", " + a[0].ty + ")");
+                emit(t + " = call reassoc " + lane + " @" + fn + "(" + lane + " -0.0, " + a[0].ty + " " + a[0].v + ")");
+            } else {
+                rawDecls_.insert("declare " + lane + " @" + fn + "(" + a[0].ty + ")");
+                emit(t + " = call " + lane + " @" + fn + "(" + a[0].ty + " " + a[0].v + ")");
+            }
+            return {lane, t};
+        }
+        if (name == "fma" || name == "fmax" || name == "fmin" || name == "smax" || name == "smin" || name == "umax" ||
+            name == "umin") {
+            std::string op = name == "fmax" ? "maxnum" : name == "fmin" ? "minnum" : name;
+            std::string fn = "llvm." + op + "." + intrinsicSuffix(a[0].ty), t = tmp();
+            std::string params, argsText;
+            for (size_t i = 0; i < a.size(); ++i) {
+                params += (i ? ", " : "") + a[0].ty;
+                argsText += (i ? ", " : "") + a[0].ty + " " + a[i].v;
+            }
+            rawDecls_.insert("declare " + a[0].ty + " @" + fn + "(" + params + ")");
+            emit(t + " = call " + a[0].ty + " @" + fn + "(" + argsText + ")");
+            return {a[0].ty, t};
+        }
         if (auto it = cmps.find(name); it != cmps.end()) return cmp(it->second);
         if (name == "load") { // take(p): read the value at p (the target type comes from context)
             if (!expected || expected->isError() || ts[0]->kind != K::Ptr) {

@@ -35,8 +35,10 @@ constexpr const char* kUsage = R"(hy: the Hydrogen project tool
 usage:
   hy new <name> [--lib]   create a new project in ./<name>
   hy check                check the project for errors
-  hy build [--release]    compile the project to build/<name>
-  hy run [--release] [-- args...]   build and run the project
+  hy build [--release] [--native]   compile the project to build/<name>
+  hy run [--release] [--native] [-- args...]   build and run the project
+                          (--native: use every instruction this CPU has, e.g. AVX2;
+                           the program may not run on older CPUs)
   hy deps                 show resolved dependencies
   hy lsp                  run the language server (for editors)
   hy help                 show this message
@@ -201,7 +203,7 @@ int runProcess(const std::vector<std::string>& argv) {
     return 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
 }
 
-int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release) {
+int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release, bool native) {
     auto p = loadProject();
     if (!p) return 1;
     if (p->manifest.isLibrary)
@@ -218,6 +220,11 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
     std::string runtime = std::string(H2_STDLIB_DIR) + "/runtime/h2rt.c";
     std::vector<std::string> cmd = {cc && *cc ? cc : "clang", release ? "-O2" : "-O0", "-g", "-w",
                                     ll.string(), runtime};
+#if defined(__aarch64__) || defined(__arm64__)
+    if (native) cmd.push_back("-mcpu=native");
+#else
+    if (native) cmd.push_back("-march=native");
+#endif
     // Native code from this project and every library it uses ([native] in their hy.toml).
     std::vector<h2::NativeConfig> natives = {p->manifest.native};
     for (const auto& [name, dir] : p->packages) {
@@ -297,7 +304,7 @@ int main(int argc, char** argv) {
     if (cmd == "new") return cmdNew(rest);
     if (cmd == "check") return cmdCheck();
     if (cmd == "build" || cmd == "run") {
-        bool release = false;
+        bool release = false, native = false;
         std::vector<std::string> runArgs;
         for (size_t i = 0; i < rest.size(); ++i) {
             if (rest[i] == "--") {
@@ -305,9 +312,10 @@ int main(int argc, char** argv) {
                 break;
             }
             if (rest[i] == "--release") release = true;
+            else if (rest[i] == "--native") native = true;
             else return fail("unknown option '" + rest[i] + "' (did you mean: hy " + cmd + " -- " + rest[i] + "?)");
         }
-        return cmdBuild(cmd == "run", runArgs, release);
+        return cmdBuild(cmd == "run", runArgs, release, native);
     }
     if (cmd == "deps") return cmdDeps();
     if (cmd == "lsp") return h2::runLanguageServer(stdlibPaths());

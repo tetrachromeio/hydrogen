@@ -312,13 +312,14 @@ struct TypeDecl : Decl {
     // Float:    new type f64 : float(64)
     // Distinct: new type Meters : f64    (a new type with f64's representation)
     // Alias:    new type int = i64       (another name for the same type)
-    enum class Base { Layout, Bits, Float, Distinct, Alias };
+    // Vector:   new type f32x8 : vector(f32, 8)   (SIMD: `bits` lanes of `aliasOf`)
+    enum class Base { Layout, Bits, Float, Distinct, Alias, Vector };
     std::string name;
     std::vector<GenericParam> generics;
     Base base = Base::Layout;
-    uint32_t bits = 0;       // Bits / Float
+    uint32_t bits = 0;       // Bits / Float: width; Vector: lane count
     bool isSigned = false;   // Bits
-    TypeRefPtr aliasOf;      // Distinct / Alias
+    TypeRefPtr aliasOf;      // Distinct / Alias; Vector: the lane type
     std::vector<Field> fields;
     std::vector<std::unique_ptr<FunctionDecl>> operators;
     bool isUnion = false; // `new union`: all fields share the same storage

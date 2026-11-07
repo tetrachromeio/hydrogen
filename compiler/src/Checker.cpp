@@ -366,6 +366,19 @@ private:
         default: return {};
         }
     }
+    // A SIMD vector type (new type f32x8 : vector(f32, 8)): its lane type and count.
+    struct VectorInfo {
+        const Type* lane = nullptr;
+        uint32_t lanes = 0;
+    };
+    VectorInfo vectorOf(const Type* t, int depth = 0) {
+        if (t->kind != K::Named || t->sym->kind != Symbol::Kind::Type || depth > 32) return {};
+        const auto* td = declAs<TypeDecl>(t->sym);
+        if (td->base == TypeDecl::Base::Vector) return {convert(*td->aliasOf, nullptr), td->bits};
+        if (td->base == TypeDecl::Base::Distinct) return vectorOf(convert(*td->aliasOf, nullptr), depth + 1);
+        return {};
+    }
+
     bool isNumeric(const Type* t) {
         return t != lang_.boolT && t != lang_.charT && scalarOf(t).kind != Scalar::None;
     }
@@ -1475,8 +1488,35 @@ private:
             error(c.loc, "a conversion to " + str(target) + " takes exactly 1 argument");
             return argsUnchecked(c);
         }
+        if (VectorInfo tv = vectorOf(target); tv.lane) {
+            // f32x8(x): every lane set to x.   f32x8(v): lane by lane from another vector type.
+            const Type* from = checkExpr(*c.args[0], tv.lane);
+            if (from->isError() || tv.lane->isError()) return target;
+            if (from->isLiteral()) {
+                if (assignable(from, tv.lane)) {
+                    setLiteralType(*c.args[0], tv.lane);
+                    return target;
+                }
+                finalize(*c.args[0]);
+                from = c.args[0]->type;
+            }
+            if (from == tv.lane || from == target) return target;
+            VectorInfo fv = vectorOf(from);
+            if (fv.lane && fv.lanes == tv.lanes && scalarOf(fv.lane).kind != Scalar::None &&
+                scalarOf(tv.lane).kind != Scalar::None)
+                return target;
+            error(c.loc, "cannot convert " + str(from) + " to " + str(target) + ": a vector is made from one " +
+                             str(tv.lane) + " (copied to every lane) or from another vector with " +
+                             std::to_string(tv.lanes) + " lanes");
+            return tc_.error();
+        }
         const Type* from = checkExpr(*c.args[0], target);
         if (from->isError()) return target;
+        if (vectorOf(from).lane) {
+            error(c.loc, "cannot convert the vector " + str(from) + " to " + str(target) +
+                             "; read one lane with v[i], or add them up with the _sum function");
+            return tc_.error();
+        }
         if (from->isLiteral()) {
             if (assignable(from, target)) setLiteralType(*c.args[0], target);
             else finalize(*c.args[0]);

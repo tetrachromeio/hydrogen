@@ -3,7 +3,7 @@
 Local LLM inference in Hydrogen (element 6). The plan and milestones are in
 [docs/CARBON.md](../docs/CARBON.md).
 
-**Status: M1, correct scalar inference.** Carbon runs Llama-architecture models
+**Status: M1 done; M2 started (SIMD).** Carbon runs Llama-architecture models
 in llama2.c's format, for example [stories15M](https://huggingface.co/karpathy/tinyllamas):
 - Weights are memory-mapped from the file and used in place, never copied or parsed into objects.
 - All activations and the key/value cache come from one `Arena` allocation, made once.
@@ -16,7 +16,7 @@ token for token, greedy and sampled.
 
 ```bash
 cd carbon/examples/generate
-hy build --release
+hy build --release --native
 build/generate stories15M.bin -z tokenizer.bin -i "Once upon a time" -n 200 -t 0.8 -s 42
 ```
 
@@ -45,11 +45,17 @@ Lower level: `model.forward(state, token, pos)` returns the logits;
 
 ## Speed
 
-M1 is deliberately plain: one thread, one scalar float accumulator per dot
-product, the same order of operations as llama2.c. That makes it exact and
-easy to check, and slow: about 50 tok/s on stories15M, because each
-multiply-add waits for the previous one. Next (M2): SIMD vector types in
-Hydrogen, several accumulators, and a thread pool.
+stories15M, one thread, x86-64 container, 256 tokens:
+
+| build | tok/s |
+|---|---|
+| M1: scalar, one accumulator (llama2.c's order of operations) | ~50 |
+| SIMD `f32x8`, four accumulators, `--release` | ~290 |
+| same, `--release --native` (AVX2) | ~380 |
+
+Each multiply-add in M1 waited for the previous one; the SIMD kernels keep 32
+products in flight. Next: a thread pool (matvec rows split across cores),
+then quantized weights (Q8_0, then ternary).
 
 ## Files
 
