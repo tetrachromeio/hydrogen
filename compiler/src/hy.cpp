@@ -233,7 +233,11 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
     if (status == 128 + 4 || status == 128 + 5) // SIGILL / SIGTRAP from a runtime check
         std::cerr << "\nerror: " << p->manifest.name
                   << " stopped at a runtime check: integer overflow or division by zero.\n"
+#ifdef __APPLE__
+                     "To see where, run it under a debugger: lldb -o run -o bt "
+#else
                      "To see where, run it under a debugger: gdb -ex run -ex bt "
+#endif
                   << fs::relative(exe, fs::current_path(ec)).generic_string()
                   << "\n(Release builds, hy run --release, skip these checks and wrap around instead.)\n";
     return status;

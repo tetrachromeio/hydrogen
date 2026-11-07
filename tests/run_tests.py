@@ -119,7 +119,11 @@ def main():
                 expected_file.write_text(got)
             elif not expected_file.exists() or expected_file.read_text() != got:
                 failures.append(f"{p}: output differs from {expected_file.name}\n--- got ---\n{got}")
+    import platform
     for p in sorted((root / "tests/run").glob("*.h2")):
+        first_line = p.read_text().split("\n", 1)[0]
+        if first_line.startswith("// requires: linux") and platform.system() != "Linux":
+            continue  # platform-specific test
         count += 1
         if not clang:
             failures.append(f"{p}: clang not found; cannot run code generation tests")

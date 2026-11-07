@@ -1,3 +1,4 @@
+// requires: linux (the sockaddr_in layout below is Linux's)
 // TCP over localhost, written entirely in Hydrogen on top of the C socket API.
 // (sockaddr_in below is the Linux layout.)
 use Elemental
