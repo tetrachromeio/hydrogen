@@ -350,3 +350,14 @@ void h2_mutex_free(void* m) {
     pthread_mutex_destroy((pthread_mutex_t*)m);
     free(m);
 }
+
+// ---- formatting
+
+void h2_float_fixed(double v, int64_t digits, H2String* out) {
+    char tmp[512];
+    if (digits < 0) digits = 0;
+    if (digits > 60) digits = 60;
+    int n = snprintf(tmp, sizeof tmp, "%.*f", (int)digits, v);
+    if (n < 0 || n >= (int)sizeof tmp) n = (int)strlen(tmp);
+    from_bytes(out, tmp, (size_t)n);
+}

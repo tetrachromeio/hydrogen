@@ -279,6 +279,12 @@ that isn't a variable, field, element or `*p`), or when it is an owned variable
 Otherwise (borrowed parameters, fields, `self`, ...) bindings are borrowed
 views: readable, not movable.
 
+## String interpolation
+A string literal containing `{expression}` is interpolated: `"a{x}b"` means
+`"a" + string(x) + "b"`, so it is an owned `string` and works for anything with
+`operator string`. `{{` and `}}` are literal braces. An unclosed `{`, a lone `}`
+or an empty `{}` is an error. Interpolation needs `use Elemental` (for `string`).
+
 ## Text and printing
 | Type     | What it is | Owns memory? |
 |----------|------------|--------------|

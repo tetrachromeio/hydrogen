@@ -105,3 +105,88 @@ pub new function parse_float(text: str) -> Option<float> {
     if h2_parse_float(text.data, text.len, &v) { return Some(v) }
     return None
 }
+
+// ---------------------------------------------------------------- formatting
+
+extern function h2_float_fixed(v: float, digits: int, out: ptr<string>)
+
+// A float with exactly `digits` digits after the point: fixed(3.14159, 2) is "3.14".
+pub new function fixed(value: float, digits: int) -> string {
+    var out = string("")
+    h2_float_fixed(value, digits, &out)
+    return out
+}
+
+// `text` repeated `times` times.
+pub new function repeat(text: str, times: uint) -> string {
+    var out = string("")
+    for i in 0..times { out.append(text) }
+    return out
+}
+
+// Spaces added on the left until the text is `width` bytes long.
+pub new function pad_left(text: str, width: uint) -> string {
+    if text.len >= width { return string(text) }
+    return repeat(" ", width - text.len) + text
+}
+
+// Spaces added on the right until the text is `width` bytes long.
+pub new function pad_right(text: str, width: uint) -> string {
+    if text.len >= width { return string(text) }
+    return text + repeat(" ", width - text.len)
+}
+
+// Every item as text, with `separator` between them.
+pub new function join<T: Printable>(items: List<T>, separator: str) -> string {
+    var out = string("")
+    for i in 0..items.len() {
+        if i > 0 { out.append(separator) }
+        out.append(string(items[i]))
+    }
+    return out
+}
+
+// Every `from` replaced by `to`.
+pub new function replace(text: str, from: str, to: str) -> string {
+    if from.len == 0 { return string(text) }
+    var out = string("")
+    var i: uint = 0
+    var start: uint = 0
+    while i + from.len <= text.len {
+        if slice(text, i, i + from.len) == from {
+            out.append(slice(text, start, i))
+            out.append(to)
+            i += from.len
+            start = i
+        } else {
+            i += 1
+        }
+    }
+    out.append(slice(text, start, text.len))
+    return out
+}
+
+const UPPER_LETTERS: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const LOWER_LETTERS: str = "abcdefghijklmnopqrstuvwxyz"
+
+// ASCII letters in upper case (other bytes, including UTF-8, unchanged).
+pub new function upper(text: str) -> string {
+    var out = string("")
+    for i in 0..text.len {
+        let b = text[i]
+        if b >= 97 && b <= 122 { out.append(slice(UPPER_LETTERS, uint(b - 97), uint(b - 96))) }
+        else { out.append(slice(text, i, i + 1)) }
+    }
+    return out
+}
+
+// ASCII letters in lower case (other bytes, including UTF-8, unchanged).
+pub new function lower(text: str) -> string {
+    var out = string("")
+    for i in 0..text.len {
+        let b = text[i]
+        if b >= 65 && b <= 90 { out.append(slice(LOWER_LETTERS, uint(b - 65), uint(b - 64))) }
+        else { out.append(slice(text, i, i + 1)) }
+    }
+    return out
+}

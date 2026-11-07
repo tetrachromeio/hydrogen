@@ -1,0 +1,2 @@
+tests/errors/interpolation.h2:2:13: error: unclosed '{' in a string: write {{ for a brace
+tests/errors/interpolation.h2:4:13: error: empty {} in a string: put an expression inside, or write {{}} for braces

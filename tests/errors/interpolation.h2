@@ -1,0 +1,7 @@
+new function f() {
+    let a = "unclosed {x"
+    let b = "lone } brace"
+    let c = "empty {} here"
+    let d = "bad {1 +} expr"
+    let e = "fine {x} and {{ok}}"
+}

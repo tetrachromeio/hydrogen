@@ -1,0 +1,38 @@
+use Elemental
+
+new type Point {
+    x: int
+    y: int
+    new operator string (p: Point) -> string { return "({p.x}, {p.y})" }
+}
+
+new function main() -> int {
+    let name = "Ada"
+    let age = 36
+    print("{name} is {age} years old")
+    print("next year: {age + 1}")
+    let p = Point(3, 4)
+    print("point {p}, x squared {p.x * p.x}")
+    print("{{braces}} stay {{like this}}")
+    print("{fixed(3.14159, 2)} and {fixed(2.0, 0)}")
+    let cost = 1.5
+    print("total: {fixed(cost * 3.0, 2)}")
+
+    print("[" + pad_left("7", 3) + "]")
+    print("[" + pad_right("ab", 4) + "]")
+    print(repeat("=-", 5))
+    var nums = List<int>()
+    for n in [1, 2, 3] { nums.push(n) }
+    print(join(nums, ", "))
+    print(replace("a-b-c", "-", " + "))
+    print(upper("Hello, World! 123"))
+    print(lower("Hello, World! 123"))
+
+    // a table
+    let names = ["apple", "kiwi", "banana"]
+    let prices = [1.25, 0.5, 2.0]
+    for i in 0..3 {
+        print(pad_right(names[i], 8) + pad_left(fixed(prices[i], 2), 6))
+    }
+    return 0
+}

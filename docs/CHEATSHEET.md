@@ -105,6 +105,7 @@ used (they work in freestanding code). There are no mutable globals.
 | Bool | `true`, `false` |
 | Char | `'a'`, `'\n'`, `'\x41'`, `'\''` |
 | Text (`str`) | `"hi\tthere\n"` |
+| Interpolated (`string`) | `"x = {x}, sum = {a + b}"`, `"{{braces}}"` |
 | Array | `[1, 2, 3]` |
 | Range | `0..10` (excludes 10) |
 
@@ -607,6 +608,7 @@ Two layers:
 | `Elemental.Thread` | `spawn(input, work)` -> `Thread<R>` with `join()`; `channel<T>()` -> `Channel<T>` with `send(x)`, `receive()` (Option), `copy()`; `mutex(value)` -> `Mutex<T>` with `lock()` (a `Guard`: `value()` points at it, unlocks when dropped), `copy()`; `atomic_int(n)` -> `AtomicInt` with `load` `store` `add` `swap` `compare_swap` `copy` |
 | `Elemental.Random` | `Random(seed)` with `next()` `below(n)` `between(a, b)` `chance()` (0..1); `random_from_clock()` |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
+| formatting | `fixed(x, digits)` `pad_left(s, w)` `pad_right(s, w)` `repeat(s, n)` `join(list, sep)` `replace(s, from, to)` `upper` `lower` |
 | text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
 | `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
 | `Elemental.Memory` | `alloc_bytes(n)` `free_bytes(p)` |
@@ -690,7 +692,6 @@ Elemental uses `extern` to reach the C library instead.
 
 ## 16. Not supported yet
 
-- String interpolation (`"x = {x}"`); write `"x = " + string(x)`
 - `if` as an expression / ternary (use `match`)
 - Closures that outlive the variables they capture (escaping closures)
 - Variadic C functions (like `printf`) through `extern`

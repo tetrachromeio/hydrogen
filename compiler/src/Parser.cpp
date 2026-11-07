@@ -1,3 +1,4 @@
+#include "hydrogen/Lexer.h"
 #include "hydrogen/Parser.h"
 
 #include <functional>
@@ -847,7 +848,12 @@ private:
         switch (t.kind) {
         case Tok::IntLit: return std::make_unique<LiteralExpr>(ExprKind::IntLit, loc, advance().text);
         case Tok::FloatLit: return std::make_unique<LiteralExpr>(ExprKind::FloatLit, loc, advance().text);
-        case Tok::StringLit: return std::make_unique<LiteralExpr>(ExprKind::StringLit, loc, advance().text);
+        case Tok::StringLit: {
+            std::string text = advance().text;
+            if (text.find('{') == std::string::npos && text.find('}') == std::string::npos)
+                return std::make_unique<LiteralExpr>(ExprKind::StringLit, loc, text);
+            return parseInterpolation(text, loc);
+        }
         case Tok::CharLit: return std::make_unique<LiteralExpr>(ExprKind::CharLit, loc, advance().text);
         case Tok::KwTrue:
         case Tok::KwFalse:
@@ -890,6 +896,59 @@ private:
         }
         default: failExpected("an expression");
         }
+    }
+
+    // "a {x} b" becomes "a " + string(x) + " b". {{ and }} are literal braces.
+    ExprPtr parseInterpolation(const std::string& text, SourceLoc loc) {
+        std::vector<ExprPtr> parts;
+        std::string piece;
+        auto flushPiece = [&] {
+            if (!piece.empty()) parts.push_back(std::make_unique<LiteralExpr>(ExprKind::StringLit, loc, piece));
+            piece.clear();
+        };
+        for (size_t i = 0; i < text.size(); ++i) {
+            char c = text[i];
+            if (c == '{' && i + 1 < text.size() && text[i + 1] == '{') { piece += '{'; ++i; continue; }
+            if (c == '}' && i + 1 < text.size() && text[i + 1] == '}') { piece += '}'; ++i; continue; }
+            if (c == '}') fail(loc, "a lone '}' in a string: write }} for a brace");
+            if (c != '{') { piece += c; continue; }
+            int depth = 1;
+            size_t j = i + 1;
+            for (; j < text.size() && depth > 0; ++j) {
+                if (text[j] == '{') ++depth;
+                if (text[j] == '}') --depth;
+            }
+            if (depth != 0) fail(loc, "unclosed '{' in a string: write {{ for a brace");
+            std::string source = text.substr(i + 1, j - i - 2);
+            if (source.find_first_not_of(" \t") == std::string::npos)
+                fail(loc, "empty {} in a string: put an expression inside, or write {{}} for braces");
+            // Parse the expression with its own tokens, placed inside the string.
+            Diagnostics& d = diags_;
+            std::vector<Token> toks = lex(source, d);
+            for (auto& t : toks) {
+                t.loc.col = loc.col + static_cast<uint32_t>(i) + t.loc.col;
+                t.loc.line = loc.line;
+                t.newlineBefore = false;
+            }
+            Parser sub(std::move(toks), diags_);
+            sub.speculating_ = speculating_;
+            sub.nest_ = 1;
+            ExprPtr e = sub.parseExpr();
+            if (!sub.at(Tok::Eof)) sub.failExpected("the end of the {} expression");
+            flushPiece();
+            auto call = std::make_unique<CallExpr>(e->loc, std::make_unique<IdentExpr>(e->loc, "string"));
+            call->args.push_back(std::move(e));
+            parts.push_back(std::move(call));
+            i = j - 1;
+        }
+        flushPiece();
+        if (parts.empty()) return std::make_unique<LiteralExpr>(ExprKind::StringLit, loc, "");
+        if (parts.size() == 1 && parts[0]->kind == ExprKind::StringLit) return std::move(parts[0]);
+        ExprPtr out = std::move(parts[0]);
+        if (out->kind == ExprKind::StringLit && parts.size() == 1) return out;
+        for (size_t k = 1; k < parts.size(); ++k)
+            out = std::make_unique<BinaryExpr>(loc, "+", std::move(out), std::move(parts[k]));
+        return out;
     }
 
     ExprPtr parseMatch() {
