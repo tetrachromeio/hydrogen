@@ -1,0 +1,15 @@
+// Clocks and waiting.
+
+extern function h2_now_seconds() -> float
+extern function h2_unix_time() -> int
+extern function h2_sleep_seconds(s: float)
+
+// Seconds on a steady clock that never goes backwards. Subtract two readings
+// to measure how long something took.
+pub new function now() -> float { return h2_now_seconds() }
+
+// Seconds since 1970-01-01 UTC (the wall clock; it can jump).
+pub new function unix_time() -> int { return h2_unix_time() }
+
+// Pauses the program for `seconds` (fractions allowed: sleep(0.25)).
+pub new function sleep(seconds: float) { h2_sleep_seconds(seconds) }

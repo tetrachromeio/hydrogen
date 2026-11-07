@@ -6,6 +6,8 @@ use Atomic.Memory
 pub use Elemental.IO
 pub use Elemental.Math
 pub use Elemental.File
+pub use Elemental.Time
+pub use Elemental.Random
 
 include text
 include list

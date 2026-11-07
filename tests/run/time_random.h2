@@ -1,0 +1,38 @@
+use Elemental
+
+new function main() -> int {
+    // the same seed gives the same sequence
+    var a = Random(42)
+    var b = Random(42)
+    var same = true
+    for i in 0..100 { if a.next() != b.next() { same = false } }
+    print(same)
+
+    var dice = Random(7)
+    var counts = [0, 0, 0, 0, 0, 0]
+    for i in 0..6000 { counts[uint(dice.between(1, 6) - 1)] += 1 }
+    var all_seen = true
+    for c in counts { if c < 800 || c > 1200 { all_seen = false } }
+    print(all_seen)
+
+    var r = Random(1)
+    var in_range = true
+    for i in 0..1000 {
+        let f = r.chance()
+        if f < 0.0 || f >= 1.0 { in_range = false }
+    }
+    print(in_range)
+
+    // a clock-seeded generator still works
+    var clock = random_from_clock()
+    let roll = clock.between(1, 6)
+    print(roll >= 1 && roll <= 6)
+
+    // time: sleep 50ms and measure it
+    let start = now()
+    sleep(0.05)
+    let took = now() - start
+    print(took >= 0.04 && took < 1.0)
+    print(unix_time() > 1700000000)
+    return 0
+}

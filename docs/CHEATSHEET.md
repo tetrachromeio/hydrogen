@@ -553,6 +553,8 @@ Two layers:
 | `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `list[i]` `for x in list` `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
 | `Map<K, V>`: `set(k, v)` `get(k)` (Option of ptr) `has(k)` `remove(k)` (Option) `len()` `for k in map` `value_at(i)` | hash map, keeps insertion order; keys need `==` and `operator hash` |
 | `Elemental.IO` | `print(x)`, `eprint(x)` (stderr), `read_line()` (Option, None at end of input), `args()` (List of strings) |
+| `Elemental.Time` | `now()` (steady seconds, for measuring), `unix_time()`, `sleep(seconds)` |
+| `Elemental.Random` | `Random(seed)` with `next()` `below(n)` `between(a, b)` `chance()` (0..1); `random_from_clock()` |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
 | text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
 | `Elemental.Math` | `sqrt` `floor` `ceil` `abs`; `max` `min` (any `Ordered`) |
@@ -613,4 +615,4 @@ Elemental uses `extern` to reach the C library instead.
 - Variadic C functions (like `printf`) through `extern`
 - UTF-8 decoding in `for c in text` (iterates bytes)
 - Full borrow checking of `str` views (only returning one is caught)
-- Random numbers, time, threads
+- Threads

@@ -156,3 +156,23 @@ _Bool h2_parse_float(const uint8_t* text, uint64_t len, double* out) {
     *out = strtod(tmp, &end);
     return end == tmp + len;
 }
+
+// ---- time
+
+#include <time.h>
+
+double h2_now_seconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+int64_t h2_unix_time(void) { return (int64_t)time(NULL); }
+
+void h2_sleep_seconds(double s) {
+    if (s <= 0) return;
+    struct timespec ts;
+    ts.tv_sec = (time_t)s;
+    ts.tv_nsec = (long)((s - (double)ts.tv_sec) * 1e9);
+    nanosleep(&ts, NULL);
+}

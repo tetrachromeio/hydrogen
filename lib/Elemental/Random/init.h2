@@ -1,0 +1,44 @@
+// Pseudo-random numbers (xorshift64*). Fast and reproducible: the same seed
+// gives the same sequence. Not for cryptography.
+use Elemental.Time
+
+pub new class Random {
+    state: uint
+
+    // Random(42): a fixed sequence. Random(unix_time()): different every run.
+    pub new function init(seed: int) {
+        self.state = hash(seed)
+        if self.state == 0 { self.state = 0x9E3779B97F4A7C15 }
+    }
+
+    // The next number, anywhere in uint's range.
+    pub new mut function next() -> uint {
+        var x = self.state
+        x = x ^ (x >> 12)
+        x = x ^ (x << 25)
+        x = x ^ (x >> 27)
+        self.state = x
+        let k: uint = 0x2545F4914F6CDD1D
+        return wrapping_mul(x, k)
+    }
+
+    // A number in 0 ..< limit (limit must be at least 1).
+    pub new mut function below(limit: int) -> int {
+        return int(self.next() % uint(limit))
+    }
+
+    // A number in low ..= high.
+    pub new mut function between(low: int, high: int) -> int {
+        return low + self.below(high - low + 1)
+    }
+
+    // A float in [0, 1).
+    pub new mut function chance() -> float {
+        return float(self.next() >> 11) / 9007199254740992.0
+    }
+}
+
+// A generator seeded from the clock.
+pub new function random_from_clock() -> Random {
+    return Random(unix_time() ^ int(now() * 1000000.0))
+}
