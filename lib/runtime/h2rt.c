@@ -4,6 +4,9 @@
 // The string layout must match Atomic's `string` class: { buf, used, cap }.
 
 #define _POSIX_C_SOURCE 200809L // getline, clock_gettime, nanosleep, localtime_r, pthreads
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE // macOS hides clock_gettime & co. under strict POSIX otherwise
+#endif
 
 #include <stdint.h>
 #include <stdio.h>
