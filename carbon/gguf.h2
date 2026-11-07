@@ -1,7 +1,7 @@
 // GGUF, llama.cpp's model format: a header of typed key/value metadata
 // (sizes, tokenizer), a table of tensors (name, shape, type, offset), then the
 // tensor data. Carbon reads Llama-architecture models (Llama 1/2, TinyLlama,
-// Mistral...) whose matrices are F32 or Q8_0; everything is used in place.
+// Mistral...) whose matrices are F32, Q8_0, Q4_0 or Q6_K; everything is used in place.
 
 // Where a GGUF file keeps its vocabulary (count 0: not a GGUF model).
 pub new type GgufVocab {
@@ -218,16 +218,22 @@ new function gguf_find(tensors: Map<string, TensorInfo>, name: str, rows: int, c
         Some(t) => {
             let info = *t
             var bytes = 0
+            var block = 32
             if info.kind == 0 { bytes = rows * cols * 4 }
             else if info.kind == 8 { bytes = rows * cols / 32 * 34 }
+            else if info.kind == 2 { bytes = rows * cols / 32 * 18 }
+            else if info.kind == 14 {
+                bytes = rows * cols / 256 * 210
+                block = 256
+            }
             if info.rows != rows || info.cols != cols {
                 if problem.len() == 0 { problem = "tensor {name} is {info.rows}x{info.cols}, expected {rows}x{cols}" }
             } else if bytes == 0 {
                 if problem.len() == 0 {
-                    problem = "tensor {name} has ggml type {info.kind}; Carbon reads F32 (0) and Q8_0 (8) so far"
+                    problem = "tensor {name} has ggml type {info.kind}; Carbon reads F32 (0), Q4_0 (2), Q8_0 (8) and Q6_K (14) so far"
                 }
-            } else if info.kind == 8 && cols % 32 != 0 {
-                if problem.len() == 0 { problem = "tensor {name}: Q8_0 rows must be a multiple of 32 long" }
+            } else if info.kind != 0 && cols % block != 0 {
+                if problem.len() == 0 { problem = "tensor {name}: rows must be a multiple of {block} long" }
             } else if info.at > room || uint(bytes) > room - info.at {
                 if problem.len() == 0 { problem = "tensor {name} runs past the end of the file" }
             } else {
@@ -243,6 +249,8 @@ new function gguf_matrix(tensors: Map<string, TensorInfo>, base: ptr<u8>, room: 
     let t = gguf_find(tensors, name, rows, cols, room, problem)
     if t.kind == 0 { return Weights(ptr<f32>(&base[t.at]), null, null, rows, cols, 0, FORMAT_F32) }
     if t.kind == 8 { return Weights(null, ptr<i8>(&base[t.at]), null, rows, cols, 32, FORMAT_Q8_BLOCKS) }
+    if t.kind == 2 { return Weights(null, ptr<i8>(&base[t.at]), null, rows, cols, 32, FORMAT_Q4_0) }
+    if t.kind == 14 { return Weights(null, ptr<i8>(&base[t.at]), null, rows, cols, 32, FORMAT_Q6_K) }
     return Weights(null, null, null, rows, cols, 0, FORMAT_F32)
 }
 

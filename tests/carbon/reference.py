@@ -51,6 +51,48 @@ class Q8:
         return val
 
 
+class Q6K:
+    """GGUF Q6_K: q (rows, cols) int8 in -32..31, sc (rows, cols / 16) int8, d (rows, cols / 256) f32.
+    Multiplies like Carbon: per 32-value group of x, the two 16-value runs' integer
+    sums, each times its int8 scale, then times d * (x's scale)."""
+
+    def __init__(self, q, sc, d):
+        self.q, self.sc, self.d, self.gs = q, sc, d, 32
+
+    def row(self, r):
+        scale = np.repeat(self.d[r], 256) * np.repeat(self.sc[r].astype(np.float32), 16)
+        return (scale.astype(np.float32) * self.q[r].astype(np.float32)).astype(np.float32)
+
+    def __matmul__(self, x):
+        xq, xs = quantize(x, 32)
+        rows, cols = self.q.shape
+        prod = (self.q.astype(np.int32) * xq.astype(np.int32)).reshape(rows, cols // 16, 16).sum(axis=2)
+        ival = (prod * self.sc.astype(np.int32)).reshape(rows, cols // 32, 2).sum(axis=2)
+        val = np.zeros(rows, np.float32)
+        for g in range(cols // 32):
+            val = val + ival[:, g].astype(np.float32) * (self.d[:, g // 8] * xs[g])
+        return val
+
+
+def decode_q4_0(raw, offset, rows, cols):
+    b = np.frombuffer(raw, np.dtype([("d", "<f2"), ("qs", "u1", 16)]), rows * cols // 32, offset)
+    b = b.reshape(rows, cols // 32)
+    q = np.concatenate([(b["qs"] & 15).astype(np.int8) - 8, (b["qs"] >> 4).astype(np.int8) - 8], axis=2)
+    return Q8(q.reshape(rows, cols), b["d"].astype(np.float32), 32)
+
+
+def decode_q6_k(raw, offset, rows, cols):
+    dt = np.dtype([("ql", "u1", 128), ("qh", "u1", 64), ("sc", "i1", 16), ("d", "<f2")])
+    b = np.frombuffer(raw, dt, rows * cols // 256, offset).reshape(rows, cols // 256)
+    parts = []
+    for c in range(2):
+        ql, qh = b["ql"][:, :, c * 64:(c + 1) * 64].astype(np.int16), b["qh"][:, :, c * 32:(c + 1) * 32].astype(np.int16)
+        parts += [(ql[..., :32] & 15) | ((qh & 3) << 4), (ql[..., 32:] & 15) | (((qh >> 2) & 3) << 4),
+                  (ql[..., :32] >> 4) | (((qh >> 4) & 3) << 4), (ql[..., 32:] >> 4) | (((qh >> 6) & 3) << 4)]
+    q = (np.concatenate(parts, axis=2) - 32).astype(np.int8).reshape(rows, cols)
+    return Q6K(q, b["sc"].reshape(rows, cols // 16), b["d"].astype(np.float32))
+
+
 def load_q8(raw):
     dim, hidden, n_layers, n_heads, n_kv, vocab, seq_len = struct.unpack_from("7i", raw, 8)
     shared = raw[36] != 0
@@ -174,6 +216,10 @@ def load_gguf(path):
         if t == 0:
             a = np.frombuffer(raw, np.float32, rows * cols, base + off)
             return a if len(dims) == 1 else a.reshape(rows, cols)
+        if t == 2:
+            return decode_q4_0(raw, base + off, rows, cols)
+        if t == 14:
+            return decode_q6_k(raw, base + off, rows, cols)
         assert t == 8, f"{name}: ggml type {t}"
         b = np.frombuffer(raw, block, rows * cols // 32, base + off).reshape(rows, cols // 32)
         return Q8(b["qs"].reshape(rows, cols), b["d"].astype(np.float32), 32)

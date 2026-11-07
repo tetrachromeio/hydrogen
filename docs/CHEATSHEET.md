@@ -495,7 +495,7 @@ f32x8_fma(a, b, c)  f32x8_max(a, b)  f32x8_min(a, b)    fma_f32(a, b, c)
 ```
 - Types (all in Atomic, freestanding): `f32x4 f32x8 f32x16 f64x2 f64x4 f64x8 i32x4 i32x8 i32x16
   i16x8 i16x16 i16x32 i8x16 i8x32 i8x64 u8x16 u8x32 u8x64 u32x8 i64x4`.
-  Integer vectors also have `& | ^`, and their arithmetic wraps around.
+  Integer vectors also have `& | ^ << >>` (shift amounts are a vector too: `v >> u8x16(4)`), and their arithmetic wraps around.
 - Each is an ordinary `new type f32x8 : vector(f32, 8)`, so you can declare your own.
 - Wider vectors than the CPU has are split into several instructions. Build with `--native`
   for AVX2/AVX-512 on x86-64, where `_fma` is a single instruction. Without FMA hardware it's a slow library call:
