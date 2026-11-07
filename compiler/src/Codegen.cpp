@@ -780,6 +780,126 @@ private:
         return id;
     }
 
+    // ---- variable debug info: DWARF descriptions of Hydrogen types
+
+    std::map<const Type*, int> dbgTypes_;
+
+    int dbgBasic(const std::string& name, uint64_t bits, const char* encoding) {
+        int id = metaCount_++;
+        meta_ << "!" << id << " = !DIBasicType(name: " << llvmQuote(name) << ", size: " << bits
+              << ", encoding: " << encoding << ")\n";
+        return id;
+    }
+
+    int dbgMember(const std::string& name, int type, uint64_t bits, uint64_t offsetBits) {
+        int id = metaCount_++;
+        meta_ << "!" << id << " = !DIDerivedType(tag: DW_TAG_member, name: " << llvmQuote(name) << ", baseType: !"
+              << type << ", size: " << bits << ", offset: " << offsetBits << ")\n";
+        return id;
+    }
+
+    void dbgComposite(int id, const char* tag, const std::string& name, uint64_t bytes, const std::vector<int>& members) {
+        std::string els;
+        for (int m : members) els += (els.empty() ? "!" : ", !") + std::to_string(m);
+        meta_ << "!" << id << " = !DICompositeType(tag: " << tag << ", name: " << llvmQuote(name)
+              << ", size: " << bytes * 8 << ", elements: !{" << els << "})\n";
+    }
+
+    int dbgType(const Type* t) {
+        if (auto it = dbgTypes_.find(t); it != dbgTypes_.end()) return it->second;
+        std::string name = TypeContext::str(t);
+        ScalarInfo s = scalarOf(t);
+        if (t->kind == K::Named && s.kind != ScalarInfo::None) {
+            int id;
+            if (t == lang_.boolT) id = dbgBasic("bool", 8, "DW_ATE_boolean");
+            else if (t == lang_.charT) id = dbgBasic("char", 32, "DW_ATE_UTF");
+            else if (s.kind == ScalarInfo::Float) id = dbgBasic(name, s.bits, "DW_ATE_float");
+            else id = dbgBasic(name, s.bits < 8 ? 8 : s.bits, s.isSigned ? "DW_ATE_signed" : "DW_ATE_unsigned");
+            return dbgTypes_[t] = id;
+        }
+        int id = metaCount_++; // reserved first: types may refer to themselves through pointers
+        dbgTypes_[t] = id;
+        auto pointerTo = [&](int base) {
+            int p = metaCount_++;
+            meta_ << "!" << p << " = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !" << base << ", size: 64)\n";
+            return p;
+        };
+        auto pair = [&](const char* a, int ta, const char* b, int tb) {
+            dbgComposite(id, "DW_TAG_structure_type", name, 16, {dbgMember(a, ta, 64, 0), dbgMember(b, tb, 64, 64)});
+        };
+        switch (t->kind) {
+        case K::Ptr: {
+            int base = dbgType(t->elem()); // may write its own lines: get it first
+            meta_ << "!" << id << " = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !" << base << ", size: 64)\n";
+            return id;
+        }
+        case K::Function: pair("code", pointerTo(dbgBasic("byte", 8, "DW_ATE_unsigned")), "env", pointerTo(dbgBasic("byte", 8, "DW_ATE_unsigned"))); return id;
+        case K::Dyn: pair("data", pointerTo(dbgBasic("byte", 8, "DW_ATE_unsigned")), "vtable", pointerTo(dbgBasic("byte", 8, "DW_ATE_unsigned"))); return id;
+        case K::Slice: pair("data", pointerTo(dbgType(t->elem())), "len", dbgType(lang_.uintT)); return id;
+        case K::Array: {
+            int base = dbgType(t->elem());
+            int sub = metaCount_++;
+            meta_ << "!" << sub << " = !DISubrange(count: " << t->size << ")\n";
+            meta_ << "!" << id << " = !DICompositeType(tag: DW_TAG_array_type, baseType: !" << base
+                  << ", size: " << sizeOf(t) * 8 << ", elements: !{!" << sub << "})\n";
+            return id;
+        }
+        case K::Range: {
+            uint64_t b = sizeOf(t->elem()) * 8;
+            dbgComposite(id, "DW_TAG_structure_type", name, sizeOf(t),
+                         {dbgMember("start", dbgType(t->elem()), b, 0), dbgMember("end", dbgType(t->elem()), b, b)});
+            return id;
+        }
+        case K::Named: break;
+        default:
+            meta_ << "!" << id << " = !DIBasicType(name: " << llvmQuote(name) << ", size: 64, encoding: DW_ATE_unsigned)\n";
+            return id;
+        }
+        if (t->sym->kind == Symbol::Kind::Enum) {
+            dbgComposite(id, "DW_TAG_structure_type", name, sizeOf(t),
+                         {dbgMember("variant", dbgBasic("variant", 32, "DW_ATE_unsigned"), 32, 0)});
+            return id;
+        }
+        // Classes and layout types: fields at their offsets (unions all at 0).
+        const Physical& ph = physical(t);
+        const std::vector<Field>* fields = t->sym->kind == Symbol::Kind::Class ? &declAs<ClassDecl>(t->sym)->fields
+                                                                              : &declAs<TypeDecl>(t->sym)->fields;
+        auto fts = fieldTypes(t);
+        std::vector<uint64_t> slotOffset;
+        uint64_t off = 0;
+        for (const Type* st : ph.slots) {
+            uint64_t a = alignOf(st);
+            off = (off + a - 1) / a * a;
+            slotOffset.push_back(off);
+            off += sizeOf(st);
+        }
+        std::vector<int> members;
+        for (size_t i = 0; i < fts.size(); ++i) {
+            if (ph.width[i]) continue; // bitfields aren't shown
+            uint64_t o = ph.isUnion ? 0 : slotOffset[static_cast<size_t>(ph.slotOf[i])];
+            members.push_back(dbgMember((*fields)[i].name, dbgType(fts[i]), sizeOf(fts[i]) * 8, o * 8));
+        }
+        dbgComposite(id, ph.isUnion ? "DW_TAG_union_type" : "DW_TAG_structure_type", name, sizeOf(t), members);
+        return id;
+    }
+
+    // Tells the debugger that `addr` holds the variable `name`.
+    void declareVariable(const std::string& name, SourceLoc loc, const std::string& addr, const Type* t, int argNo) {
+        if (f_->dbgScope < 0 || !t || t->isError() || t->kind == K::Void) return;
+        auto file = fnFile_.find(f_->fn);
+        if (file == fnFile_.end() || !file->second) return;
+        int type = dbgType(t);
+        int fileId = dbgFile(file->second);
+        int at = dbgLocation(loc, f_->dbgScope);
+        int var = metaCount_++;
+        meta_ << "!" << var << " = !DILocalVariable(name: " << llvmQuote(name)
+              << (argNo ? ", arg: " + std::to_string(argNo) : std::string()) << ", scope: !" << f_->dbgScope
+              << ", file: !" << fileId << ", line: " << loc.line << ", type: !" << type << ")\n";
+        rawDecls_.insert("declare void @llvm.dbg.declare(metadata, metadata, metadata)");
+        f_->allocas << "  call void @llvm.dbg.declare(metadata ptr " << addr << ", metadata !" << var
+                    << ", metadata !DIExpression()), !dbg !" << at << "\n";
+    }
+
     int dbgLocation(SourceLoc loc, int scope) {
         auto key = std::make_tuple(loc.line, loc.col, scope);
         if (auto it = dbgLocs_.find(key); it != dbgLocs_.end()) return it->second;
@@ -795,7 +915,7 @@ private:
         int file = dbgFile(&mainFile);
         out << "\n!llvm.dbg.cu = !{!0}\n!llvm.module.flags = !{!" << metaCount_ << ", !" << metaCount_ + 1 << "}\n";
         out << "!0 = distinct !DICompileUnit(language: DW_LANG_C, file: !" << file
-            << ", producer: \"h2c\", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)\n";
+            << ", producer: \"h2c\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)\n";
         out << "!1 = !DISubroutineType(types: !{})\n";
         out << meta_.str();
         out << "!" << metaCount_ << " = !{i32 7, !\"Dwarf Version\", i32 5}\n";
@@ -1064,6 +1184,7 @@ private:
                 ctx.allocas << "  store " << lty(pt) << " " << pname << ", ptr " << local.ptr << "\n";
             }
             if (p.sym) ctx.locals[p.sym] = local;
+            declareVariable(p.name, p.loc, local.ptr, pt, static_cast<int>(i) + 1 + (method ? 1 : 0));
         }
 
         emitBlockStmts(*fn->body);
@@ -1102,6 +1223,7 @@ private:
             Local local;
             local.type = t;
             local.ptr = alloca(lty(t));
+            declareVariable(l.name, l.loc, local.ptr, t, 0);
             if (l.init) {
                 Val v = consume(*l.init, t);
                 store(v, local.ptr);

@@ -215,7 +215,7 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
 
     const char* cc = std::getenv("H2_CC");
     std::string runtime = std::string(H2_STDLIB_DIR) + "/runtime/h2rt.c";
-    std::vector<std::string> cmd = {cc && *cc ? cc : "clang", release ? "-O2" : "-O1", "-g", "-w",
+    std::vector<std::string> cmd = {cc && *cc ? cc : "clang", release ? "-O2" : "-O0", "-g", "-w",
                                     ll.string(), runtime, "-lm", "-lpthread", "-o", exe.string()};
     int rc = runProcess(cmd);
     if (rc == 127 || rc < 0)

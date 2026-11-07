@@ -85,7 +85,8 @@ macOS has `lldb` instead of `gdb`:
 lldb -o run -o bt build/playground
 ```
 
-`breakpoint set --file main.h2 --line 5` and `next` work on Hydrogen lines.
+`breakpoint set --file main.h2 --line 5`, `next`, `frame variable` and `p p.x` work on
+Hydrogen lines and variables.
 
 ### 9. VS Code (optional)
 

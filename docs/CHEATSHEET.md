@@ -22,9 +22,11 @@ anything not yet supported is listed at the end.
 
 `hy` finds the project by walking up from the current folder to `hy.toml`.
 
-**Debugging:** builds include line tables for `.h2` files, so gdb/lldb show Hydrogen
-source lines in backtraces, and `break main.h2:12` / `next` work:
-`gdb -ex run -ex bt build/<name>`. (Variable inspection isn't available yet.)
+**Debugging:** debug builds (`hy build`, unoptimized) carry full debug info, so gdb/lldb
+show Hydrogen source lines, and `break main.h2:12`, `next`, `info locals`, `info args`
+and `print p.x` work, including struct fields, arrays and strings:
+`gdb -ex run -ex bt build/<name>`. `--release` builds are optimized, so some variables
+show as `<optimized out>`.
 `hy build` needs `clang` (or set `H2_CC`).
 
 ### `hy.toml`
