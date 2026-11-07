@@ -106,6 +106,7 @@ bytes: one core can't read f32 stories42M fast enough, but it can read Q8_0.
 | `quant.h2` | `Weights` (f32, Q8_0, GGUF Q8_0/Q4_0/Q6_K blocks), `quantize`, SIMD integer kernels for each, `matmul` |
 | `quantize.h2` | `quantize_model`: f32 file → Q8_0 file |
 | `gguf.h2` | GGUF reader: metadata, tensor table, `Layer` views |
+| `examples/earlyexit` | Probes every layer (logit lens) to measure whether early exit would pay; see docs/CARBON.md |
 | `model.h2` | `Config`, `Model` (both file formats, mapped weights, `forward`), `State` (arena, pool) |
 | `tokenizer.h2` | `Tokenizer`: `encode`, `decode` |
 | `sampler.h2` | `Sampler`: greedy, temperature, top-p |

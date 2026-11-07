@@ -132,6 +132,17 @@ pub new class Model {
             }
             matmul(s.pool, s.xb, w.w2, s.hb, xq)
             add_into(x, s.xb, dim)
+
+            // Probe mode (diagnostics): what would the model predict if it stopped here?
+            // The hidden state goes through the final norm and the output layer; the
+            // full pass then continues unchanged.
+            if s.probe {
+                rmsnorm(s.probe_x, x, self.rms_final, dim, self.eps)
+                matmul(s.pool, s.probe_logits, self.wcls, s.probe_x, xq)
+                let best = argmax(s.probe_logits, c.vocab_size)
+                s.probe_token[l] = i32(best)
+                s.probe_confidence[l] = top_probability(s.probe_logits, c.vocab_size, best)
+            }
         }
 
         rmsnorm(x, x, self.rms_final, dim, self.eps)
@@ -285,6 +296,13 @@ pub new class State {
     q: ptr<f32>
     att: ptr<f32>
     pub logits: ptr<f32>
+    // Probe mode: set probe = true, and each forward pass records, per layer, the
+    // token an early exit there would pick and its probability.
+    pub probe: bool
+    pub probe_token: ptr<i32>      // n_layers
+    pub probe_confidence: ptr<f32> // n_layers
+    probe_x: ptr<f32>
+    probe_logits: ptr<f32>
     xq: ptr<i8>           // the current input, quantized (Q8_0 models)
     xs: ptr<f32>          // its group scales
     key_cache: ptr<f32>
@@ -296,7 +314,8 @@ pub new class State {
         let kv_dim = c.dim * c.n_kv_heads / c.n_heads
         let cache = c.n_layers * c.seq_len * kv_dim
         let floats = 3 * c.dim + 2 * c.hidden_dim + c.dim + c.n_heads * c.seq_len + c.vocab_size + 2 * cache
-        let bytes = floats * 4 + 2 * (c.dim + c.hidden_dim) * 4 + 1024 // + quantized input, + padding
+        let probes = c.dim + c.vocab_size + 2 * c.n_layers
+        let bytes = (floats + probes) * 4 + 2 * (c.dim + c.hidden_dim) * 4 + 2048 // + probes, quantized input, padding
         self.arena = Arena(uint(bytes))
         self.x = self.arena.f32s(uint(c.dim))
         self.xb = self.arena.f32s(uint(c.dim))
@@ -306,6 +325,11 @@ pub new class State {
         self.q = self.arena.f32s(uint(c.dim))
         self.att = self.arena.f32s(uint(c.n_heads * c.seq_len))
         self.logits = self.arena.f32s(uint(c.vocab_size))
+        self.probe = false
+        self.probe_token = ptr<i32>(self.arena.bytes(uint(c.n_layers * 4)))
+        self.probe_confidence = self.arena.f32s(uint(c.n_layers))
+        self.probe_x = self.arena.f32s(uint(c.dim))
+        self.probe_logits = self.arena.f32s(uint(c.vocab_size))
         var widest = c.dim
         if c.hidden_dim > widest { widest = c.hidden_dim }
         self.xq = ptr<i8>(self.arena.bytes(uint(widest)))

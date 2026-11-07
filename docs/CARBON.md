@@ -84,3 +84,40 @@ code must not keep views past a reset.
 
 At every milestone, correctness means matching a reference implementation's
 logits within tolerance on fixed prompts.
+
+## Experiment: early exit (adaptive compute per token)
+
+**Idea:** stop a token's forward pass partway when the model is already sure of
+the next token, skipping the remaining layers. In memory-bound decoding,
+skipped layers are skipped weight reads. In Carbon it's just an `if` in our own
+loop, which a statically scheduled graph like ggml's can't express.
+
+**Measurement:** `carbon/examples/earlyexit` probes every layer: the hidden state
+goes through the final norm and output layer (the "logit lens"), recording the
+token it would predict and its probability, while the full model generates
+greedily. TinyLlama-1.1B-Chat Q8_0, 450 tokens over 6 chat prompts:
+
+| layer (of 22) | 10 | 14 | 17 | 19 | 20 | 21 |
+|---|---|---|---|---|---|---|
+| early prediction = final token | 4% | 10% | 25% | 39% | 49% | 68% |
+| confidence ≥ 0.9 | 1% | 1% | 8% | 17% | 26% | 34% |
+| of those, right | 25% | 100% | 72% | 83% | 86% | 97% |
+
+The simulated policy exits at the first probed layer whose confidence reaches a
+threshold. Each probe costs an output-layer multiply (32000 × 2048: about the
+weights of 0.6 layers).
+
+| probes from layer | best speed-up | at what error |
+|---|---|---|
+| 9 | 0.66× (slower) | 38% of tokens wrong |
+| 19 | 1.01× | 28% wrong |
+| 21 | 1.00× | 10% wrong; at ≤1% wrong, 0.97× |
+
+**Conclusion:** on a model trained the ordinary way, early exit doesn't pay. Its
+intermediate layers don't predict the next token until the very end, and the
+probes cost more than the layers they save. It needs a model trained for it,
+like Meta's LayerSkip checkpoints, which were trained with layer dropout and an
+early-exit loss. With such a model, the lossless form is self-speculative
+decoding: draft tokens through the early exit, then verify them in one batched
+full pass. That needs batched forward passes, which Carbon doesn't have yet. The
+diagnostic is ready to measure any such model in a minute.

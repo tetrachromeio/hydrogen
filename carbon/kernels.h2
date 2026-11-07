@@ -116,6 +116,14 @@ pub new function add_into(a: ptr<f32>, b: ptr<f32>, size: int) {
     for i in 0..size { a[i] += b[i] }
 }
 
+// The softmax probability of x[best] (x: logits), without changing x.
+pub new function top_probability(x: ptr<f32>, size: int, best: int) -> f32 {
+    let top = x[best]
+    var sum: f32 = 0.0
+    for i in 0..size { sum += expf(x[i] - top) }
+    return 1.0 / sum
+}
+
 pub new function argmax(x: ptr<f32>, size: int) -> int {
     var best = 0
     for i in 1..size { if x[i] > x[best] { best = i } }
