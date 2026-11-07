@@ -68,8 +68,8 @@ std::optional<Manifest> loadManifest(const fs::path& dirIn, std::vector<std::str
     }
 
     for (const auto& [key, val] : doc.root)
-        if (key != "project" && key != "dependencies")
-            err(val.line, "unknown section '" + key + "' (expected [project] or [dependencies])");
+        if (key != "project" && key != "dependencies" && key != "native")
+            err(val.line, "unknown section '" + key + "' (expected [project], [dependencies] or [native])");
 
     auto proj = doc.root.find("project");
     if (proj == doc.root.end() || !proj->second.asTable()) {
@@ -139,8 +139,64 @@ std::optional<Manifest> loadManifest(const fs::path& dirIn, std::vector<std::str
             }
         }
     }
+    if (auto native = doc.root.find("native"); native != doc.root.end()) {
+        auto readTable = [&](const toml::Table& t, const std::string& where, bool top) {
+            for (const auto& [key, val] : t) {
+                if (top && (key == "macos" || key == "linux" || key == "windows")) {
+                    if (!val.asTable()) err(val.line, "[native." + key + "] must be a table");
+                    continue;
+                }
+                std::vector<std::string>* out = key == "libs"         ? &m.native.libs
+                                                : key == "flags"      ? &m.native.flags
+                                                : key == "frameworks" ? &m.native.frameworks
+                                                                      : nullptr;
+                std::vector<std::string> sources;
+                if (key == "sources") out = &sources;
+                if (!out) {
+                    err(val.line, "unknown key '" + key + "' in " + where +
+                                      " (expected sources, libs, flags or frameworks)");
+                    continue;
+                }
+                const toml::Array* arr = val.asArray();
+                if (!arr) {
+                    err(val.line, "'" + key + "' in " + where + " must be an array of strings, e.g. [\"a\", \"b\"]");
+                    continue;
+                }
+                for (const auto& item : *arr) {
+                    if (const auto* s = item.asString()) out->push_back(*s);
+                    else err(item.line, "'" + key + "' in " + where + " must contain only strings");
+                }
+                for (const auto& s : sources) {
+                    fs::path p = normalize(m.dir / s);
+                    std::error_code ec;
+                    if (!fs::is_regular_file(p, ec)) err(val.line, "native source '" + s + "' does not exist");
+                    else m.native.sources.push_back(p);
+                }
+            }
+        };
+        if (const toml::Table* t = native->second.asTable()) {
+            readTable(*t, "[native]", true);
+            if (auto plat = t->find(hostPlatform()); plat != t->end() && plat->second.asTable())
+                readTable(*plat->second.asTable(), std::string("[native.") + hostPlatform() + "]", false);
+        } else {
+            err(native->second.line, "[native] must be a table");
+        }
+    }
+
     if (errors.size() != errorsBefore) return std::nullopt;
     return m;
+}
+
+const char* hostPlatform() {
+#if defined(__APPLE__)
+    return "macos";
+#elif defined(_WIN32)
+    return "windows";
+#elif defined(__linux__)
+    return "linux";
+#else
+    return "other";
+#endif
 }
 
 std::map<std::string, fs::path> resolveDependencies(const Manifest& root, std::vector<std::string>& errors) {

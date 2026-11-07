@@ -9,6 +9,13 @@
 //
 //   [dependencies]
 //   Geometry = { path = "../geometry" }    # a local library project
+//
+//   [native]                               # C / Objective-C code built into every app that uses this project
+//   sources = ["native/shim.c"]            # paths relative to hy.toml
+//   libs = ["m"]                           # -lm
+//   flags = ["-DFOO"]                      # extra compiler flags
+//   frameworks = ["Cocoa"]                 # macOS only: -framework Cocoa
+//   [native.macos]  [native.linux]  [native.windows]   # same keys, added on that platform only
 
 #include <filesystem>
 #include <map>
@@ -24,6 +31,14 @@ struct Dependency {
     int line = 0;
 };
 
+struct NativeConfig {
+    std::vector<std::filesystem::path> sources; // absolute
+    std::vector<std::string> libs, flags, frameworks;
+};
+
+// "macos", "linux", "windows" or "other": selects the [native.<platform>] table.
+const char* hostPlatform();
+
 struct Manifest {
     std::filesystem::path dir;  // directory containing hy.toml
     std::filesystem::path file; // the hy.toml itself
@@ -32,6 +47,7 @@ struct Manifest {
     bool isLibrary = false;
     std::filesystem::path entry; // absolute
     std::vector<Dependency> dependencies;
+    NativeConfig native; // [native] merged with [native.<this platform>]
 };
 
 inline constexpr const char* kManifestName = "hy.toml";

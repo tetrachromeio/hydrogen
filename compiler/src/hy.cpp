@@ -14,6 +14,7 @@
 #include "hydrogen/Program.h"
 #include "hydrogen/Project.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -216,7 +217,31 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
     const char* cc = std::getenv("H2_CC");
     std::string runtime = std::string(H2_STDLIB_DIR) + "/runtime/h2rt.c";
     std::vector<std::string> cmd = {cc && *cc ? cc : "clang", release ? "-O2" : "-O0", "-g", "-w",
-                                    ll.string(), runtime, "-lm", "-lpthread", "-o", exe.string()};
+                                    ll.string(), runtime};
+    // Native code from this project and every library it uses ([native] in their hy.toml).
+    std::vector<h2::NativeConfig> natives = {p->manifest.native};
+    for (const auto& [name, dir] : p->packages) {
+        if (dir == p->manifest.dir) continue;
+        std::vector<std::string> errors;
+        if (auto m = h2::loadManifest(dir, errors)) natives.push_back(m->native);
+        for (const auto& e : errors) std::cerr << "error: " << e << '\n';
+        if (!errors.empty()) return 1;
+    }
+    std::vector<std::string> linkArgs;
+    auto addOnce = [&](std::vector<std::string>& v, std::vector<std::string> args) {
+        for (size_t i = 0; i + args.size() <= v.size(); ++i)
+            if (std::equal(args.begin(), args.end(), v.begin() + i)) return;
+        v.insert(v.end(), args.begin(), args.end());
+    };
+    for (const auto& n : natives) {
+        for (const auto& f : n.flags) cmd.push_back(f);
+        for (const auto& s : n.sources) cmd.push_back(s.string());
+        for (const auto& l : n.libs) addOnce(linkArgs, {"-l" + l});
+        for (const auto& f : n.frameworks) addOnce(linkArgs, {"-framework", f});
+    }
+    cmd.insert(cmd.end(), linkArgs.begin(), linkArgs.end());
+    for (const char* a : {"-lm", "-lpthread", "-o"}) cmd.push_back(a);
+    cmd.push_back(exe.string());
     int rc = runProcess(cmd);
     if (rc == 127 || rc < 0)
         return fail("could not run '" + cmd[0] + "'. Hydrogen uses clang to turn LLVM IR into a program; install "
