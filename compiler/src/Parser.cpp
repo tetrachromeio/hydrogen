@@ -29,6 +29,7 @@ public:
                 advance();
                 continue;
             }
+            lastStmtStart_ = pos_;
             try {
                 m.decls.push_back(parseTopDecl());
             } catch (const ParseError&) {
@@ -44,6 +45,7 @@ private:
     size_t pos_ = 0;
     int speculating_ = 0;
     int nest_ = 0; // > 0 inside (...) or [...]: newlines don't end expressions
+    size_t lastStmtStart_ = 0; // where the statement being recovered from began
 
     // ------------------------------------------------------------ token helpers
 
@@ -113,6 +115,8 @@ private:
     // or a '}' that closes the enclosing block. Always makes progress.
     void syncUntil(const std::function<bool(const Token&)>& stop) {
         int depth = 0;
+        // The failed statement already reached the next line: resume right there.
+        if (pos_ > lastStmtStart_ && stop(peek())) return;
         if (!at(Tok::RBrace) && !at(Tok::Eof)) {
             if (at(Tok::LBrace)) ++depth;
             advance();
@@ -392,6 +396,7 @@ private:
         expect(Tok::LBrace, std::string("'{' to start the ") + what + " body");
         while (!at(Tok::RBrace) && !at(Tok::Eof)) {
             if (accept(Tok::Semi) || accept(Tok::Comma)) continue;
+            lastStmtStart_ = pos_;
             try {
                 member();
             } catch (const ParseError&) {
@@ -556,6 +561,7 @@ private:
         auto b = std::make_unique<Block>(expect(Tok::LBrace, "'{'").loc);
         while (!at(Tok::RBrace) && !at(Tok::Eof)) {
             if (accept(Tok::Semi)) continue;
+            lastStmtStart_ = pos_;
             try {
                 b->stmts.push_back(parseStmt());
             } catch (const ParseError&) {
@@ -958,6 +964,7 @@ private:
         expect(Tok::LBrace, "'{' after match subject");
         while (!at(Tok::RBrace) && !at(Tok::Eof)) {
             if (accept(Tok::Comma) || accept(Tok::Semi)) continue;
+            lastStmtStart_ = pos_;
             try {
                 MatchArm arm;
                 arm.pattern = parsePattern();
