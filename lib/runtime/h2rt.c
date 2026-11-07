@@ -3,6 +3,8 @@
 //
 // The string layout must match Atomic's `string` class: { buf, used, cap }.
 
+#define _POSIX_C_SOURCE 200809L // getline, clock_gettime, nanosleep, localtime_r, pthreads
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,4 +177,159 @@ void h2_sleep_seconds(double s) {
     ts.tv_sec = (time_t)s;
     ts.tv_nsec = (long)((s - (double)ts.tv_sec) * 1e9);
     nanosleep(&ts, NULL);
+}
+
+// ---- threads (Elemental.Thread). A Hydrogen function value is { code, env };
+// code takes the environment pointer first.
+
+#include <pthread.h>
+
+typedef struct {
+    void (*code)(void* env, void* arg);
+    void* env;
+} H2Fn;
+
+typedef struct {
+    H2Fn fn;
+    void* arg;
+} H2Start;
+
+static void* h2_thread_trampoline(void* p) {
+    H2Start s = *(H2Start*)p;
+    free(p);
+    s.fn.code(s.fn.env, s.arg);
+    return NULL;
+}
+
+// Starts fn(arg) on a new thread. Returns a handle for h2_thread_join, or NULL.
+void* h2_thread_spawn(H2Fn fn, void* arg) {
+    pthread_t* t = (pthread_t*)malloc(sizeof *t);
+    H2Start* s = (H2Start*)malloc(sizeof *s);
+    s->fn = fn;
+    s->arg = arg;
+    if (pthread_create(t, NULL, h2_thread_trampoline, s) != 0) {
+        free(s);
+        free(t);
+        return NULL;
+    }
+    return t;
+}
+
+void h2_thread_join(void* t) {
+    pthread_join(*(pthread_t*)t, NULL);
+    free(t);
+}
+
+void h2_fail(const uint8_t* msg, uint64_t len) {
+    fwrite(msg, 1, len, stderr);
+    fputc('\n', stderr);
+    abort();
+}
+
+// ---- channels: a queue of fixed-size items shared by several handles.
+// Items are moved in and out bitwise; the Hydrogen side owns their cleanup.
+
+typedef struct H2Node {
+    struct H2Node* next;
+    unsigned char data[];
+} H2Node;
+
+typedef struct {
+    pthread_mutex_t lock;
+    pthread_cond_t ready;
+    H2Node *head, *tail;
+    uint64_t item_size;
+    int handles;
+} H2Chan;
+
+void* h2_chan_new(uint64_t item_size) {
+    H2Chan* c = (H2Chan*)calloc(1, sizeof *c);
+    pthread_mutex_init(&c->lock, NULL);
+    pthread_cond_init(&c->ready, NULL);
+    c->item_size = item_size;
+    c->handles = 1;
+    return c;
+}
+
+void h2_chan_retain(void* p) {
+    H2Chan* c = (H2Chan*)p;
+    pthread_mutex_lock(&c->lock);
+    c->handles++;
+    pthread_mutex_unlock(&c->lock);
+}
+
+void h2_chan_send(void* p, const void* item) {
+    H2Chan* c = (H2Chan*)p;
+    H2Node* n = (H2Node*)malloc(sizeof(H2Node) + c->item_size);
+    n->next = NULL;
+    memcpy(n->data, item, c->item_size);
+    pthread_mutex_lock(&c->lock);
+    if (c->tail) c->tail->next = n;
+    else c->head = n;
+    c->tail = n;
+    pthread_cond_signal(&c->ready);
+    pthread_mutex_unlock(&c->lock);
+}
+
+static _Bool pop_locked(H2Chan* c, void* out) {
+    H2Node* n = c->head;
+    if (!n) return 0;
+    c->head = n->next;
+    if (!c->head) c->tail = NULL;
+    memcpy(out, n->data, c->item_size);
+    free(n);
+    return 1;
+}
+
+// Waits for an item. Returns 0 when the queue is empty and no other handle
+// remains (nobody can send any more).
+_Bool h2_chan_recv(void* p, void* out) {
+    H2Chan* c = (H2Chan*)p;
+    pthread_mutex_lock(&c->lock);
+    while (!c->head && c->handles > 1) pthread_cond_wait(&c->ready, &c->lock);
+    _Bool got = pop_locked(c, out);
+    pthread_mutex_unlock(&c->lock);
+    return got;
+}
+
+_Bool h2_chan_try_pop(void* p, void* out) {
+    H2Chan* c = (H2Chan*)p;
+    pthread_mutex_lock(&c->lock);
+    _Bool got = pop_locked(c, out);
+    pthread_mutex_unlock(&c->lock);
+    return got;
+}
+
+// Drops one handle. Returns 1 if it was the last (the caller then drains and frees).
+_Bool h2_chan_release(void* p) {
+    H2Chan* c = (H2Chan*)p;
+    pthread_mutex_lock(&c->lock);
+    int last = --c->handles == 0;
+    pthread_cond_broadcast(&c->ready);
+    pthread_mutex_unlock(&c->lock);
+    return last;
+}
+
+void h2_chan_free(void* p) {
+    H2Chan* c = (H2Chan*)p;
+    pthread_mutex_destroy(&c->lock);
+    pthread_cond_destroy(&c->ready);
+    free(c);
+}
+
+// ---- calendar time (Elemental.Time.DateTime)
+
+// Fills year, month (1-12), day, hour, minute, second, weekday (0 = Sunday).
+void h2_datetime(int64_t unix_seconds, _Bool local, int64_t* out) {
+    time_t t = (time_t)unix_seconds;
+    struct tm tm;
+    if (local) localtime_r(&t, &tm);
+    else gmtime_r(&t, &tm);
+    out[0] = tm.tm_year + 1900;
+    out[1] = tm.tm_mon + 1;
+    out[2] = tm.tm_mday;
+    out[3] = tm.tm_hour;
+    out[4] = tm.tm_min;
+    out[5] = tm.tm_sec;
+    out[6] = tm.tm_wday;
 }

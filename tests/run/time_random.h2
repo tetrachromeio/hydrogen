@@ -34,5 +34,17 @@ new function main() -> int {
     let took = now() - start
     print(took >= 0.04 && took < 1.0)
     print(unix_time() > 1700000000)
+    dates()
     return 0
+}
+
+new function dates() {
+    let moon = utc_from_unix(-14182940)               // 1969-07-20 20:17:40 UTC
+    print(moon)
+    print(weekday_name(moon))
+    let y2k = utc_from_unix(946684800)
+    print(y2k)
+    print(y2k.year == 2000 && y2k.month == 1 && y2k.day == 1)
+    let today = utc_now()
+    print(today.year >= 2025 && today.month >= 1 && today.month <= 12)
 }

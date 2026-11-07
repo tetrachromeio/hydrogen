@@ -132,7 +132,7 @@ def main():
                 failures.append(f"{p}: h2c failed\n{r.stderr}")
                 continue
             ll.write_text(r.stdout)
-            b = subprocess.run([clang, "-O1", "-g", "-w", str(ll), str(runtime), "-lm", "-o", str(exe)],
+            b = subprocess.run([clang, "-O1", "-g", "-w", str(ll), str(runtime), "-lm", "-lpthread", "-o", str(exe)],
                                capture_output=True, text=True)
             if b.returncode != 0:
                 failures.append(f"{p}: clang failed\n{b.stderr[-2000:]}")

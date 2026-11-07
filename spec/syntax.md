@@ -403,6 +403,18 @@ Writing through a pointer stored in `self` (`self.items[i] = x`) doesn't change
 In normal (debug) builds, `+ - *` that overflow, and `/ %` by zero, stop the
 program. `--release` builds skip these checks, and arithmetic wraps around.
 
+## Threads and `Sendable`
+`spawn(input, work)` moves `input` into a new thread that runs `work(input)`.
+`join()` waits and moves the result back. A `Thread` dropped without `join()`
+waits for its thread. `work` is an `own` function parameter, so it can't capture
+variables; the thread can reach only its input. `input` and the result must be
+`Sendable`, a marker interface the compiler checks structurally. A type is
+`Sendable` unless it contains a raw pointer, a `str`, an `any I`, a slice, or a
+generic parameter not constrained by `Sendable`. Pointer fields of a class with
+`drop` count as owned, so `string`, `List<T>` and `Map<K, V>` are `Sendable` when
+their contents are. Channels (`channel<T>()`) move values between running
+threads; `receive()` returns `None` once no other handle remains.
+
 ## Atomic and Elemental
 - **Atomic** is freestanding: it needs no OS and no C library, and it never
   allocates. It has the primitive types and their operators, `str`, `Result`,

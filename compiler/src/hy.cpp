@@ -216,7 +216,7 @@ int cmdBuild(bool thenRun, const std::vector<std::string>& runArgs, bool release
     const char* cc = std::getenv("H2_CC");
     std::string runtime = std::string(H2_STDLIB_DIR) + "/runtime/h2rt.c";
     std::vector<std::string> cmd = {cc && *cc ? cc : "clang", release ? "-O2" : "-O1", "-g", "-w",
-                                    ll.string(), runtime, "-lm", "-o", exe.string()};
+                                    ll.string(), runtime, "-lm", "-lpthread", "-o", exe.string()};
     int rc = runProcess(cmd);
     if (rc == 127 || rc < 0)
         return fail("could not run '" + cmd[0] + "'. Hydrogen uses clang to turn LLVM IR into a program; install "

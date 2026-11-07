@@ -8,6 +8,7 @@ pub use Elemental.Math
 pub use Elemental.File
 pub use Elemental.Time
 pub use Elemental.Random
+pub use Elemental.Thread
 
 include text
 include list

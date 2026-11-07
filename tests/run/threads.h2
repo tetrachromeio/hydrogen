@@ -1,0 +1,71 @@
+use Elemental
+
+new function sum(nums: List<int>) -> int {
+    var total = 0
+    for n in nums { total += n }
+    return total
+}
+
+new function main() -> int {
+    // parallel sum: each chunk moves into its own thread
+    var workers = List<Thread<int>>()
+    for t in 0..4 {
+        var chunk = List<int>()
+        for i in 0..250 { chunk.push(t * 250 + i + 1) }
+        workers.push(spawn(chunk, sum))
+    }
+    var total = 0
+    for i in 0..workers.len() { total += workers[i].join() }
+    print(total)                                  // 1 + 2 + ... + 1000
+
+    // owned values move in and out
+    var greeter = spawn(string("hello"), function(s: string) -> string { return s + " from a thread" })
+    let message = greeter.join()
+    print(message)
+
+    // producers and a consumer, through a channel
+    let ch = channel<int>()
+    let p1 = spawn(ch.copy(), function(c: Channel<int>) -> int {
+        for i in 0..5 { c.send(i) }
+        return 5
+    })
+    let p2 = spawn(ch.copy(), function(c: Channel<int>) -> int {
+        for i in 0..5 { c.send(100 + i) }
+        return 5
+    })
+    var received = 0
+    var checksum = 0
+    while true {
+        match ch.receive() {
+            Some(n) => {
+                received += 1
+                checksum += n
+            }
+            None => { break }                     // both producers are done
+        }
+    }
+    print(string(received) + " messages, checksum " + string(checksum))
+
+    // strings through a channel
+    let words = channel<string>()
+    let w = spawn(words.copy(), function(c: Channel<string>) -> int {
+        c.send(string("alpha"))
+        c.send(string("beta"))
+        return 0
+    })
+    var count = 0
+    while true {
+        match words.receive() {
+            Some(word) => {
+                count += 1
+                print("got " + word)
+            }
+            None => { break }
+        }
+    }
+    print(count)
+
+    // a thread that is never joined is still waited for
+    let background = spawn(7, function(n: int) -> int { return n * 6 })
+    return 0
+}

@@ -123,6 +123,63 @@ private:
     void error(SourceLoc loc, const std::string& msg) { diags_.error(file_->displayFile, loc, msg); }
     static std::string str(const Type* t) { return TypeContext::str(t); }
 
+    // -------------------------------------------------------------- Sendable
+
+    const Symbol* sendableSym_ = nullptr;
+
+    // Can a value of this type move to another thread? Not if it points at memory
+    // that the sending thread could still use (raw pointers, str views, any I,
+    // slices). Classes with `drop` own what they point to, so they qualify when
+    // their contents do (string, List<T>, Map<K, V>, ...).
+    bool sendable(const Type* t, std::string& why, int depth) {
+        if (depth > 16) return true;
+        switch (t->kind) {
+        case K::Ptr: why = "it contains a raw pointer (" + str(t) + ")"; return false;
+        case K::Dyn: why = "it contains a borrowed reference (" + str(t) + ")"; return false;
+        case K::Slice: why = "it contains a slice, which borrows memory (" + str(t) + ")"; return false;
+        case K::Array:
+        case K::Range: return sendable(t->elem(), why, depth + 1);
+        case K::Generic:
+            if (t->sym->genericParam)
+                for (const auto& c : t->sym->genericParam->constraints)
+                    if (c->sym == sendableSym_) return true;
+            why = str(t) + " isn't known to be Sendable; add the constraint <" + str(t) + ": Sendable>";
+            return false;
+        case K::Named: break;
+        default: return true;
+        }
+        if (t == lang_.strT) {
+            why = "str is a borrowed view; send an owned string instead (string(text))";
+            return false;
+        }
+        Subst s = substFor(t);
+        const Type* selfT = selfTypeOf(t->sym);
+        bool owns = false;
+        if (t->sym->kind == Symbol::Kind::Class)
+            for (const auto& m : declAs<ClassDecl>(t->sym)->methods)
+                owns = owns || (!m->isOperator && m->name == "drop");
+        for (const Type* a : t->args)
+            if (!sendable(a, why, depth + 1)) return false;
+        auto fieldsOk = [&](const std::vector<Field>& fields) {
+            for (const auto& f : fields) {
+                const Type* ft = subst(convert(*f.type, selfT), s);
+                if (owns && ft->kind == K::Ptr) continue; // owned memory, freed in drop
+                if (!sendable(ft, why, depth + 1)) {
+                    why = "field " + q(f.name) + " of " + t->sym->name + ": " + why;
+                    return false;
+                }
+            }
+            return true;
+        };
+        if (t->sym->kind == Symbol::Kind::Class) return fieldsOk(declAs<ClassDecl>(t->sym)->fields);
+        if (t->sym->kind == Symbol::Kind::Type) return fieldsOk(declAs<TypeDecl>(t->sym)->fields);
+        if (t->sym->kind == Symbol::Kind::Enum)
+            for (const auto& v : declAs<EnumDecl>(t->sym)->variants)
+                for (const auto& p : v.payload)
+                    if (!sendable(subst(convert(*p, nullptr), s), why, depth + 1)) return false;
+        return true;
+    }
+
     // -------------------------------------------------------------- language items
 
     void findLangItems() {
@@ -148,6 +205,7 @@ private:
         lang_.uintT = get("uint");
         lang_.floatT = get("float");
         if (atomic) {
+            if (auto it = atomic->defs.find("Sendable"); it != atomic->defs.end()) sendableSym_ = it->second;
             if (auto it = atomic->defs.find("Result"); it != atomic->defs.end()) lang_.result = it->second;
             if (auto it = atomic->defs.find("Option"); it != atomic->defs.end()) lang_.option = it->second;
         }
@@ -1091,6 +1149,12 @@ private:
         if (t->isError()) return;
         for (const auto& c : g.constraints) {
             if (!c->sym || c->sym->kind != Symbol::Kind::Interface) continue;
+            if (c->sym == sendableSym_ && t->kind != K::Generic) {
+                std::string why;
+                if (!sendable(t, why, 0))
+                    error(loc, str(t) + " can't be sent to another thread: " + why);
+                continue;
+            }
             if (t->kind == K::Generic) {
                 bool has = false;
                 if (t->sym->genericParam)
@@ -1759,7 +1823,8 @@ private:
         if (f.isExtern) {
             const Sig& sig = sigOf(f, ownerSelf);
             auto ok = [&](const Type* t) {
-                return t->isError() || t == tc_.voidT() || t->kind == K::Ptr || scalarOf(t).kind != Scalar::None;
+                return t->isError() || t == tc_.voidT() || t->kind == K::Ptr || t->kind == K::Function ||
+                       scalarOf(t).kind != Scalar::None;
             };
             for (size_t i = 0; i < sig.params.size(); ++i) {
                 if (!ok(sig.params[i]))

@@ -281,3 +281,11 @@ pub new operator hash (s: str) -> uint {
     }
     return h
 }
+
+// ---------------------------------------------------------------- threads
+
+// Values that may move to another thread. The compiler checks this itself:
+// anything that doesn't point at memory the sender could still use (raw
+// pointers, str views, any I, slices). Classes with `drop` own their memory,
+// so string, List<T> and Map<K, V> qualify when their contents do.
+pub new interface Sendable {}

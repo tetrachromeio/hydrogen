@@ -553,7 +553,8 @@ Two layers:
 | `List<T>`: `List<int>()` `push(x)` `pop()` (Option) `list[i]` `for x in list` `at(i)` (ptr) `len()` `is_empty()` `clear()` | growable array |
 | `Map<K, V>`: `set(k, v)` `get(k)` (Option of ptr) `has(k)` `remove(k)` (Option) `len()` `for k in map` `value_at(i)` | hash map, keeps insertion order; keys need `==` and `operator hash` |
 | `Elemental.IO` | `print(x)`, `eprint(x)` (stderr), `read_line()` (Option, None at end of input), `args()` (List of strings) |
-| `Elemental.Time` | `now()` (steady seconds, for measuring), `unix_time()`, `sleep(seconds)` |
+| `Elemental.Time` | `now()` (steady seconds, for measuring), `unix_time()`, `sleep(seconds)`; `DateTime` (`utc_now()`, `local_now()`, `utc_from_unix(t)`, fields `year month day hour minute second weekday`, prints as `2026-11-07 14:03:22`, `weekday_name(d)`) |
+| `Elemental.Thread` | `spawn(input, work)` -> `Thread<R>` with `join()`; `channel<T>()` -> `Channel<T>` with `send(x)`, `receive()` (Option), `copy()` |
 | `Elemental.Random` | `Random(seed)` with `next()` `below(n)` `between(a, b)` `chance()` (0..1); `random_from_clock()` |
 | `Elemental.File` | `read_file(path)`, `write_file(path, text)`, `append_file(path, text)` (Result, `FileError`), `remove_file(path)` |
 | text tools (on `str`) | `trim` `split(text, sep)` `contains` `find` (Option) `starts_with` `ends_with` `slice(text, start, end)` `parse_int` `parse_float` (Option) |
@@ -592,6 +593,26 @@ for w in counts { print(w) }             // keys in the order first added
 ```
 Your own key types need `==` and `operator hash (v: T) -> uint`.
 
+Threads (Rust-style: nothing is shared by accident):
+```
+let worker = spawn(numbers, function(nums: List<int>) -> int {   // numbers moves into the thread
+    var sum = 0
+    for n in nums { sum += n }
+    return sum
+})
+print(worker.join())                                             // the result moves back
+
+let ch = channel<string>()
+let producer = spawn(ch.copy(), function(c: Channel<string>) -> int {
+    c.send(string("hello"))
+    return 0
+})
+match ch.receive() { Some(msg) => print(msg)  None => {} }       // None once senders are gone
+```
+- What crosses threads must be `Sendable`: no raw pointers, `str` views, `any`, or slices.
+  `string`, `List`, `Map` and plain values are fine. The work function can't capture variables.
+- A `Thread` that is never joined is waited for when it goes away.
+
 Text tools return views into their input (no allocation), so keep the original
 text alive while you use the results.
 
@@ -615,4 +636,4 @@ Elemental uses `extern` to reach the C library instead.
 - Variadic C functions (like `printf`) through `extern`
 - UTF-8 decoding in `for c in text` (iterates bytes)
 - Full borrow checking of `str` views (only returning one is caught)
-- Threads
+- Shared mutable state between threads (Mutex, atomics); use channels for now

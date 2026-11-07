@@ -156,3 +156,15 @@ new function escape_errors() {
     var saved = function(n: int) -> int { return n }          // non-capturing: fine
     saved = add_k                                             // can't store a capturing one in a var
 }
+
+new function work_ptr(p: ptr<int>) -> int { return 0 }
+new function work_str(s: str) -> int { return 0 }
+new function work_int(n: int) -> int { return n }
+new function thread_errors() {
+    var x = 5
+    let a = spawn(&x, work_ptr)                                   // a raw pointer would be shared
+    let b = spawn("text", work_str)                               // a str view would be shared
+    let c = spawn(1, function(n: int) -> int { return n + x })    // captures x
+    let d = spawn(1, work_int)                                    // fine
+    let e = spawn(string("ok"), function(s: string) -> uint { return s.len() })   // fine
+}
