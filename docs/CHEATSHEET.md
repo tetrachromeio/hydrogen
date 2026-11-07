@@ -316,7 +316,11 @@ let label = match area(Rect(2.0, 3.0)) {
 - Patterns: variants, nested variants, literals, `_`, and names that bind values.
 - `match` must cover every case (the compiler names what's missing).
 - `match` can produce a value. Arms are `pattern => expr` or `pattern => { block }`.
-- Match bindings are borrowed views of the matched value.
+- **Who owns the bindings:** if you match a temporary (`match find(x)`, `match ch.receive()`)
+  or a variable you own, the match takes it and the bindings own their values. You can
+  keep them (`Some(word) => words.push(word)`), and anything not bound (`_`) is dropped.
+  The variable counts as moved. Matching something you only borrow (a parameter, a
+  field, `self`) gives borrowed bindings: read them, or `.copy()` them.
 
 ---
 
@@ -536,6 +540,7 @@ Two layers:
 | `int uint float`, sized ints/floats, `bool char` | types, with their operators |
 | `str` | borrowed text: `.data` `.len` `[i]` `==` |
 | `Result<T, E>` (`Ok`, `Err`), `Option<T>` (`Some`, `None`) | error handling |
+| `unwrap_or(option, fallback)`, `is_some(o)`, `is_none(o)` | Option helpers |
 | `Ordered`, `Equatable`, `Hashable` | interfaces: has `<` / has `==` / has `operator hash` |
 | `hash(x)`, `wrapping_add/sub/mul` | hashing; arithmetic that wraps on purpose (never stops the program) |
 | `Atomic.Memory` | `copy(dst, src, n)` `fill(dst, byte, n)`; for containers: `take(p)` (move out of raw memory), `destroy(p)` (drop in place), `size_of(p)` |

@@ -268,6 +268,17 @@ let m  = max(3, 7)       // inferred: max<int>
 Types satisfy interfaces **structurally**: if `int` defines `<`, it is
 `Comparable`. You don't declare it. Multiple constraints: `T: Comparable + Hashable`.
 
+## Ownership in `match`
+A `match` *takes* its subject when the subject is a temporary (any expression
+that isn't a variable, field, element or `*p`), or when it is an owned variable
+(a `let`/`var` or an `own` parameter) and some arm binds a name. Then:
+- the variable is moved (later uses are errors);
+- in the arm that runs, each binding owns its value: it can be moved, and is
+  dropped at the end of the arm otherwise;
+- parts the pattern doesn't bind (`_`, other fields) are dropped when the arm starts.
+Otherwise (borrowed parameters, fields, `self`, ...) bindings are borrowed
+views: readable, not movable.
+
 ## Text and printing
 | Type     | What it is | Owns memory? |
 |----------|------------|--------------|

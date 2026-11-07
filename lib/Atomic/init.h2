@@ -289,3 +289,22 @@ pub new operator hash (s: str) -> uint {
 // pointers, str views, any I, slices). Classes with `drop` own their memory,
 // so string, List<T> and Map<K, V> qualify when their contents do.
 pub new interface Sendable {}
+
+// ---------------------------------------------------------------- Option helpers
+
+// The value inside, or `fallback` if there is none.
+pub new function unwrap_or<T>(option: own Option<T>, fallback: own T) -> T {
+    match option {
+        Some(value) => { return value }
+        None => { return fallback }
+    }
+}
+
+pub new function is_some<T>(option: Option<T>) -> bool {
+    match option {
+        Some(_) => { return true }
+        None => { return false }
+    }
+}
+
+pub new function is_none<T>(option: Option<T>) -> bool { return !is_some(option) }

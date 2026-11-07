@@ -1,0 +1,79 @@
+use Elemental
+
+new class Noisy {
+    name: string
+    new function init(name: str) { self.name = string(name) }
+    new function drop() { print("drop " + self.name) }
+}
+
+new function find(name: str) -> Option<Noisy> {
+    if name == "none" { return None }
+    return Some(Noisy(name))
+}
+
+new enum Event {
+    Message(Noisy, Noisy)
+    Quit
+}
+
+new function main() -> int {
+    // keep the value from a temporary
+    var kept = List<Noisy>()
+    match find("first") {
+        Some(n) => kept.push(n)          // n is owned: moved into the list
+        None => {}
+    }
+    print("kept " + string(kept.len()))
+
+    // ignore it: the unbound value is dropped right away
+    match find("ignored") {
+        Some(_) => print("found one, not keeping it")
+        None => {}
+    }
+
+    // bind it and let it go out of scope at the end of the arm
+    match find("scoped") {
+        Some(n) => print("looking at " + n.name)
+        None => {}
+    }
+    print("after scoped")
+
+    // part of a variant bound, part not
+    match Message(Noisy("from"), Noisy("body")) {
+        Message(sender, _) => print("message from " + sender.name)
+        Quit => {}
+    }
+    print("after message")
+
+    // matching an owned variable moves it into the match
+    let maybe = find("local")
+    match maybe {
+        Some(n) => kept.push(n)
+        None => {}
+    }
+    print("kept " + string(kept.len()))
+
+    // Option helpers
+    let a = unwrap_or(find("none"), Noisy("fallback"))
+    print("got " + a.name)
+    print(is_some(find("x")))
+    print(is_none(find("none")))
+
+    // strings from a channel can now be kept
+    let ch = channel<string>()
+    let w = spawn(ch.copy(), function(c: Channel<string>) -> int {
+        c.send(string("one"))
+        c.send(string("two"))
+        return 0
+    })
+    var words = List<string>()
+    while true {
+        match ch.receive() {
+            Some(word) => words.push(word)
+            None => { break }
+        }
+    }
+    print(words[0] + " " + words[1])
+    print("end")
+    return 0
+}

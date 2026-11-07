@@ -2082,6 +2082,7 @@ public:
             if (e->kind == ExprKind::Call) info.calls[e] = {ci.fn, ci.subst};
         info.viewCoerced = viewCoerced_;
         info.dynCoerced = dynCoerced_;
+        info.consumingMatches = consumingMatches_;
     }
 
     void runMoveChecks() {
@@ -2381,6 +2382,10 @@ private:
                     moveError(e.loc, "cannot move " + q(s->name) + ": parameters are borrowed. Write '" + s->name +
                                          ": own " + t + "' to take ownership" +
                                          (hasCopyMethod(e.type) ? ", or use " + s->name + ".copy()" : ""));
+                else if (matchBindings_.count(s))
+                    moveError(e.loc, "cannot move " + q(s->name) + ": the match only borrows the value it matches "
+                                     "(it isn't owned here). Match on a value you own or a temporary to take it." +
+                                         copyHint(s->name, e.type));
                 else
                     moveError(e.loc, "cannot move " + q(s->name) + ": it is borrowed, not owned." +
                                          copyHint(s->name, e.type));
@@ -2437,12 +2442,26 @@ private:
             return;
         case ExprKind::Match: {
             const auto& m = static_cast<const MatchExpr&>(e);
-            moveExpr(*m.subject, false);
+            // A match takes ownership of its subject (and its bindings own their
+            // values) when the subject is a temporary, or an owned variable that
+            // some arm binds a value out of. Otherwise bindings are borrowed.
+            bool consuming = false;
+            if (isTemporary(*m.subject)) {
+                consuming = true;
+                moveExpr(*m.subject, true);
+            } else if (m.subject->kind == ExprKind::Ident && armsBind(m)) {
+                auto it = vars_.find(static_cast<const IdentExpr&>(*m.subject).sym);
+                consuming = it != vars_.end() && !it->second.borrowed;
+                moveExpr(*m.subject, consuming);
+            } else {
+                moveExpr(*m.subject, false);
+            }
+            if (consuming) consumingMatches_.insert(&e);
             MoveState before = vars_;
             std::optional<MoveState> after;
             for (const auto& arm : m.arms) {
                 vars_ = before;
-                bindPattern(*arm.pattern);
+                bindPattern(*arm.pattern, !consuming);
                 bool reachable = true;
                 if (arm.block) reachable = moveBlock(*arm.block);
                 if (arm.expr) moveExpr(*arm.expr, consume);
@@ -2492,10 +2511,41 @@ private:
         noteInstantiation(ci, c.loc);
     }
 
-    void bindPattern(const Pattern& p) {
-        if (p.kind == Pattern::Kind::Binding && p.sym)
-            vars_[p.sym] = VarInfo{VarState::Live, {}, /*borrowed=*/true, moveLoop_};
-        for (const auto& f : p.fields) bindPattern(*f);
+    std::set<const Symbol*> matchBindings_;
+
+    void bindPattern(const Pattern& p, bool borrowed) {
+        if (p.kind == Pattern::Kind::Binding && p.sym && p.sym->kind == Symbol::Kind::Local) {
+            vars_[p.sym] = VarInfo{VarState::Live, {}, borrowed, moveLoop_};
+            matchBindings_.insert(p.sym);
+        }
+        for (const auto& f : p.fields) bindPattern(*f, borrowed);
+    }
+
+    std::set<const Expr*> consumingMatches_;
+
+    // Not a place: a call result, an operator result, a literal, ...
+    static bool isTemporary(const Expr& e) {
+        switch (e.kind) {
+        case ExprKind::Ident:
+        case ExprKind::Self:
+        case ExprKind::Index: return false;
+        case ExprKind::Member: return static_cast<const MemberExpr&>(e).sym != nullptr;
+        case ExprKind::Unary: return static_cast<const UnaryExpr&>(e).op != "*";
+        default: return true;
+        }
+    }
+
+    static bool patternBinds(const Pattern& p) {
+        if (p.kind == Pattern::Kind::Binding && p.sym && p.sym->kind == Symbol::Kind::Local) return true;
+        for (const auto& f : p.fields)
+            if (patternBinds(*f)) return true;
+        return false;
+    }
+
+    static bool armsBind(const MatchExpr& m) {
+        for (const auto& arm : m.arms)
+            if (patternBinds(*arm.pattern)) return true;
+        return false;
     }
 
     // Returns false if the end of the block is unreachable (return/break/continue).

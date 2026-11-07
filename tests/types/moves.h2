@@ -75,11 +75,22 @@ new function errors(flag: bool, param: string) {
     let stolen = h.name           // can't move a field out
     let o = Some(string("o"))
     match o {
-        Some(inner) => { take(inner) }    // match bindings are borrowed
+        Some(inner) => { take(inner) }    // fine: the match owns o, so inner is owned
+        None => {}
+    }
+    match o {                             // o was moved into the match above
+        Some(again) => {}
         None => {}
     }
     let w = first(string("p"), string("q"))   // first<string> moves a borrowed param
     let e = string("e")
     let wrapped = Some(e)
     print(e)                      // moved into Some
+}
+
+new function borrowed_match(opt: Option<string>) {
+    match opt {
+        Some(inner) => { take(inner) }    // opt is borrowed, so its bindings are too
+        None => {}
+    }
 }

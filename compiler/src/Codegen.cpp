@@ -2308,9 +2308,58 @@ private:
         }
     }
 
+    // In a consuming match's arm: bindings own their values (dropped at the end of
+    // the arm unless moved), and parts nobody bound are dropped right away.
+    void ownPattern(const Pattern& pat, const std::string& p, const Type* t) {
+        switch (pat.kind) {
+        case Pattern::Kind::Wildcard:
+            if (isResource(t)) emit("call void @" + llvmQuote(dropFn(t)) + "(ptr " + p + ")");
+            return;
+        case Pattern::Kind::Literal: return;
+        case Pattern::Kind::Binding:
+            if (pat.sym && pat.sym->kind == Symbol::Kind::Local) {
+                if (!isResource(t)) return;
+                Local& l = f_->locals[pat.sym];
+                l.flag = newFlag(false);
+                emit("store i1 true, ptr " + l.flag);
+                f_->scopes.back().push_back(pat.sym);
+                return;
+            }
+            [[fallthrough]]; // a unit variant written as a bare name
+        case Pattern::Kind::Variant: {
+            if (!pat.sym || pat.sym->kind != Symbol::Kind::Variant) return;
+            auto ts = payloadTypes(t, *pat.sym->variant);
+            if (ts.empty()) return;
+            std::string ps = payloadStruct(t, *pat.sym->variant);
+            std::string payload = gepField(t, p, 1);
+            for (size_t i = 0; i < ts.size(); ++i) {
+                std::string fp = tmp();
+                emit(fp + " = getelementptr inbounds " + ps + ", ptr " + payload + ", i32 0, i32 " + std::to_string(i));
+                if (i < pat.fields.size()) ownPattern(*pat.fields[i], fp, ts[i]);
+                else if (isResource(ts[i])) emit("call void @" + llvmQuote(dropFn(ts[i])) + "(ptr " + fp + ")");
+            }
+            return;
+        }
+        }
+    }
+
     Val emitMatch(const MatchExpr& m, const Type* resultT) {
         const Type* st = typeOf(*m.subject);
-        std::string subj = addressOf(*m.subject);
+        // A consuming match owns its subject: the matching arm takes the parts it
+        // binds and drops the rest. (Plain values need none of this.)
+        bool consuming = info_.consumingMatches.count(&m) && isResource(st);
+        std::string subj;
+        if (!consuming) {
+            subj = addressOf(*m.subject);
+        } else if (m.subject->kind == ExprKind::Ident) {
+            const Local& l = f_->locals[static_cast<const IdentExpr&>(*m.subject).sym];
+            subj = l.ptr;
+            if (!l.flag.empty()) emit("store i1 false, ptr " + l.flag); // moved into the match
+        } else {
+            Val v = rvalue(*m.subject);
+            subj = alloca(v.ty);
+            store(v, subj);
+        }
         bool hasValue = resultT && resultT != tc_.voidT() && !resultT->isError();
         std::string slot = hasValue ? alloca(lty(resultT)) : "";
         std::string endL = newLabel("endmatch");
@@ -2322,6 +2371,7 @@ private:
             startBlock(armL);
             f_->scopes.emplace_back();
             bindPattern(*arm.pattern, subj, st);
+            if (consuming) ownPattern(*arm.pattern, subj, st);
             nestedTemps([&] {
                 if (arm.block) {
                     emitBlockStmts(*arm.block);
