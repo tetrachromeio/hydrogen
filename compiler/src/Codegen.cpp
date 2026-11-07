@@ -2234,6 +2234,28 @@ private:
             }
             return {"i64", std::to_string(sizeOf(ts[0]->elem()))};
         }
+        // Atomic memory operations on ptr<int> (sequentially consistent).
+        if (name == "atomic_load") {
+            std::string t = tmp();
+            emit(t + " = load atomic i64, ptr " + a[0].v + " seq_cst, align 8");
+            return {"i64", t};
+        }
+        if (name == "atomic_store") {
+            emit("store atomic i64 " + a[1].v + ", ptr " + a[0].v + " seq_cst, align 8");
+            return {"void", ""};
+        }
+        if (name == "atomic_add" || name == "atomic_swap") {
+            std::string t = tmp();
+            emit(t + " = atomicrmw " + (name == "atomic_add" ? "add" : "xchg") + " ptr " + a[0].v + ", i64 " + a[1].v +
+                 " seq_cst");
+            return {"i64", t};
+        }
+        if (name == "atomic_cas") {
+            std::string pair = tmp(), ok = tmp();
+            emit(pair + " = cmpxchg ptr " + a[0].v + ", i64 " + a[1].v + ", i64 " + a[2].v + " seq_cst seq_cst");
+            emit(ok + " = extractvalue { i64, i1 } " + pair + ", 1");
+            return {"i1", ok};
+        }
         if (name == "arg_count") {
             std::string c = load("i32", "@h2.argc"), w = tmp();
             emit(w + " = sext i32 " + c + " to i64");

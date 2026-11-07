@@ -336,3 +336,17 @@ void h2_datetime(int64_t unix_seconds, _Bool local, int64_t* out) {
     out[5] = tm.tm_sec;
     out[6] = tm.tm_wday;
 }
+
+// ---- mutexes (Elemental.Thread.Mutex)
+
+void* h2_mutex_new(void) {
+    pthread_mutex_t* m = (pthread_mutex_t*)malloc(sizeof *m);
+    pthread_mutex_init(m, NULL);
+    return m;
+}
+void h2_mutex_lock(void* m) { pthread_mutex_lock((pthread_mutex_t*)m); }
+void h2_mutex_unlock(void* m) { pthread_mutex_unlock((pthread_mutex_t*)m); }
+void h2_mutex_free(void* m) {
+    pthread_mutex_destroy((pthread_mutex_t*)m);
+    free(m);
+}

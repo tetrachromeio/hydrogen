@@ -53,6 +53,9 @@ tests/types/errors.h2:173:5: fixed: int
 tests/types/errors.h2:188:5: p: Packed
 tests/types/errors.h2:189:5: addr: <error>
 tests/types/errors.h2:190:5: u: Bad
+tests/types/errors.h2:194:5: m: Mutex<int>
+tests/types/errors.h2:195:5: g: Thread<int>
+tests/types/errors.h2:196:5: ok: Thread<int>
 tests/types/errors.h2:10:39: error: function 'no_return' must return a value of type int on every path; add a return at the end
 tests/types/errors.h2:16:13: error: '?' on a Result can only be used in a function that returns Result<_, E>; this one returns int
 tests/types/errors.h2:20:17: error: 256 does not fit in u8 (unsigned 8-bit)
@@ -122,3 +125,4 @@ tests/types/errors.h2:184:17: error: union fields must be plain values (numbers,
 tests/types/errors.h2:185:19: error: bitfields are only allowed in 'new type' layouts, not classes
 tests/types/errors.h2:189:16: error: a bitfield has no address of its own; copy it into a variable first
 tests/types/errors.h2:190:16: error: a union starts zeroed: write Bad() and then set one of its fields
+tests/types/errors.h2:195:18: error: Guard<int> can't be sent to another thread: field 'pin' of Guard: it is marked NotSendable

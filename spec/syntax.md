@@ -426,6 +426,15 @@ generic parameter not constrained by `Sendable`. Pointer fields of a class with
 their contents are. Channels (`channel<T>()`) move values between running
 threads; `receive()` returns `None` once no other handle remains.
 
+## Shared state between threads
+`Mutex<T>` and `AtomicInt` are shared handles: `copy()` makes another handle
+to the same value (to move into a thread), and the value goes away with the
+last handle. A mutex's value is reachable only through the `Guard` that `lock()`
+returns; the lock is released when the guard is dropped. A `Guard` contains a
+`NotSendable` field, so it can't move to another thread. `NotSendable` (in Atomic)
+makes any type that contains it non-`Sendable`. Atomic also provides lock-free
+`atomic_*` operations on `ptr<int>` (sequentially consistent) for building your own.
+
 ## Atomic and Elemental
 - **Atomic** is freestanding: it needs no OS and no C library, and it never
   allocates. It has the primitive types and their operators, `str`, `Result`,

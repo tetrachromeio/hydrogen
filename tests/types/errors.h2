@@ -189,3 +189,9 @@ new function bit_errors() {
     let addr = &p.a
     var u = Bad(1)
 }
+
+new function guard_errors() {
+    let m = mutex(0)
+    let g = spawn(m.lock(), function(g: Guard<int>) -> int { return 0 })   // a lock must stay on its thread
+    let ok = spawn(m.copy(), function(m: Mutex<int>) -> int { return 0 })  // fine
+}

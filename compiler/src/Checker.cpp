@@ -129,6 +129,7 @@ private:
     // -------------------------------------------------------------- Sendable
 
     const Symbol* sendableSym_ = nullptr;
+    const Symbol* notSendableSym_ = nullptr;
 
     // Can a value of this type move to another thread? Not if it points at memory
     // that the sending thread could still use (raw pointers, str views, any I,
@@ -150,6 +151,10 @@ private:
             return false;
         case K::Named: break;
         default: return true;
+        }
+        if (t->sym == notSendableSym_) {
+            why = "it is marked NotSendable";
+            return false;
         }
         if (t == lang_.strT) {
             why = "str is a borrowed view; send an owned string instead (string(text))";
@@ -209,6 +214,7 @@ private:
         lang_.floatT = get("float");
         if (atomic) {
             if (auto it = atomic->defs.find("Sendable"); it != atomic->defs.end()) sendableSym_ = it->second;
+            if (auto it = atomic->defs.find("NotSendable"); it != atomic->defs.end()) notSendableSym_ = it->second;
             if (auto it = atomic->defs.find("Result"); it != atomic->defs.end()) lang_.result = it->second;
             if (auto it = atomic->defs.find("Option"); it != atomic->defs.end()) lang_.option = it->second;
         }

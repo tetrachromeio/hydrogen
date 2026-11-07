@@ -120,3 +120,96 @@ pub new function channel<T: Sendable>() -> Channel<T> {
     let none: ptr<T> = null
     return Channel<T>(h2_chan_new(size_of(none)))
 }
+
+// ---------------------------------------------------------------- shared state
+
+extern function h2_mutex_new() -> ptr<u8>
+extern function h2_mutex_lock(m: ptr<u8>)
+extern function h2_mutex_unlock(m: ptr<u8>)
+extern function h2_mutex_free(m: ptr<u8>)
+
+new class MutexBox<T> {
+    lock: ptr<u8>
+    handles: int
+    value: T
+}
+
+// A value shared between threads, reachable only while locked. copy() makes
+// another handle to the same value (to move into a thread); the value is
+// dropped with the last handle.
+pub new class Mutex<T> {
+    box: ptr<MutexBox<T>>
+
+    pub new function copy() -> Mutex<T> {
+        atomic_add(&self.box.handles, 1)
+        return Mutex<T>(self.box)
+    }
+
+    // Waits until no other thread holds the lock, then holds it until the
+    // returned Guard goes away.
+    pub new function lock() -> Guard<T> {
+        h2_mutex_lock(self.box.lock)
+        return Guard<T>(self.box, NotSendable())
+    }
+
+    pub new function drop() {
+        if atomic_add(&self.box.handles, -1) == 1 {
+            destroy(&self.box.value)
+            h2_mutex_free(self.box.lock)
+            free ptr<u8>(self.box)
+        }
+    }
+}
+
+// Access to a Mutex's value while it's locked. value() points at it; the lock
+// is released when the guard goes away. Guards stay on their thread.
+pub new class Guard<T> {
+    box: ptr<MutexBox<T>>
+    pin: NotSendable
+
+    pub new function value() -> ptr<T> { return &self.box.value }
+    pub new function drop() { h2_mutex_unlock(self.box.lock) }
+}
+
+pub new function mutex<T: Sendable>(value: own T) -> Mutex<T> {
+    let none: ptr<MutexBox<T>> = null
+    let box = ptr<MutexBox<T>>(malloc(size_of(none)))
+    box.lock = h2_mutex_new()
+    box.handles = 1
+    put(&box.value, value)
+    return Mutex<T>(box)
+}
+
+new class Counter {
+    value: int
+    handles: int
+}
+
+// A shared int that threads change without a lock (atomic operations).
+pub new class AtomicInt {
+    cell: ptr<Counter>
+
+    pub new function copy() -> AtomicInt {
+        atomic_add(&self.cell.handles, 1)
+        return AtomicInt(self.cell)
+    }
+    pub new function load() -> int { return atomic_load(&self.cell.value) }
+    pub new function store(value: int) { atomic_store(&self.cell.value, value) }
+    // Adds and returns the new value.
+    pub new function add(amount: int) -> int { return atomic_add(&self.cell.value, amount) + amount }
+    pub new function swap(value: int) -> int { return atomic_swap(&self.cell.value, value) }
+    pub new function compare_swap(expected: int, desired: int) -> bool {
+        return atomic_compare_swap(&self.cell.value, expected, desired)
+    }
+    pub new function drop() {
+        if atomic_add(&self.cell.handles, -1) == 1 { free ptr<u8>(self.cell) }
+    }
+}
+
+pub new function atomic_int(value: int) -> AtomicInt {
+    let none: ptr<Counter> = null
+    let cell = ptr<Counter>(malloc(size_of(none)))
+    cell.value = value
+    cell.handles = 1
+    return AtomicInt(cell)
+}

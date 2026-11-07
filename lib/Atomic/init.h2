@@ -308,3 +308,22 @@ pub new function is_some<T>(option: Option<T>) -> bool {
 }
 
 pub new function is_none<T>(option: Option<T>) -> bool { return !is_some(option) }
+
+// A marker: a type with a NotSendable field can't move to another thread
+// (for example a lock guard, which must be released by the thread that took it).
+pub new type NotSendable {}
+
+// ---------------------------------------------------------------- atomics
+
+// Lock-free operations on a shared int, visible to all threads at once
+// (sequentially consistent). Elemental's AtomicInt wraps these.
+pub new function atomic_load(p: ptr<int>) -> int { return intrinsic.atomic_load(p) }
+pub new function atomic_store(p: ptr<int>, value: int) { intrinsic.atomic_store(p, value) }
+// Adds and returns the value from before the add.
+pub new function atomic_add(p: ptr<int>, value: int) -> int { return intrinsic.atomic_add(p, value) }
+// Stores and returns the value from before.
+pub new function atomic_swap(p: ptr<int>, value: int) -> int { return intrinsic.atomic_swap(p, value) }
+// If the value is `expected`, replaces it with `desired` and returns true.
+pub new function atomic_compare_swap(p: ptr<int>, expected: int, desired: int) -> bool {
+    return intrinsic.atomic_cas(p, expected, desired)
+}

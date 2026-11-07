@@ -1,0 +1,46 @@
+use Elemental
+
+new type Work {
+    counter: Mutex<int>
+    hits: AtomicInt
+    log: Mutex<List<string>>
+    id: int
+}
+
+new function work(w: Work) -> int {
+    for i in 0..1000 {
+        var guard = w.counter.lock()       // released at the end of each iteration
+        *guard.value() += 1
+        w.hits.add(1)
+    }
+    var entries = w.log.lock()
+    entries.value().push("worker " + string(w.id) + " done")
+    return 0
+}
+
+new function main() -> int {
+    let counter = mutex(0)
+    let hits = atomic_int(0)
+    let log = mutex(List<string>())
+
+    var workers = List<Thread<int>>()
+    for id in 0..4 {
+        workers.push(spawn(Work(counter.copy(), hits.copy(), log.copy(), id), work))
+    }
+    for i in 0..workers.len() { workers[i].join() }
+
+    var total = counter.lock()
+    print(*total.value())                  // 4 threads x 1000
+    print(hits.load())
+    var entries = log.lock()
+    print(entries.value().len())
+
+    // compare-and-swap
+    let flag = atomic_int(0)
+    print(flag.compare_swap(0, 5))         // true: was 0
+    print(flag.compare_swap(0, 9))         // false: is 5 now
+    print(flag.load())
+    print(flag.swap(7))
+    print(flag.load())
+    return 0
+}
