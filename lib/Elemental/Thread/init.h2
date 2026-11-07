@@ -230,8 +230,24 @@ new type PoolState {
     pending: int      // workers still busy in this round
     quit: int
     count: int
+    chunk: int        // items per claim
+    next: int         // the first item nobody has claimed yet
     context: ptr<u8>
     work: function(ptr<u8>, int, int)
+}
+
+// Claims chunks of the current round until none are left. Faster threads (or
+// cores: performance vs efficiency) simply claim more chunks.
+new function claim_and_work(st: ptr<PoolState>) {
+    let count = st.count
+    let chunk = st.chunk
+    while true {
+        let first = atomic_add(&st.next, chunk)
+        if first >= count { return }
+        var last = first + chunk
+        if last > count { last = count }
+        st.work(st.context, first, last)
+    }
 }
 
 new type WorkerArgs {
@@ -242,8 +258,6 @@ new type WorkerArgs {
 
 new function pool_noop(context: ptr<u8>, first: int, last: int) {}
 
-// The start of part k of `count` items split into `parts`.
-new function part_start(count: int, parts: int, k: int) -> int { return count * k / parts }
 
 // Waits until *p differs from `old`: spins briefly (fast hand-off), then yields
 // the CPU, then sleeps, so idle workers cost almost nothing.
@@ -266,18 +280,17 @@ new function pool_worker(args: WorkerArgs) -> int {
     while true {
         seen = wait_change(&st.generation, seen)
         if atomic_load(&st.quit) != 0 { return 0 }
-        let first = part_start(st.count, args.parts, args.index)
-        let last = part_start(st.count, args.parts, args.index + 1)
-        if first < last { st.work(st.context, first, last) }
+        claim_and_work(st)
         atomic_add(&st.pending, -1)
     }
     return 0
 }
 
 // Threads that stay alive and split work between them: run(count, context, work)
-// calls work(context, first, last) on ranges covering 0..count, one range per
-// thread (the calling thread takes one too), and returns when all are done.
-// Starting a round costs about a microsecond, unlike spawning threads.
+// calls work(context, first, last) on ranges covering 0..count exactly once, and
+// returns when all are done. Threads (the caller too) claim small ranges until
+// none are left, so faster cores do more of the work. A round costs a few
+// microseconds, unlike spawning threads.
 //
 // `context` is shared by every thread, so run() is where you make Shared's
 // promise: during the call, threads only read what it points to, or write
@@ -291,7 +304,7 @@ pub new class Pool {
     pub new function init(threads: int) {
         var n = threads
         if n < 1 { n = 1 }
-        self.state = alloc PoolState(0, 0, 0, 0, null, pool_noop)
+        self.state = alloc PoolState(0, 0, 0, 0, 1, 0, null, pool_noop)
         self.threads = List<Thread<int>>()
         self.parts = n
         for k in 1..n {
@@ -308,11 +321,17 @@ pub new class Pool {
         }
         let st = self.state
         st.count = count
+        // About 8 chunks per thread: small enough to balance unequal cores, big
+        // enough that claiming (one atomic add) costs nothing next to the work.
+        var chunk = count / (self.parts * 8)
+        if chunk < 1 { chunk = 1 }
+        st.chunk = chunk
         st.context = context
         st.work = work
+        atomic_store(&st.next, 0)
         atomic_store(&st.pending, self.parts - 1)
         atomic_add(&st.generation, 1) // go
-        work(context, 0, part_start(count, self.parts, 1))
+        claim_and_work(st)
         var left = atomic_load(&st.pending)
         while left != 0 { left = wait_change(&st.pending, left) }
     }
