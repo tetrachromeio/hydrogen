@@ -77,7 +77,17 @@ cd ~ && hy new playground && cd playground && hy run
 
 You should see `Hello from playground!`. Edit `main.h2` and `hy run` again.
 
-### 8. Debugging (optional)
+### 8. A window: Boron (optional)
+
+```bash
+cd ~/hydrogen/boron/examples/todo && hy run
+```
+
+This opens a native macOS window. Boron's macOS backend is new and hasn't been run
+on a Mac yet; if the build fails, the error text is what's needed to fix it.
+`BORON_HEADLESS=1 hy run` runs it in the terminal instead. See `boron/README.md`.
+
+### 9. Debugging (optional)
 
 macOS has `lldb` instead of `gdb`:
 
@@ -88,7 +98,7 @@ lldb -o run -o bt build/playground
 `breakpoint set --file main.h2 --line 5`, `next`, `frame variable` and `p p.x` work on
 Hydrogen lines and variables.
 
-### 9. VS Code (optional)
+### 10. VS Code (optional)
 
 Needs Node.js (`brew install node`) and VS Code's `code` command (in VS Code:
 Cmd+Shift+P → "Shell Command: Install 'code' command in PATH").

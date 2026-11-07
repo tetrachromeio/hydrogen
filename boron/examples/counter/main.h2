@@ -1,0 +1,26 @@
+// The smallest Boron app: a number and two buttons.
+use Elemental
+use Boron
+
+new function main() -> int {
+    var app = App("Counter", 320, 180)
+    var count = 0
+    while app.is_open() {
+        var ui = Ui()
+        ui.heading("Counter")
+        ui.text("You clicked {count} times.")
+        ui.begin_row()
+        ui.button("down", "−1")
+        ui.accent_button("up", "+1")
+        ui.spacer()
+        ui.button("reset", "Reset")
+        ui.end()
+        app.show(ui)
+
+        let ev = app.wait()
+        if ev.clicked("up") { count += 1 }
+        if ev.clicked("down") { count -= 1 }
+        if ev.clicked("reset") { count = 0 }
+    }
+    return 0
+}

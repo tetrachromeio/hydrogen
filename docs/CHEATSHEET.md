@@ -39,7 +39,16 @@ entry = "main.h2"         # default: main.h2 (app) / init.h2 (lib)
 
 [dependencies]
 Geometry = { path = "../Geometry" }   # another hy project with type = "lib"
+
+[native]                  # C / Objective-C built into every app using this project
+sources = ["native/shim.c"]
+libs = ["sqlite3"]        # -lsqlite3
+flags = ["-DFAST"]
+[native.macos]            # also [native.linux], [native.windows]: added on that platform
+sources = ["native/mac.m"]
+frameworks = ["Cocoa"]
 ```
+A library with `[native]` code calls it through `extern function` (see Boron).
 
 ---
 

@@ -1,0 +1,20 @@
+[boron] window "Counter" 320x180
+[boron] render
+<h1>Counter</h1><p>You clicked 0 times.</p><div class="bn-row"><button data-bn="down" data-bn-click>−1</button><button data-bn="up" data-bn-click class="bn-accent">+1</button><div class="bn-spacer"></div><button data-bn="reset" data-bn-click>Reset</button></div>
+[boron] event click up
+[boron] render
+<h1>Counter</h1><p>You clicked 1 times.</p><div class="bn-row"><button data-bn="down" data-bn-click>−1</button><button data-bn="up" data-bn-click class="bn-accent">+1</button><div class="bn-spacer"></div><button data-bn="reset" data-bn-click>Reset</button></div>
+[boron] event click up
+[boron] render
+<h1>Counter</h1><p>You clicked 2 times.</p><div class="bn-row"><button data-bn="down" data-bn-click>−1</button><button data-bn="up" data-bn-click class="bn-accent">+1</button><div class="bn-spacer"></div><button data-bn="reset" data-bn-click>Reset</button></div>
+[boron] event click down
+[boron] render
+<h1>Counter</h1><p>You clicked 1 times.</p><div class="bn-row"><button data-bn="down" data-bn-click>−1</button><button data-bn="up" data-bn-click class="bn-accent">+1</button><div class="bn-spacer"></div><button data-bn="reset" data-bn-click>Reset</button></div>
+[boron] event click nothing
+[boron] render
+<h1>Counter</h1><p>You clicked 1 times.</p><div class="bn-row"><button data-bn="down" data-bn-click>−1</button><button data-bn="up" data-bn-click class="bn-accent">+1</button><div class="bn-spacer"></div><button data-bn="reset" data-bn-click>Reset</button></div>
+[boron] event click reset
+[boron] render
+<h1>Counter</h1><p>You clicked 0 times.</p><div class="bn-row"><button data-bn="down" data-bn-click>−1</button><button data-bn="up" data-bn-click class="bn-accent">+1</button><div class="bn-spacer"></div><button data-bn="reset" data-bn-click>Reset</button></div>
+[boron] closed
+[exit 0]

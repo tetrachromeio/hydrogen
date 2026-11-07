@@ -13,6 +13,9 @@
                         (under valgrind when available: no leaks or memory errors)
   tests/freestanding/*.h2 -> must not reference any C function (only llvm.* built-ins);
                         run, and stdout + exit code must match .out
+  tests/boron/<example>.in -> boron/examples/<example> is built with `hy build` and run
+                        headless (stdin from the .in file); stdout + exit code must match .out
+  tests/boron/test_page.js -> Boron's page (JS/CSS) driven in Chromium (needs node + Playwright)
   tests/lsp/test_lsp.py -> drives `hy lsp` like an editor (diagnostics, definition, hover)
   examples/**/*.h2, lib/**/*.h2 -> must pass `h2c --check`
 
@@ -159,6 +162,43 @@ def main():
                 expected_file.write_text(got)
             elif not expected_file.exists() or expected_file.read_text() != got:
                 failures.append(f"{p}: program output differs from {expected_file.name}\n--- got ---\n{got}")
+    # Boron: the generated page header is current, the examples run headless, the page works in a browser.
+    count += 1
+    r = subprocess.run([sys.executable, str(root / "boron/native/page/gen_page.py"), "--check"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        failures.append(r.stdout)
+    import os
+    for stdin_file in sorted((root / "tests/boron").glob("*.in")):
+        count += 1
+        app = root / "boron/examples" / stdin_file.stem
+        b = subprocess.run([hy, "build"], cwd=app, capture_output=True, text=True)
+        if b.returncode != 0:
+            failures.append(f"{app}: hy build failed\n{b.stdout}{b.stderr}")
+            continue
+        cmd = [str(app / "build" / stdin_file.stem)]
+        if valgrind:
+            cmd = [valgrind, "-q", "--leak-check=full", "--errors-for-leak-kinds=definite,indirect",
+                   "--error-exitcode=99"] + cmd
+        x = subprocess.run(cmd, capture_output=True, text=True, timeout=60, input=stdin_file.read_text(),
+                           env={**os.environ, "BORON_HEADLESS": "1"})
+        if x.returncode == 99:
+            failures.append(f"{app}: memory errors or leaks\n{x.stderr[-3000:]}")
+            continue
+        got = x.stdout + f"[exit {x.returncode}]\n"
+        expected_file = stdin_file.with_suffix(".out")
+        if update:
+            expected_file.write_text(got)
+        elif not expected_file.exists() or expected_file.read_text() != got:
+            failures.append(f"{app}: output differs from {expected_file.name}\n--- got ---\n{got}")
+    node = shutil.which("node")
+    if node:
+        count += 1
+        r = subprocess.run([node, str(root / "tests/boron/test_page.js"), str(root)], capture_output=True,
+                           text=True, timeout=120)
+        if r.returncode != 0:
+            failures.append(f"tests/boron/test_page.js: failed\n{r.stdout}{r.stderr}")
+
     count += 1
     r = subprocess.run([sys.executable, str(root / "tests/lsp/test_lsp.py"), hy], capture_output=True, text=True,
                        timeout=120)
